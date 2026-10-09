@@ -1525,17 +1525,7 @@ trunk_ondisk_bundle_readable(trunk_ondisk_bundle *bundle,
    {
       return FALSE;
    }
-   routing_filter *filter = &bundle->maplet;
-   if (filter->addr == 0) {
-      if (filter->meta_head != 0 || filter->num_fingerprints != 0
-          || filter->num_unique != 0 || filter->value_size != 0)
-      {
-         return FALSE;
-      }
-   } else if (filter->num_fingerprints == 0
-              || filter->num_fingerprints < filter->num_unique
-              || 5 < filter->value_size)
-   {
+   if (!routing_filter_descriptor_is_valid(&bundle->maplet)) {
       return FALSE;
    }
    return TRUE;
@@ -5305,12 +5295,14 @@ leaf_estimate_unique_keys(trunk_context *context,
 
    if (0 < num_fp) {
       uint32 num_globally_unique_fp;
+      uint32 estimate_fingerprint_size;
       rc = routing_filter_estimate_unique_fp(context->cc,
                                              context->cfg->filter_cfg,
                                              PROCESS_PRIVATE_HEAP_ID,
                                              vector_data(&maplets),
                                              vector_length(&maplets),
-                                             &num_globally_unique_fp);
+                                             &num_globally_unique_fp,
+                                             &estimate_fingerprint_size);
       if (!SUCCESS(rc)) {
          platform_error_log("leaf_estimate_unique_keys: "
                             "routing_filter_estimate_unique_fp failed: %d\n",
@@ -5319,7 +5311,7 @@ leaf_estimate_unique_keys(trunk_context *context,
       }
 
       num_globally_unique_fp = routing_filter_estimate_unique_keys_from_count(
-         context->cfg->filter_cfg, num_globally_unique_fp);
+         estimate_fingerprint_size, num_globally_unique_fp);
 
       /*
        * The inflight maplets cover their bundles' whole key ranges, which can
@@ -5355,8 +5347,7 @@ leaf_estimate_unique_keys(trunk_context *context,
        * use the pivot maplet's own unique-key estimate and retain the existing
        * conservative assumption that every unfiltered tuple is unique.
        */
-      *estimate += routing_filter_estimate_unique_keys(
-         &pivot_maplet, context->cfg->filter_cfg);
+      *estimate += routing_filter_estimate_unique_keys(&pivot_maplet);
    }
 
    *estimate = MIN(*estimate, trunk_leaf_num_tuples(leaf));

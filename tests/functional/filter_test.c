@@ -215,6 +215,27 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
 
+   invalid_filter                = filter;
+   invalid_filter.format_version = ROUTING_FILTER_FORMAT_VERSION + 1;
+   if (!test_filter_lookup_rejects(cc, cfg, &invalid_filter, target)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   invalid_filter                  = filter;
+   invalid_filter.fingerprint_size = 0;
+   if (!test_filter_lookup_rejects(cc, cfg, &invalid_filter, target)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   invalid_filter                  = filter;
+   invalid_filter.fingerprint_size = 33;
+   if (!test_filter_lookup_rejects(cc, cfg, &invalid_filter, target)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
    uint64       page_size = cache_page_size(cc);
    page_handle *index_page =
       test_filter_claim_page(cc, filter.addr, PAGE_TYPE_FILTER);
@@ -274,11 +295,23 @@ test_filter_malicious_metadata(cache           *cc,
 
    routing_filter empty_filters[MAX_FILTERS] = {{0}};
    uint32         estimated_unique;
-   rc = routing_filter_estimate_unique_fp(
-      cc, cfg, hid, empty_filters, MAX_FILTERS, &estimated_unique);
-   if (!SUCCESS(rc) || estimated_unique != 0
-       || SUCCESS(routing_filter_estimate_unique_fp(
-          cc, cfg, hid, empty_filters, MAX_FILTERS + 1, &estimated_unique)))
+   uint32         estimate_fingerprint_size;
+   rc = routing_filter_estimate_unique_fp(cc,
+                                          cfg,
+                                          hid,
+                                          empty_filters,
+                                          MAX_FILTERS,
+                                          &estimated_unique,
+                                          &estimate_fingerprint_size);
+   if (!SUCCESS(rc) || estimated_unique != 0 || estimate_fingerprint_size != 0
+       || SUCCESS(
+          routing_filter_estimate_unique_fp(cc,
+                                            cfg,
+                                            hid,
+                                            empty_filters,
+                                            MAX_FILTERS + 1,
+                                            &estimated_unique,
+                                            &estimate_fingerprint_size)))
    {
       rc = STATUS_TEST_FAILED;
       goto out;
@@ -564,16 +597,174 @@ out:
 }
 
 static platform_status
+test_filter_mixed_fingerprint_sizes(cache           *cc,
+                                    routing_config  *cfg,
+                                    platform_heap_id hid)
+{
+   platform_default_log(
+      "filter_test: mixed routing filter fingerprint sizes test started\n");
+
+   if (cfg->fingerprint_size <= cfg->log_index_size + 5) {
+      return STATUS_OK;
+   }
+
+   routing_config narrow_cfg = *cfg;
+   narrow_cfg.fingerprint_size--;
+
+   routing_filter  null_filter     = NULL_ROUTING_FILTER;
+   routing_filter  narrow_filter   = NULL_ROUTING_FILTER;
+   routing_filter  extended_filter = NULL_ROUTING_FILTER;
+   routing_filter  sample_narrow   = NULL_ROUTING_FILTER;
+   routing_filter  sample_wide     = NULL_ROUTING_FILTER;
+   uint32         *narrow_fp_arr   = NULL;
+   uint32         *wide_fp_arr     = NULL;
+   platform_status rc              = STATUS_OK;
+   const char     *stage           = "create narrow filter";
+
+   uint64 key_data = 1;
+   key    target   = key_create(TRUE, sizeof(key_data), &key_data);
+   uint32 fp       = data_key_hash(cfg->data_cfg, target, cfg->seed);
+   rc              = routing_filter_add(
+      cc, &narrow_cfg, &null_filter, &narrow_filter, &fp, 1, 0);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   if (narrow_filter.format_version != ROUTING_FILTER_FORMAT_VERSION
+       || narrow_filter.fingerprint_size != narrow_cfg.fingerprint_size)
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   /* Lookup must use the descriptor width, not the current configuration's
+    * default width. */
+   uint64 found_values;
+   stage = "lookup narrow filter";
+   rc = routing_filter_lookup(cc, cfg, &narrow_filter, target, &found_values);
+   if (!SUCCESS(rc) || !routing_filter_is_value_found(found_values, 0)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   found_values = 0;
+   rc           = async_call_sync_callback(cache_cleanup(cc),
+                                 routing_filter_lookup_async,
+                                 cc,
+                                 cfg,
+                                 narrow_filter,
+                                 target,
+                                 &found_values);
+   if (!SUCCESS(rc) || !routing_filter_is_value_found(found_values, 0)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   key_data = 2;
+   target   = key_create(TRUE, sizeof(key_data), &key_data);
+   fp       = data_key_hash(cfg->data_cfg, target, cfg->seed);
+   stage    = "extend narrow filter";
+   rc =
+      routing_filter_add(cc, cfg, &narrow_filter, &extended_filter, &fp, 1, 1);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   if (extended_filter.fingerprint_size != narrow_cfg.fingerprint_size) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   stage = "lookup extended filter";
+   rc = routing_filter_lookup(cc, cfg, &extended_filter, target, &found_values);
+   if (!SUCCESS(rc) || !routing_filter_is_value_found(found_values, 1)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   /* The cross-filter estimator samples one sixteenth of each filter. Build
+    * two filters containing the same evenly distributed hashes at different
+    * widths; after normalization they must still count as one set. */
+   uint32 log_num_fingerprints = cfg->log_index_size + 4;
+   uint32 num_fingerprints     = 1U << log_num_fingerprints;
+   uint32 stride_shift         = 32 - log_num_fingerprints;
+   narrow_fp_arr = TYPED_ARRAY_MALLOC(hid, narrow_fp_arr, num_fingerprints);
+   wide_fp_arr   = TYPED_ARRAY_MALLOC(hid, wide_fp_arr, num_fingerprints);
+   if (narrow_fp_arr == NULL || wide_fp_arr == NULL) {
+      rc = STATUS_NO_MEMORY;
+      goto out;
+   }
+   for (uint32 i = 0; i < num_fingerprints; i++) {
+      narrow_fp_arr[i] = i << stride_shift;
+      wide_fp_arr[i]   = i << stride_shift;
+   }
+   stage = "create narrow sample filter";
+   rc    = routing_filter_add(cc,
+                           &narrow_cfg,
+                           &null_filter,
+                           &sample_narrow,
+                           narrow_fp_arr,
+                           num_fingerprints,
+                           0);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+   stage = "create wide sample filter";
+   rc    = routing_filter_add(
+      cc, cfg, &null_filter, &sample_wide, wide_fp_arr, num_fingerprints, 0);
+   if (!SUCCESS(rc)) {
+      goto out;
+   }
+
+   routing_filter samples[] = {sample_narrow, sample_wide};
+   uint32         estimated_unique;
+   uint32         estimate_fingerprint_size;
+   stage = "estimate mixed filters";
+   rc    = routing_filter_estimate_unique_fp(cc,
+                                          cfg,
+                                          hid,
+                                          samples,
+                                          ARRAY_SIZE(samples),
+                                          &estimated_unique,
+                                          &estimate_fingerprint_size);
+   if (!SUCCESS(rc) || estimate_fingerprint_size != narrow_cfg.fingerprint_size
+       || estimated_unique != num_fingerprints)
+   {
+      platform_error_log("mixed fingerprint estimate: rc=%s width=%u "
+                         "expected_width=%u unique=%u expected_unique=%u\n",
+                         platform_status_to_string(rc),
+                         estimate_fingerprint_size,
+                         narrow_cfg.fingerprint_size,
+                         estimated_unique,
+                         num_fingerprints);
+      rc = STATUS_TEST_FAILED;
+   }
+
+out:
+   if (!SUCCESS(rc)) {
+      platform_error_log("mixed fingerprint test failed during %s: %s\n",
+                         stage,
+                         platform_status_to_string(rc));
+   }
+   routing_filter_dec_ref(cc, &sample_wide);
+   routing_filter_dec_ref(cc, &sample_narrow);
+   routing_filter_dec_ref(cc, &extended_filter);
+   routing_filter_dec_ref(cc, &narrow_filter);
+   platform_free(hid, wide_fp_arr);
+   platform_free(hid, narrow_fp_arr);
+   return rc;
+}
+
+static platform_status
 test_filter_arithmetic_limits(cache *cc, routing_config *cfg)
 {
    platform_default_log(
       "filter_test: routing filter arithmetic limits test started\n");
 
    uint64 universe = 1ULL << cfg->fingerprint_size;
-   if (routing_filter_estimate_unique_keys_from_count(cfg, 0) != 0
-       || routing_filter_estimate_unique_keys_from_count(cfg, universe)
+   if (routing_filter_estimate_unique_keys_from_count(cfg->fingerprint_size, 0)
+          != 0
+       || routing_filter_estimate_unique_keys_from_count(cfg->fingerprint_size,
+                                                         universe)
              != UINT32_MAX
-       || routing_filter_estimate_unique_keys_from_count(cfg, universe + 1)
+       || routing_filter_estimate_unique_keys_from_count(cfg->fingerprint_size,
+                                                         universe + 1)
              != UINT32_MAX)
    {
       return STATUS_TEST_FAILED;
@@ -583,7 +774,7 @@ test_filter_arithmetic_limits(cache *cc, routing_config *cfg)
    wide_cfg.fingerprint_size = 32;
    uint64 wide_universe      = 1ULL << wide_cfg.fingerprint_size;
    uint32 wide_universe_estimate =
-      routing_filter_estimate_unique_keys_from_count(&wide_cfg,
+      routing_filter_estimate_unique_keys_from_count(wide_cfg.fingerprint_size,
                                                      wide_universe - 1);
    if (wide_universe_estimate != UINT32_MAX) {
       return STATUS_TEST_FAILED;
@@ -691,7 +882,7 @@ test_filter_basic(cache           *cc,
       // platform_default_log("FILTER %lu\n", i);
       // routing_filter_print(cc, cfg, &filter);
       uint32 estimated_input_keys =
-         routing_filter_estimate_unique_keys(&filter[i + 1], cfg);
+         routing_filter_estimate_unique_keys(&filter[i + 1]);
 
       platform_default_log("num input keys %8u estimate %8u num_unique %u\n",
                            num_input_keys[i],
@@ -700,15 +891,22 @@ test_filter_basic(cache           *cc,
    }
 
    uint32 num_unique;
-   rc = routing_filter_estimate_unique_fp(
-      cc, cfg, hid, filter + 1, num_values, &num_unique);
+   uint32 estimate_fingerprint_size;
+   rc = routing_filter_estimate_unique_fp(cc,
+                                          cfg,
+                                          hid,
+                                          filter + 1,
+                                          num_values,
+                                          &num_unique,
+                                          &estimate_fingerprint_size);
    if (!SUCCESS(rc)) {
       for (uint64 i = 0; i < num_values; i++) {
          routing_filter_dec_ref(cc, &filter[i + 1]);
       }
       goto out;
    }
-   num_unique = routing_filter_estimate_unique_keys_from_count(cfg, num_unique);
+   num_unique = routing_filter_estimate_unique_keys_from_count(
+      estimate_fingerprint_size, num_unique);
    platform_default_log("across filters: num input keys %8u estimate %8u\n",
                         num_input_keys[num_values - 1],
                         num_unique);
@@ -999,6 +1197,9 @@ filter_test(int argc, char *argv[])
       platform_assert(SUCCESS(rc));
    } else {
       rc = test_filter_index_expansion_unique_count(
+         (cache *)cc, &system_cfg.filter_cfg, hid);
+      platform_assert(SUCCESS(rc));
+      rc = test_filter_mixed_fingerprint_sizes(
          (cache *)cc, &system_cfg.filter_cfg, hid);
       platform_assert(SUCCESS(rc));
       rc = test_filter_arithmetic_limits((cache *)cc, &system_cfg.filter_cfg);

@@ -247,7 +247,7 @@ CTEST2(splinterdb_quick, test_get_config_returns_effective_config)
    ASSERT_EQUAL(IO_DEFAULT_ASYNC_QUEUE_DEPTH, cfg->io_async_queue_depth);
 
    ASSERT_EQUAL(1, cfg->btree_rough_count_height);
-   ASSERT_EQUAL(26, cfg->filter_hash_size);
+   ASSERT_EQUAL(27, cfg->filter_hash_size);
    ASSERT_EQUAL(9, cfg->filter_log_index_size);
    ASSERT_EQUAL(24 * Mega, cfg->memtable_capacity);
    ASSERT_EQUAL(8, cfg->fanout);

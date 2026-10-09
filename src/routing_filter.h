@@ -22,8 +22,9 @@
  * on the values stored in the filters. There is a hard limit at 64 because
  * lookups return a 64 bit bit-vector.
  */
-#define MAX_FILTERS       32
-#define ROUTING_NOT_FOUND (UINT16_MAX)
+#define MAX_FILTERS                   32
+#define ROUTING_NOT_FOUND             (UINT16_MAX)
+#define ROUTING_FILTER_FORMAT_VERSION (1)
 
 
 /*
@@ -81,7 +82,12 @@ typedef struct ONDISK routing_filter {
    uint32 num_fingerprints;
    uint32 num_unique;
    uint32 value_size;
+   uint16 format_version;
+   uint16 fingerprint_size;
 } routing_filter;
+
+_Static_assert(sizeof(routing_filter) == 32,
+               "routing filter descriptor layout changed");
 
 #define NULL_ROUTING_FILTER ((routing_filter){0})
 
@@ -129,7 +135,33 @@ routing_filter_is_value_found(uint64 found_values, uint16 value)
 static inline bool32
 routing_filters_equal(const routing_filter *f1, const routing_filter *f2)
 {
-   return (f1->addr == f2->addr);
+   return f1->addr == f2->addr && f1->meta_head == f2->meta_head
+          && f1->num_fingerprints == f2->num_fingerprints
+          && f1->num_unique == f2->num_unique
+          && f1->value_size == f2->value_size
+          && f1->format_version == f2->format_version
+          && f1->fingerprint_size == f2->fingerprint_size;
+}
+
+/* Validate fields that are self-contained in the descriptor.  The remaining
+ * encoding geometry depends on the database-wide index size and is checked by
+ * routing_filter_get_params() before the filter is accessed. */
+static inline bool32
+routing_filter_descriptor_is_valid(const routing_filter *filter)
+{
+   if (filter == NULL) {
+      return FALSE;
+   }
+   if (filter->addr == 0) {
+      routing_filter null_filter = NULL_ROUTING_FILTER;
+      return routing_filters_equal(filter, &null_filter);
+   }
+   return filter->meta_head != 0 && filter->num_fingerprints != 0
+          && filter->num_unique <= filter->num_fingerprints
+          && filter->value_size <= 5
+          && filter->format_version == ROUTING_FILTER_FORMAT_VERSION
+          && 0 < filter->fingerprint_size && filter->fingerprint_size <= 32
+          && filter->fingerprint_size + filter->value_size <= 32;
 }
 
 static inline uint64
@@ -184,12 +216,11 @@ void
 routing_filter_inc_ref(cache *cc, routing_filter *filter);
 
 uint32
-routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
+routing_filter_estimate_unique_keys_from_count(uint32 fingerprint_size,
                                                uint64 num_unique);
 
 uint32
-routing_filter_estimate_unique_keys(const routing_filter *filter,
-                                    const routing_config *cfg);
+routing_filter_estimate_unique_keys(const routing_filter *filter);
 
 platform_status
 routing_filter_estimate_unique_fp(cache                *cc,
@@ -197,7 +228,8 @@ routing_filter_estimate_unique_fp(cache                *cc,
                                   platform_heap_id      hid,
                                   routing_filter       *filter,
                                   uint64                num_filters,
-                                  uint32               *num_unique_fp);
+                                  uint32               *num_unique_fp,
+                                  uint32               *fingerprint_size);
 
 uint64
 routing_filter_space_use_bytes(cache *cc, const routing_filter *filter);

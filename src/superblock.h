@@ -44,9 +44,10 @@
  * v2 added start_generation; v3 widened log identity to a 128-bit nonce; v4
  * moved the checksum and uint16 format into the fixed blob header; v5 made
  * log group ids start at 1 so they equal their durability tickets; v6 added
- * per-level page ordinals to branch btree pages.
+ * per-level page ordinals to branch btree pages; v7 made routing-filter
+ * descriptors carry their format version and fingerprint size.
  */
-#define SUPERBLOCK_FORMAT_VERSION (6)
+#define SUPERBLOCK_FORMAT_VERSION (7)
 
 /* The two physical superblock copies live at pages 0 and 1. */
 #define SUPERBLOCK_NUM_SLOTS (2)

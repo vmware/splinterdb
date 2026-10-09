@@ -203,31 +203,24 @@ routing_filter_get_params(const routing_config  *cfg,
    }
 
    ZERO_CONTENTS(params);
-   if (filter->addr == 0) {
-      return filter->num_fingerprints == 0 && filter->num_unique == 0
-                   && filter->value_size == 0
-                ? STATUS_OK
-                : STATUS_INVALID_STATE;
-   }
-   if (filter->num_fingerprints == 0
-       || filter->num_unique > filter->num_fingerprints
-       || filter->value_size > 5
-       || cfg->fingerprint_size + filter->value_size > 32)
-   {
+   if (!routing_filter_descriptor_is_valid(filter)) {
       return STATUS_INVALID_STATE;
+   }
+   if (filter->addr == 0) {
+      return STATUS_OK;
    }
 
    params->log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
    if (params->log_num_buckets < cfg->log_index_size) {
       params->log_num_buckets = cfg->log_index_size;
    }
-   if (params->log_num_buckets > cfg->fingerprint_size) {
+   if (params->log_num_buckets > filter->fingerprint_size) {
       return STATUS_INVALID_STATE;
    }
 
    params->log_num_indices = params->log_num_buckets - cfg->log_index_size;
    params->num_indices     = 1U << params->log_num_indices;
-   params->remainder_size  = cfg->fingerprint_size - params->log_num_buckets;
+   params->remainder_size  = filter->fingerprint_size - params->log_num_buckets;
    params->value_size      = filter->value_size;
    params->remainder_and_value_size =
       params->remainder_size + params->value_size;
@@ -594,13 +587,18 @@ routing_filter_add(cache                *cc,
       return STATUS_BAD_PARAM;
    }
 
+   uint32 fingerprint_size  = old_filter->addr == 0
+                                 ? cfg->fingerprint_size
+                                 : old_filter->fingerprint_size;
+   filter->format_version   = ROUTING_FILTER_FORMAT_VERSION;
+   filter->fingerprint_size = fingerprint_size;
+
    uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
    if (log_num_buckets < cfg->log_index_size) {
       log_num_buckets = cfg->log_index_size;
    }
    size_t value_size = value == 0 ? 0 : 32 - __builtin_clz(value);
-   if (log_num_buckets > cfg->fingerprint_size
-       || cfg->fingerprint_size + value_size > 32)
+   if (log_num_buckets > fingerprint_size || fingerprint_size + value_size > 32)
    {
       ZERO_CONTENTS(filter);
       return STATUS_LIMIT_EXCEEDED;
@@ -609,7 +607,7 @@ routing_filter_add(cache                *cc,
    uint32 log_num_indices = log_num_buckets - cfg->log_index_size;
    uint32 num_indices     = 1U << log_num_indices;
    debug_assert(num_indices > 0);
-   uint32 remainder_size = cfg->fingerprint_size - log_num_buckets;
+   uint32 remainder_size = fingerprint_size - log_num_buckets;
    if (old_value_size > value_size) {
       return STATUS_INVALID_STATE;
    }
@@ -742,11 +740,11 @@ routing_filter_add(cache                *cc,
    uint64 bytes_remaining_on_page = page_size;
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
-      new_fp_arr[new_fp_no] >>= 32 - cfg->fingerprint_size;
+      new_fp_arr[new_fp_no] >>= 32 - fingerprint_size;
    }
 
    uint32 *fp_arr =
-      RadixSort(new_fp_arr, matrix, temp, num_new_fp, cfg->fingerprint_size);
+      RadixSort(new_fp_arr, matrix, temp, num_new_fp, fingerprint_size);
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
       fp_arr[new_fp_no] <<= value_size;
@@ -1100,20 +1098,24 @@ routing_filter_estimate_unique_fp(cache                *cc,
                                   platform_heap_id      hid,
                                   routing_filter       *filter,
                                   uint64                num_filters,
-                                  uint32               *num_unique_fp)
+                                  uint32               *num_unique_fp,
+                                  uint32               *fingerprint_size)
 {
-   if (num_unique_fp == NULL) {
+   if (num_unique_fp == NULL || fingerprint_size == NULL) {
       platform_error_log("routing_filter_estimate_unique_fp: "
-                         "num_unique_fp must not be NULL\n");
+                         "output pointers must not be NULL\n");
       return STATUS_BAD_PARAM;
    }
 
-   *num_unique_fp = 0;
+   *num_unique_fp    = 0;
+   *fingerprint_size = 0;
    if (filter == NULL || num_filters > MAX_FILTERS) {
       return STATUS_BAD_PARAM;
    }
 
-   uint64 total_num_fp = 0;
+   uint64 total_num_fp            = 0;
+   uint32 common_fingerprint_size = 32;
+   bool32 has_sampled_filter      = FALSE;
    for (uint64 i = 0; i != num_filters; i++) {
       routing_filter_params params;
       platform_status rc = routing_filter_get_params(cfg, &filter[i], &params);
@@ -1121,7 +1123,16 @@ routing_filter_estimate_unique_fp(cache                *cc,
          return rc;
       }
       total_num_fp += filter[i].num_fingerprints;
+      if (filter[i].addr != 0 && params.num_indices >= 16) {
+         has_sampled_filter = TRUE;
+         common_fingerprint_size =
+            MIN(common_fingerprint_size, filter[i].fingerprint_size);
+      }
    }
+   if (!has_sampled_filter) {
+      return STATUS_OK;
+   }
+   *fingerprint_size    = common_fingerprint_size;
    uint64 buffer_size64 = total_num_fp / 12;
    if (buffer_size64 > UINT32_MAX
        || cfg->index_size > UINT32_MAX - buffer_size64)
@@ -1155,8 +1166,9 @@ routing_filter_estimate_unique_fp(cache                *cc,
       if (!SUCCESS(rc)) {
          goto out;
       }
-      uint32 num_indices = params.num_indices;
-      uint32 index_size  = cfg->index_size;
+      uint32 num_indices             = params.num_indices;
+      uint32 index_size              = cfg->index_size;
+      uint32 filter_fingerprint_size = filter[i].fingerprint_size;
 
       if (num_indices >= 16) {
          // the filter is too small forget it
@@ -1223,6 +1235,11 @@ routing_filter_estimate_unique_fp(cache                *cc,
                      fp_arr[src_fp_no] |= bucket
                                           << params.remainder_and_value_size;
                      fp_arr[src_fp_no] >>= params.value_size;
+                     /* Wider fingerprints extend narrower fingerprints with
+                      * low bits. Normalize to the narrowest participating
+                      * width before merging the sorted streams. */
+                     fp_arr[src_fp_no] >>=
+                        filter_fingerprint_size - common_fingerprint_size;
                      if (fp_arr[src_fp_no] == last_fp) {
                         src_fp_no++;
                      } else {
@@ -1364,7 +1381,7 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state)
 
    state->fp =
       data_key_hash(state->cfg->data_cfg, state->target, state->cfg->seed);
-   state->fp >>= 32 - state->cfg->fingerprint_size;
+   state->fp >>= 32 - state->filter.fingerprint_size;
    state->remainder_size = params.remainder_size;
    state->index = routing_get_index(state->fp << state->filter.value_size,
                                     params.index_remainder_and_value_size);
@@ -1443,7 +1460,7 @@ routing_filter_lookup(cache                *cc,
    }
 
    uint32 fp = data_key_hash(cfg->data_cfg, target, cfg->seed);
-   fp >>= 32 - cfg->fingerprint_size;
+   fp >>= 32 - filter->fingerprint_size;
    uint32 index = routing_get_index(fp << params.value_size,
                                     params.index_remainder_and_value_size);
    if (index >= params.num_indices) {
@@ -1529,13 +1546,16 @@ routing_filter_dec_ref(cache *cc, routing_filter *filter)
  *----------------------------------------------------------------------
  */
 uint32
-routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
-                                               uint64                num_unique)
+routing_filter_estimate_unique_keys_from_count(uint32 fingerprint_size,
+                                               uint64 num_unique)
 {
-   uint64 universe_count = 1ULL << cfg->fingerprint_size;
    if (num_unique == 0) {
       return 0;
    }
+   if (fingerprint_size == 0 || fingerprint_size > 32) {
+      return UINT32_MAX;
+   }
+   uint64 universe_count = 1ULL << fingerprint_size;
    /* Seeing every possible fingerprint makes the inverse estimate diverge.
     * Corrupt metadata can also claim more unique fingerprints than exist.
     * In either case, saturate because this estimate is only a sizing hint. */
@@ -1568,12 +1588,11 @@ routing_filter_estimate_unique_keys_from_count(const routing_config *cfg,
 }
 
 uint32
-routing_filter_estimate_unique_keys(const routing_filter *filter,
-                                    const routing_config *cfg)
+routing_filter_estimate_unique_keys(const routing_filter *filter)
 {
    // platform_default_log("unique fp %u\n", filter->num_unique);
-   return routing_filter_estimate_unique_keys_from_count(cfg,
-                                                         filter->num_unique);
+   return routing_filter_estimate_unique_keys_from_count(
+      filter->fingerprint_size, filter->num_unique);
 }
 
 uint64

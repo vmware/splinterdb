@@ -186,7 +186,7 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
       cfg->filter_log_index_size = 9;
    }
    if (!cfg->filter_hash_size) {
-      cfg->filter_hash_size = 26;
+      cfg->filter_hash_size = 27;
    }
 
    if (!cfg->memtable_capacity) {
