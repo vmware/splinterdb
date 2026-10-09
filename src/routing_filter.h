@@ -32,6 +32,8 @@
 typedef struct routing_config {
    cache_config *cache_cfg;
    data_config  *data_cfg;
+   uint64        page_size;
+   uint64        extent_size;
    uint32        fingerprint_size;
    uint32        index_size;
    uint32        log_index_size;
@@ -58,6 +60,8 @@ routing_config_init(routing_config *cfg,
 
    cfg->cache_cfg        = cache_cfg;
    cfg->data_cfg         = data_cfg;
+   cfg->page_size        = cache_config_page_size(cache_cfg);
+   cfg->extent_size      = cache_config_extent_size(cache_cfg);
    cfg->fingerprint_size = (uint32)fingerprint_size;
    cfg->index_size       = 1U << log_index_size;
    cfg->log_index_size   = (uint32)log_index_size;

@@ -1023,8 +1023,8 @@ trunk_ondisk_pivot_key(trunk_ondisk_pivot *odp)
 static platform_status
 trunk_ondisk_node_read_header(trunk_ondisk_node_handle *handle)
 {
-   uint64 page_size   = cache_page_size(handle->cc);
-   uint64 extent_size = cache_extent_size(handle->cc);
+   uint64 page_size   = handle->page_size;
+   uint64 extent_size = handle->extent_size;
    if (handle->header_page == NULL || page_size < sizeof(trunk_ondisk_node)) {
       return STATUS_INVALID_STATE;
    }
@@ -1068,6 +1068,8 @@ trunk_ondisk_node_handle_init(trunk_ondisk_node_handle *handle,
                               uint64                    addr)
 {
    handle->cc                   = cc;
+   handle->page_size            = cache_page_size(cc);
+   handle->extent_size          = cache_extent_size(cc);
    handle->header_page          = NULL;
    handle->pivot_page           = NULL;
    handle->inflight_bundle_page = NULL;
@@ -1100,9 +1102,11 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
 {
    async_begin(state, depth);
 
-   state->child_handle.cc                   = state->context->cc;
-   state->child_handle.header_page          = NULL;
-   state->child_handle.pivot_page           = NULL;
+   state->child_handle.cc          = state->context->cc;
+   state->child_handle.page_size   = cache_page_size(state->context->cc);
+   state->child_handle.extent_size = cache_extent_size(state->context->cc);
+   state->child_handle.header_page = NULL;
+   state->child_handle.pivot_page  = NULL;
    state->child_handle.inflight_bundle_page = NULL;
    async_await_call(state,
                     cache_get_async,
@@ -1161,7 +1165,9 @@ static platform_status
 trunk_ondisk_node_handle_clone(trunk_ondisk_node_handle       *dst,
                                const trunk_ondisk_node_handle *src)
 {
-   dst->cc = src->cc;
+   dst->cc          = src->cc;
+   dst->page_size   = src->page_size;
+   dst->extent_size = src->extent_size;
    if (src->header_page == NULL) {
       dst->header_page          = NULL;
       dst->pivot_page           = NULL;
@@ -1194,7 +1200,7 @@ offset_is_in_content_page(const trunk_ondisk_node_handle *handle,
                           const page_handle              *page,
                           uint32                          offset)
 {
-   uint64 page_size = cache_page_size(handle->cc);
+   uint64 page_size = handle->page_size;
    return page != NULL && content_page_offset(handle, page) <= offset
           && offset < content_page_offset(handle, page) + page_size;
 }
@@ -1204,8 +1210,8 @@ trunk_ondisk_node_handle_setup_content_page(trunk_ondisk_node_handle *handle,
                                             uint64                    offset,
                                             page_handle             **page)
 {
-   uint64 page_size = cache_page_size(handle->cc);
-   if (cache_extent_size(handle->cc) <= offset) {
+   uint64 page_size = handle->page_size;
+   if (handle->extent_size <= offset) {
       return STATUS_INVALID_STATE;
    }
 
@@ -1254,9 +1260,9 @@ trunk_ondisk_node_handle_setup_content_page_async(
 {
    async_begin(state, depth);
 
-   uint64 page_size = cache_page_size(state->handlep->cc);
+   uint64 page_size = state->handlep->page_size;
 
-   if (cache_extent_size(state->handlep->cc) <= state->offset) {
+   if (state->handlep->extent_size <= state->offset) {
       state->rc = STATUS_INVALID_STATE;
       async_return(state);
    }
@@ -1325,12 +1331,9 @@ trunk_ondisk_node_read_pivot_offset(trunk_ondisk_node_handle *handle,
       sizeof(*header)
       + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
    uint64 offset    = header->pivot_offsets[pivot_num];
-   uint64 page_size = cache_page_size(handle->cc);
-   if (offset < table_end || cache_extent_size(handle->cc) <= offset
-       || page_size - (offset % page_size) < sizeof(trunk_ondisk_pivot)
-       || (pivot_num != 0 && offset <= header->pivot_offsets[pivot_num - 1])
-       || (pivot_num + 1 < header->num_pivots
-           && header->pivot_offsets[pivot_num + 1] <= offset))
+   uint64 page_size = handle->page_size;
+   if (offset < table_end || handle->extent_size <= offset
+       || page_size - (offset % page_size) < sizeof(trunk_ondisk_pivot))
    {
       return STATUS_INVALID_STATE;
    }
@@ -1360,7 +1363,7 @@ trunk_ondisk_node_read_pivot_key(trunk_ondisk_node_handle *handle,
    }
    uint64 page_offset =
       offset - content_page_offset(handle, handle->pivot_page);
-   uint64 page_size = cache_page_size(handle->cc);
+   uint64 page_size = handle->page_size;
    if (page_size - page_offset < sizeof(trunk_ondisk_pivot)) {
       return NULL;
    }
@@ -1453,7 +1456,7 @@ trunk_ondisk_node_read_pivot_key_async(trunk_merge_lookup_async_state *state,
    uint64 page_offset =
       state->offset
       - content_page_offset(state->handlep, state->handlep->pivot_page);
-   uint64 page_size = cache_page_size(state->handlep->cc);
+   uint64 page_size = state->handlep->page_size;
    if (page_size - page_offset < sizeof(*state->pivot)
        || state->pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
        || sizeof_ondisk_key_data(&state->pivot->key)
@@ -1546,7 +1549,7 @@ trunk_ondisk_node_read_pivot_bundle(trunk_ondisk_node_handle *handle,
       return NULL;
    }
 
-   uint64    page_size  = cache_page_size(handle->cc);
+   uint64    page_size  = handle->page_size;
    uintptr_t page_start = (uintptr_t)handle->pivot_page->data;
    uintptr_t pivot_addr = (uintptr_t)pivot;
    if (pivot_addr < page_start || pivot_addr - page_start > page_size
@@ -1573,8 +1576,8 @@ static trunk_ondisk_bundle *
 trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
                                    uint64                    offset)
 {
-   uint64 page_size   = cache_page_size(handle->cc);
-   uint64 extent_size = cache_extent_size(handle->cc);
+   uint64 page_size   = handle->page_size;
+   uint64 extent_size = handle->extent_size;
    if (extent_size <= offset) {
       return NULL;
    }
@@ -1656,8 +1659,8 @@ static async_status
 trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
                                          uint64                          depth)
 {
-   uint64 page_size   = cache_page_size(state->handlep->cc);
-   uint64 extent_size = cache_extent_size(state->handlep->cc);
+   uint64 page_size   = state->handlep->page_size;
+   uint64 extent_size = state->handlep->extent_size;
 
    async_begin(state, depth);
 
@@ -1762,7 +1765,7 @@ trunk_ondisk_node_get_first_inflight_bundle(trunk_ondisk_node_handle *handle,
    uint64 table_end =
       sizeof(*header)
       + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
-   if (offset < table_end || cache_extent_size(handle->cc) <= offset
+   if (offset < table_end || handle->extent_size <= offset
        || offset <= header->pivot_offsets[header->num_pivots - 1])
    {
       *bndl = NULL;
@@ -1804,8 +1807,7 @@ trunk_ondisk_node_get_first_inflight_bundle_async(
    uint64 table_end =
       sizeof(*header)
       + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
-   if (state->offset < table_end
-       || cache_extent_size(state->handlep->cc) <= state->offset
+   if (state->offset < table_end || state->handlep->extent_size <= state->offset
        || state->offset <= header->pivot_offsets[header->num_pivots - 1])
    {
       state->bndl = NULL;
@@ -3254,6 +3256,8 @@ trunk_init_root_handle(trunk_context *context, trunk_ondisk_node_handle *handle)
    trunk_read_begin(context);
    if (context->root == NULL) {
       handle->cc                   = context->cc;
+      handle->page_size            = cache_page_size(context->cc);
+      handle->extent_size          = cache_extent_size(context->cc);
       handle->header_page          = NULL;
       handle->pivot_page           = NULL;
       handle->inflight_bundle_page = NULL;
@@ -6824,9 +6828,28 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
       min_pivot = trunk_ondisk_node_read_pivot_key(handle, min);
    }
 
-   /* Reload the winning pivot even if it was visited during the search. A
-    * later probe may have replaced handle->pivot_page, invalidating a pointer
-    * retained from an earlier page. */
+   /* A later probe can replace pivot_page and invalidate min_pivot. If the
+    * winning pivot is still on the pinned page, reconstruct its pointer from
+    * the already-validated offset rather than validating it a second time. */
+   if (min_pivot != NULL) {
+      trunk_ondisk_node *header =
+         (trunk_ondisk_node *)handle->header_page->data;
+      uint64 offset = header->pivot_offsets[min];
+      if (offset_is_in_content_page(handle, handle->pivot_page, offset)) {
+         min_pivot = (trunk_ondisk_pivot *)(handle->pivot_page->data + offset
+                                            - content_page_offset(
+                                               handle, handle->pivot_page));
+         if (!SUCCESS(
+                trunk_ondisk_node_read_pivot_fields(handle, min, min_pivot)))
+         {
+            *pivot = NULL;
+            return STATUS_INVALID_STATE;
+         }
+         *pivot = min_pivot;
+         return STATUS_OK;
+      }
+   }
+
    min_pivot = trunk_ondisk_node_read_pivot(handle, min);
    if (min_pivot == NULL) {
       *pivot = NULL;

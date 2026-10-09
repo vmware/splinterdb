@@ -189,13 +189,13 @@ destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec);
 static inline uint64
 btree_page_size(const btree_config *cfg)
 {
-   return cache_config_page_size(cfg->cache_cfg);
+   return cfg->page_size;
 }
 
 static inline uint64
 btree_extent_size(const btree_config *cfg)
 {
-   return cache_config_extent_size(cfg->cache_cfg);
+   return cfg->extent_size;
 }
 
 static inline bool32

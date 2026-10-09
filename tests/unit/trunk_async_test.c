@@ -171,6 +171,8 @@ CTEST(trunk_async, pivot_header_survives_cross_thread_yield)
 
    trunk_ondisk_node_handle handle = {
       .cc          = &test_cc.super,
+      .page_size   = TRUNK_ASYNC_TEST_PAGE_SIZE,
+      .extent_size = TRUNK_ASYNC_TEST_EXTENT_SIZE,
       .header_page = &header_page,
    };
    trunk_context context = {

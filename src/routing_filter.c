@@ -234,7 +234,7 @@ routing_filter_get_params(const routing_config  *cfg,
    params->index_remainder_and_value_size =
       params->remainder_and_value_size + cfg->log_index_size;
 
-   uint64 extent_size = cache_config_extent_size(cfg->cache_cfg);
+   uint64 extent_size = cfg->extent_size;
    if (params->remainder_and_value_size == 0
        || params->remainder_and_value_size > 32
        || params->index_remainder_and_value_size > 32
@@ -253,7 +253,7 @@ routing_get_header(cache                *cc,
                    page_handle         **filter_page,
                    uint64               *hdr_raw_addr)
 {
-   uint64 page_size      = cache_config_page_size(cfg->cache_cfg);
+   uint64 page_size      = cfg->page_size;
    uint64 addrs_per_page = page_size / sizeof(uint64);
    if (addrs_per_page == 0) {
       return STATUS_INVALID_STATE;
@@ -306,11 +306,12 @@ routing_header_view_init(const routing_config *cfg,
                          uint32                bits_per_item,
                          routing_header_view  *view)
 {
-   uint64 page_size   = cache_config_page_size(cfg->cache_cfg);
-   uint64 header_addr = hdr_raw_addr - (hdr_raw_addr % page_size);
-   uint64 header_off  = hdr_raw_addr - header_addr;
-   if (filter_page == NULL || header_off > page_size
-       || page_size - header_off < sizeof(routing_hdr)
+   uint64 page_size = cfg->page_size;
+   if (filter_page == NULL || hdr_raw_addr < filter_page->disk_addr) {
+      return STATUS_INVALID_STATE;
+   }
+   uint64 header_off = hdr_raw_addr - filter_page->disk_addr;
+   if (header_off > page_size || page_size - header_off < sizeof(routing_hdr)
        || hdr_raw_addr % sizeof(uint32) != 0 || bits_per_item == 0
        || bits_per_item > 32)
    {
@@ -617,8 +618,7 @@ routing_filter_add(cache                *cc,
    size_t index_remainder_and_value_size =
       remainder_and_value_size + cfg->log_index_size;
    if (remainder_and_value_size == 0 || index_remainder_and_value_size > 32
-       || num_indices
-             > cache_config_extent_size(cfg->cache_cfg) / sizeof(uint64))
+       || num_indices > cfg->extent_size / sizeof(uint64))
    {
       ZERO_CONTENTS(filter);
       return STATUS_LIMIT_EXCEEDED;
@@ -629,8 +629,8 @@ routing_filter_add(cache                *cc,
    uint32 new_indices_per_old_index = num_indices / old_num_indices;
 
    // for convenience
-   uint64 page_size        = cache_config_page_size(cfg->cache_cfg);
-   uint64 extent_size      = cache_config_extent_size(cfg->cache_cfg);
+   uint64 page_size        = cfg->page_size;
+   uint64 extent_size      = cfg->extent_size;
    uint64 pages_per_extent = cache_config_pages_per_extent(cfg->cache_cfg);
    uint64 index_size       = cfg->index_size;
 
@@ -1046,7 +1046,7 @@ routing_filter_prefetch(cache                *cc,
       return STATUS_OK;
    }
    uint64 last_extent_addr = 0;
-   uint64 page_size        = cache_config_page_size(cfg->cache_cfg);
+   uint64 page_size        = cfg->page_size;
    uint64 addrs_per_page   = page_size / sizeof(uint64);
    if (addrs_per_page == 0) {
       return STATUS_INVALID_STATE;
@@ -1083,9 +1083,7 @@ routing_filter_prefetch(cache                *cc,
             cache_unget(cc, index_page);
             return STATUS_INVALID_STATE;
          }
-         uint64 extent_addr =
-            hdr_raw_addr
-            - (hdr_raw_addr % cache_config_extent_size(cfg->cache_cfg));
+         uint64 extent_addr = hdr_raw_addr - (hdr_raw_addr % cfg->extent_size);
          if (extent_addr != last_extent_addr) {
             cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
             last_extent_addr = extent_addr;
@@ -1293,7 +1291,7 @@ routing_get_header_async(routing_filter_lookup_async_state *state, uint64 depth)
 {
    async_begin(state, depth);
 
-   state->page_size      = cache_config_page_size(state->cfg->cache_cfg);
+   state->page_size      = state->cfg->page_size;
    state->addrs_per_page = state->page_size / sizeof(uint64);
    if (state->addrs_per_page == 0) {
       async_return(state, STATUS_INVALID_STATE);

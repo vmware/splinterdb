@@ -84,6 +84,8 @@ _Static_assert(BTREE_MAX_HEIGHT + NUM_BLOB_BATCHES <= MINI_MAX_BATCHES,
 typedef struct btree_config {
    cache_config *cache_cfg;
    data_config  *data_cfg;
+   uint64        page_size;
+   uint64        extent_size;
 } btree_config;
 
 typedef struct ONDISK btree_hdr btree_hdr;
@@ -105,7 +107,7 @@ typedef struct { // Note: not a union
 static inline uint64
 btree_scratch_size(const btree_config *cfg)
 {
-   return cache_config_page_size(cfg->cache_cfg);
+   return cfg->page_size;
 }
 
 /*
