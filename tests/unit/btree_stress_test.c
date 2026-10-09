@@ -1208,18 +1208,19 @@ bounds_ready(void *arg)
 }
 
 static platform_status
-bounds_init(cache          *cc,
-            btree_config   *cfg,
-            btree_iterator *itor,
-            uint64          root,
-            key             lo,
-            comparison      lo_cmp,
-            key             hi,
-            comparison      hi_cmp,
-            bool32          reverse,
-            bool32          async,
-            page_type       type,
-            uint32          prefetch_lookahead)
+bounds_init_with_copy(cache          *cc,
+                      btree_config   *cfg,
+                      btree_iterator *itor,
+                      uint64          root,
+                      key             lo,
+                      comparison      lo_cmp,
+                      key             hi,
+                      comparison      hi_cmp,
+                      bool32          reverse,
+                      bool32          async,
+                      page_type       type,
+                      uint32          prefetch_lookahead,
+                      bool32          copy_nodes)
 {
    comparison start_cmp = reverse ? hi_cmp : lo_cmp;
    key        start     = reverse ? hi : lo;
@@ -1235,7 +1236,7 @@ bounds_init(cache          *cc,
                                  hi,
                                  start_cmp,
                                  start,
-                                 TRUE,
+                                 copy_nodes,
                                  0,
                                  prefetch_lookahead);
    }
@@ -1253,7 +1254,7 @@ bounds_init(cache          *cc,
                                    hi,
                                    start_cmp,
                                    start,
-                                   TRUE,
+                                   copy_nodes,
                                    0,
                                    prefetch_lookahead,
                                    bounds_ready,
@@ -1266,6 +1267,35 @@ bounds_init(cache          *cc,
       }
    }
    return btree_iterator_init_async_result(&state);
+}
+
+static platform_status
+bounds_init(cache          *cc,
+            btree_config   *cfg,
+            btree_iterator *itor,
+            uint64          root,
+            key             lo,
+            comparison      lo_cmp,
+            key             hi,
+            comparison      hi_cmp,
+            bool32          reverse,
+            bool32          async,
+            page_type       type,
+            uint32          prefetch_lookahead)
+{
+   return bounds_init_with_copy(cc,
+                                cfg,
+                                itor,
+                                root,
+                                lo,
+                                lo_cmp,
+                                hi,
+                                hi_cmp,
+                                reverse,
+                                async,
+                                type,
+                                prefetch_lookahead,
+                                TRUE);
 }
 
 /* Fail one selected root-page read while an immutable iterator prepares its
@@ -1917,53 +1947,86 @@ CTEST2(btree_stress, copied_iterator_prefetch)
    btree_iterator_deinit(&source);
    ASSERT_TRUE(SUCCESS(rc));
 
-   // Memtables have no extent-prefetch links. Exercise copied packed leaves
-   // to verify both the initialization and leaf-advance prefetch guards.
+   // Memtables have no extent-prefetch links. Exercise copied and pinned packed
+   // leaves to cover both the fallback and deep-prefetch paths. Initialization
+   // and seek leave prefetch dormant; scanning starts it at an extent boundary.
    const cache_ops *original = cc->ops;
    cache_ops        observed = *original;
    bounds_original_prefetch  = original->page_prefetch;
    observed.page_prefetch    = bounds_count_prefetch;
    for (unsigned async = 0; async < 2; async++) {
-      for (unsigned prefetch = 0; prefetch < 2; prefetch++) {
-         for (unsigned long_range = 0; long_range < 2; long_range++) {
-            uint64         limit = long_range ? count : 1;
-            uint64         hi_buf;
-            btree_iterator itor;
-            bounds_prefetch_count = 0;
-            cc->ops               = &observed;
-            rc                    = bounds_init(cc,
-                             cfg,
-                             &itor,
-                             packed_root,
-                             NEGATIVE_INFINITY_KEY,
-                             greater_than_or_equal,
-                             bounds_key(limit, &hi_buf),
-                             less_than,
-                             FALSE,
-                             async,
-                             PAGE_TYPE_BRANCH,
-                             prefetch);
-            cc->ops               = original;
-            ASSERT_TRUE(SUCCESS(rc));
-            uint64 init_prefetches = bounds_prefetch_count;
-            ASSERT_EQUAL(prefetch && long_range ? 1 : 0, init_prefetches);
-            for (uint64 n = 0; n < limit; n++) {
-               ASSERT_TRUE(iterator_can_curr(&itor.super));
-               key     k;
-               message msg;
-               iterator_curr(&itor.super, &k, &msg);
-               ASSERT_EQUAL(n, bounds_key_number(k));
-               cc->ops = &observed;
-               rc      = iterator_next(&itor.super);
-               cc->ops = original;
-               ASSERT_TRUE(SUCCESS(rc));
-            }
-            ASSERT_FALSE(iterator_can_curr(&itor.super));
-            btree_iterator_deinit(&itor);
-            if (prefetch && long_range) {
-               ASSERT_TRUE(bounds_prefetch_count > init_prefetches);
-            } else {
-               ASSERT_EQUAL(0, bounds_prefetch_count);
+      for (unsigned prefetch = 0; prefetch < 3; prefetch++) {
+         for (unsigned copy_nodes = 0; copy_nodes < 2; copy_nodes++) {
+            for (unsigned long_range = 0; long_range < 2; long_range++) {
+               for (unsigned reverse = 0; reverse < 2; reverse++) {
+                  uint64         limit = long_range ? count : 1;
+                  uint64         hi_buf;
+                  btree_iterator itor;
+                  bounds_prefetch_count = 0;
+                  cc->ops               = &observed;
+                  rc                    = bounds_init_with_copy(cc,
+                                             cfg,
+                                             &itor,
+                                             packed_root,
+                                             NEGATIVE_INFINITY_KEY,
+                                             greater_than_or_equal,
+                                             bounds_key(limit, &hi_buf),
+                                             less_than,
+                                             reverse,
+                                             async,
+                                             PAGE_TYPE_BRANCH,
+                                             prefetch,
+                                             copy_nodes);
+                  cc->ops               = original;
+                  ASSERT_TRUE(SUCCESS(rc));
+                  ASSERT_EQUAL(0, bounds_prefetch_count);
+
+                  // Seeking establishes a position, but the first subsequent
+                  // movement establishes the scan direction.
+                  uint64 seek_buf;
+                  cc->ops = &observed;
+                  rc =
+                     iterator_seek(&itor.super,
+                                   reverse ? less_than : greater_than_or_equal,
+                                   bounds_key(reverse ? limit : 0, &seek_buf));
+                  cc->ops = original;
+                  ASSERT_TRUE(SUCCESS(rc));
+                  ASSERT_EQUAL(0, bounds_prefetch_count);
+
+                  bool32 scan_reverse = reverse;
+                  for (unsigned direction = 0; direction < 2; direction++) {
+                     for (uint64 n = 0; n < limit; n++) {
+                        ASSERT_TRUE(iterator_can_curr(&itor.super));
+                        key     k;
+                        message msg;
+                        iterator_curr(&itor.super, &k, &msg);
+                        ASSERT_EQUAL(scan_reverse ? limit - n - 1 : n,
+                                     bounds_key_number(k));
+                        cc->ops = &observed;
+                        rc      = scan_reverse ? iterator_prev(&itor.super)
+                                               : iterator_next(&itor.super);
+                        cc->ops = original;
+                        ASSERT_TRUE(SUCCESS(rc));
+                     }
+                     ASSERT_FALSE(iterator_can_curr(&itor.super));
+
+                     // Return to the range and reverse direction. This also
+                     // verifies that an active or fallback prefetcher restarts
+                     // in the new direction only when it reaches that boundary.
+                     cc->ops = &observed;
+                     rc      = scan_reverse ? iterator_next(&itor.super)
+                                            : iterator_prev(&itor.super);
+                     cc->ops = original;
+                     ASSERT_TRUE(SUCCESS(rc));
+                     scan_reverse = !scan_reverse;
+                  }
+                  btree_iterator_deinit(&itor);
+                  if (prefetch && long_range) {
+                     ASSERT_TRUE(bounds_prefetch_count > 0);
+                  } else {
+                     ASSERT_EQUAL(0, bounds_prefetch_count);
+                  }
+               }
             }
          }
       }

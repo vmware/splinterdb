@@ -161,13 +161,14 @@ typedef enum btree_prefetch_state {
 
 typedef struct btree_prefetch_cursor {
    btree_prefetch_state state;
-   bool32               at_end; // prefetched through the last in-range extent
-   bool32 going_forward;        // current scan direction; reset resets ramp
-   uint32 lookahead;            // K: max leaf extents in flight (the cap)
-   uint32 depth;                // current ramp-up depth (<= lookahead)
-   uint64 leaf_batch;           // mini batch of this iterator's level
-   bool32 prefetch_blobs;       // also prefetch blob extents (height 0)
-   uint64 prefetched_ahead;     // leaf extents prefetched, not yet consumed
+   bool32 started;          // read-ahead has started in going_forward direction
+   bool32 at_end;           // prefetched through the last in-range extent
+   bool32 going_forward;    // current scan direction; reset resets ramp
+   uint32 lookahead;        // K: max leaf extents in flight (the cap)
+   uint32 depth;            // current ramp-up depth (<= lookahead)
+   uint64 leaf_batch;       // mini batch of this iterator's level
+   bool32 prefetch_blobs;   // also prefetch blob extents (height 0)
+   uint64 prefetched_ahead; // leaf extents prefetched, not yet consumed
    mini_meta_cursor meta_cursor;
 } btree_prefetch_cursor;
 
