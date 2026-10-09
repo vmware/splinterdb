@@ -360,37 +360,6 @@ routing_unlock_and_unget_page(cache *cc, page_handle *page)
  *----------------------------------------------------------------------
  */
 static platform_status
-routing_find_separator(const routing_header_view *view,
-                       uint64                     separator,
-                       uint64                    *bit_pos)
-{
-   uint64 seen = 0;
-   for (uint64 byte_no = 0; byte_no < view->encoding_size; byte_no += 8) {
-      uint64 word  = 0;
-      uint64 bytes = view->encoding_size - byte_no;
-      if (bytes > sizeof(word)) {
-         bytes = sizeof(word);
-      }
-      memcpy(&word, view->encoding + byte_no, bytes);
-      uint32 pop = __builtin_popcountll(word);
-      if (separator >= seen + pop) {
-         seen += pop;
-         continue;
-      }
-      uint64 ordinal = separator - seen;
-      while (ordinal-- != 0) {
-         word &= word - 1;
-      }
-      if (word == 0) {
-         return STATUS_INVALID_STATE;
-      }
-      *bit_pos = byte_no * 8 + __builtin_ctzll(word);
-      return STATUS_OK;
-   }
-   return STATUS_INVALID_STATE;
-}
-
-static platform_status
 routing_get_bucket_bounds(const routing_config      *cfg,
                           const routing_header_view *view,
                           uint64                     bucket_offset,
@@ -400,33 +369,72 @@ routing_get_bucket_bounds(const routing_config      *cfg,
    if (bucket_offset >= cfg->index_size) {
       return STATUS_INVALID_STATE;
    }
-   uint64          end_separator;
-   platform_status rc =
-      routing_find_separator(view, bucket_offset, &end_separator);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   if (end_separator < bucket_offset) {
-      return STATUS_INVALID_STATE;
-   }
-   *end = end_separator - bucket_offset;
-   if (bucket_offset == 0) {
-      *start = 0;
-   } else {
-      uint64 start_separator;
-      rc = routing_find_separator(view, bucket_offset - 1, &start_separator);
-      if (!SUCCESS(rc)) {
-         return rc;
+
+   /*
+    * The bucket bounds are determined by adjacent set bits in the encoding.
+    * Locate both in one traversal.  Use memcpy for each word because the
+    * packed routing_hdr leaves encoding only two-byte aligned.
+    */
+   uint64 target_separator = bucket_offset == 0 ? 0 : bucket_offset - 1;
+   uint64 seen             = 0;
+   for (uint64 byte_no = 0; byte_no < view->encoding_size; byte_no += 8) {
+      uint64 word  = 0;
+      uint64 bytes = view->encoding_size - byte_no;
+      if (bytes > sizeof(word)) {
+         bytes = sizeof(word);
       }
-      if (start_separator + 1 < bucket_offset) {
+      memcpy(&word, view->encoding + byte_no, bytes);
+
+      uint32 pop = __builtin_popcountll(word);
+      if (target_separator >= seen + pop) {
+         seen += pop;
+         continue;
+      }
+
+      uint64 ordinal = target_separator - seen;
+      while (ordinal-- != 0) {
+         word &= word - 1;
+      }
+      if (word == 0) {
          return STATUS_INVALID_STATE;
       }
-      *start = start_separator - bucket_offset + 1;
+
+      uint64 separator = byte_no * 8 + __builtin_ctzll(word);
+      if (bucket_offset == 0) {
+         *start = 0;
+         *end   = separator;
+      } else {
+         if (separator < bucket_offset - 1) {
+            return STATUS_INVALID_STATE;
+         }
+         *start = separator - bucket_offset + 1;
+
+         /* Discard the first separator and locate the adjacent one. */
+         word &= word - 1;
+         uint64 end_byte_no = byte_no;
+         while (word == 0) {
+            end_byte_no += sizeof(word);
+            if (end_byte_no >= view->encoding_size) {
+               return STATUS_INVALID_STATE;
+            }
+            bytes = view->encoding_size - end_byte_no;
+            if (bytes > sizeof(word)) {
+               bytes = sizeof(word);
+            }
+            memcpy(&word, view->encoding + end_byte_no, bytes);
+         }
+         separator = end_byte_no * 8 + __builtin_ctzll(word);
+         if (separator < bucket_offset) {
+            return STATUS_INVALID_STATE;
+         }
+         *end = separator - bucket_offset;
+      }
+
+      return *start <= *end && *end <= view->hdr->num_remainders
+                ? STATUS_OK
+                : STATUS_INVALID_STATE;
    }
-   if (*start > *end || *end > view->hdr->num_remainders) {
-      return STATUS_INVALID_STATE;
-   }
-   return STATUS_OK;
+   return STATUS_INVALID_STATE;
 }
 
 static platform_status
