@@ -1116,7 +1116,10 @@ shard_log_graduate_final_buffer(shard_log *log, shard_log_group *group)
 }
 
 static platform_status
-shard_log_validate_reservation_entry(shard_log *log, key tuple_key, message msg)
+shard_log_validate_reservation_entry(shard_log *log,
+                                     key        tuple_key,
+                                     message    msg,
+                                     uint64    *entry_size_out)
 {
    uint64 key_size     = key_length(tuple_key);
    uint64 message_size = message_length(msg);
@@ -1129,6 +1132,7 @@ shard_log_validate_reservation_entry(shard_log *log, key tuple_key, message msg)
 
    uint64 entry_size = log_entry_required_capacity(tuple_key, msg);
    if (message_size <= UINT16_MAX && entry_size <= max_entry_size) {
+      *entry_size_out = entry_size;
       return STATUS_OK;
    }
 
@@ -1164,6 +1168,7 @@ shard_log_validate_reservation_entry(shard_log *log, key tuple_key, message msg)
       return STATUS_LIMIT_EXCEEDED;
    }
 
+   *entry_size_out = entry_size;
    return STATUS_OK;
 }
 
@@ -1218,8 +1223,9 @@ shard_log_write_prepare(log_handle         *logh,
    threadid                  tid   = platform_get_tid();
    shard_log_prepared_write *state = shard_log_prepared_state(prepared);
 
+   uint64          entry_size;
    platform_status rc =
-      shard_log_validate_reservation_entry(log, tuple_key, msg);
+      shard_log_validate_reservation_entry(log, tuple_key, msg, &entry_size);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1227,8 +1233,6 @@ shard_log_write_prepare(log_handle         *logh,
    uint64 page_size      = shard_log_page_size(log->cfg);
    uint64 max_entry_size = page_size - sizeof(shard_log_hdr);
    bool32 input_is_blob  = message_is_blob(msg);
-   uint64 entry_size =
-      input_is_blob ? 0 : log_entry_required_capacity(tuple_key, msg);
 
    if (input_is_blob || force_blob || max_entry_size < entry_size) {
       merge_accumulator_init(&state->log_blob, platform_get_heap_id());
@@ -1243,13 +1247,12 @@ shard_log_write_prepare(log_handle         *logh,
       if (!SUCCESS(rc)) {
          goto fail;
       }
-      msg        = merge_accumulator_to_message(&state->log_blob);
-      entry_size = log_entry_required_capacity(tuple_key, msg);
-   }
-
-   rc = shard_log_validate_reservation_entry(log, tuple_key, msg);
-   if (!SUCCESS(rc)) {
-      goto fail;
+      msg = merge_accumulator_to_message(&state->log_blob);
+      rc =
+         shard_log_validate_reservation_entry(log, tuple_key, msg, &entry_size);
+      if (!SUCCESS(rc)) {
+         goto fail;
+      }
    }
 
    /*
