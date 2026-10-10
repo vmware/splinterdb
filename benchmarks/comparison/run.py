@@ -306,25 +306,35 @@ class Runner:
                 prefix = ["warm"] if size == "small" else []
                 one(version, phase, False, [*prefix, phase], estimate=120)
 
-        # The long large/random Zipfian phase can expand each sparse image by
-        # tens of GiB.  Put it last so its completed image can be reclaimed
-        # before the other version starts the same phase; keeping both expanded
-        # images serves no later measurement and can exhaust the scratch disk.
+        # Large/random overwrites have multi-minute post-load splitting and
+        # compaction transients. Run both distributions long enough to get past
+        # that transient. Each sparse image can expand by tens of GiB, so run
+        # all overwrite phases for one version before moving to the other and
+        # reclaim the completed image immediately. Repetition order still gives
+        # ABBA ordering for the two version blocks.
         overwrite_phases = (("ow:uniform", "ow:zipf")
                             if size == "large" and order_name == "random"
                             else ("ow:zipf", "ow:uniform"))
-        for phase in overwrite_phases:
-            order = first if phase_index % 2 == 0 else tuple(reversed(first))
-            phase_index += 1
-            steady = phase == "ow:zipf" and size == "large" and order_name == "random"
-            secs = self.args.steady_seconds if steady else self.args.phase_seconds
-            warmup = self.args.steady_warmup if steady else (3 if size == "small" else 5)
-            estimate = secs + warmup + 180
-            for version in order:
-                one(version, phase, False, [phase], secs=secs, warmup=warmup,
-                    estimate=estimate)
-                if steady:
-                    images[version].unlink(missing_ok=True)
+        steady = size == "large" and order_name == "random"
+        if steady:
+            for version in first:
+                for phase in overwrite_phases:
+                    phase_index += 1
+                    one(version, phase, False, [phase],
+                        secs=self.args.steady_seconds,
+                        warmup=self.args.steady_warmup,
+                        estimate=self.args.steady_seconds
+                                 + self.args.steady_warmup + 180)
+                images[version].unlink(missing_ok=True)
+        else:
+            for phase in overwrite_phases:
+                order = first if phase_index % 2 == 0 else tuple(reversed(first))
+                phase_index += 1
+                warmup = 3 if size == "small" else 5
+                for version in order:
+                    one(version, phase, False, [phase],
+                        secs=self.args.phase_seconds, warmup=warmup,
+                        estimate=self.args.phase_seconds + warmup + 180)
 
         for image in images.values():
             image.unlink(missing_ok=True)

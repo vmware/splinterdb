@@ -201,6 +201,9 @@ typedef struct btree_iterator {
    int64           end_idx;
    bool32          end_idx_valid;
    platform_status validation_status;
+   // Entry checked by the last successful positioning operation. Branch-tree
+   // curr() reuses it so it does not decode the offset table again.
+   const void *validated_entry;
 
    btree_prefetch_cursor prefetch;
 } btree_iterator;

@@ -3564,6 +3564,7 @@ btree_iterator_can_next(iterator *base_itor)
 static platform_status
 btree_iterator_check_current(btree_iterator *itor)
 {
+   itor->validated_entry = NULL;
    if (itor->page_type != PAGE_TYPE_BRANCH
        || !btree_iterator_can_next(&itor->super)
        || !btree_iterator_can_prev(&itor->super))
@@ -3576,12 +3577,19 @@ btree_iterator_check_current(btree_iterator *itor)
       const leaf_entry *entry;
       rc = btree_read_leaf_entry(
          itor->cc, itor->cfg, itor->curr.hdr, itor->idx, &entry);
+      if (SUCCESS(rc)) {
+         itor->validated_entry = entry;
+      }
    } else {
       const index_entry *entry;
       rc = btree_read_index_entry(
          itor->cc, itor->cfg, itor->curr.hdr, itor->idx, &entry);
+      if (SUCCESS(rc)) {
+         itor->validated_entry = entry;
+      }
    }
    if (!SUCCESS(rc)) {
+      itor->validated_entry   = NULL;
       itor->validation_status = rc;
    }
    return rc;
@@ -3608,13 +3616,24 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
       debug_assert(btree_iterator_curr_is_copy(itor));
    }
    if (itor->curr.hdr->height == 0) {
-      *curr_key = btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
-      *data     = btree_get_tuple_message(
-         itor->cfg, itor->cc, itor->curr.hdr, itor->idx);
+      leaf_entry *entry;
+      if (itor->page_type == PAGE_TYPE_BRANCH) {
+         debug_assert(itor->validated_entry != NULL);
+         entry = (leaf_entry *)itor->validated_entry;
+      } else {
+         entry = btree_get_leaf_entry(itor->cfg, itor->curr.hdr, itor->idx);
+      }
+      *curr_key = leaf_entry_key(entry);
+      *data     = leaf_entry_message(itor->cc, entry);
       log_trace_key(*curr_key, "btree_iterator_get_curr");
    } else {
-      index_entry *entry =
-         btree_get_index_entry(itor->cfg, itor->curr.hdr, itor->idx);
+      index_entry *entry;
+      if (itor->page_type == PAGE_TYPE_BRANCH) {
+         debug_assert(itor->validated_entry != NULL);
+         entry = (index_entry *)itor->validated_entry;
+      } else {
+         entry = btree_get_index_entry(itor->cfg, itor->curr.hdr, itor->idx);
+      }
       *curr_key = index_entry_key(entry);
       *data     = message_create(
          MESSAGE_TYPE_PIVOT_DATA,

@@ -568,7 +568,7 @@ def main():
     report += ["", "## Method and limits", "",
                "- Paired runs use ABBA ordering across repetitions and alternate the first version across phases.",
                "- Each core phase runs in a new process. Small-data reads begin with an untimed/full warm scan; large-data reads remain disk-bound.",
-               "- Large random Zipfian overwrite phases use the configured extended warm-up before measurement so both versions are measured after transient leaf splitting and compaction.",
+               "- Large random uniform and Zipfian overwrite phases use the configured extended warm-up before measurement so both versions are measured after transient leaf splitting and compaction.",
                "- Overwrite phases perform an untimed deterministic sample check of values written during the measured interval.",
                "- The laptop environment is not isolated. Pairwise deltas and thermal logs are more trustworthy than absolute rates.",
                "- Results completed after the report deadline are absent by construction."]
