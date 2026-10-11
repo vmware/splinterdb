@@ -10,6 +10,11 @@ Demand-read errors propagate through btrees, blobs, routing filters, log recover
 trunk traversal, insertion, point lookups, and range initialization. A failed read
 clears the output handle and releases its reference. The cache removes failed
 loads from its directory and wakes waiters, permitting later reads to retry.
+Shared cache-entry identity reads and writes use relaxed atomics because stale
+lookup candidates can inspect a reused loading slot or a failed-load invalidation.
+`CC_LOADING` still provides the publication barrier for bytes and read status.
+No stronger ordering was added to the read-reference counters.
+
 Nonblocking cache misses or write conflicts return `STATUS_BUSY`. Speculative
 prefetch failures drop the hint; a subsequent demand read reports its own result.
 

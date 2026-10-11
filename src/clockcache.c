@@ -456,6 +456,21 @@ clockcache_lookup_entry(const clockcache *cc, uint64 addr)
    return &cc->entry[clockcache_lookup(cc, addr)];
 }
 
+/* A stale directory candidate can inspect identity while an admission or
+ * failed load changes it. Ref acquisition and CC_LOADING protect page bytes;
+ * the identity itself needs atomic access even before that validation. */
+static inline uint64
+clockcache_entry_addr(const clockcache_entry *entry)
+{
+   return __atomic_load_n(&entry->page.disk_addr, __ATOMIC_RELAXED);
+}
+
+static inline void
+clockcache_entry_set_addr(clockcache_entry *entry, uint64 addr)
+{
+   __atomic_store_n(&entry->page.disk_addr, addr, __ATOMIC_RELAXED);
+}
+
 static inline clockcache_entry *
 clockcache_page_to_entry(const clockcache *cc, page_handle *page)
 {
@@ -911,7 +926,7 @@ static void
 clockcache_writeback_page_sync(clockcache *cc, uint32 entry_number)
 {
    clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
-   uint64            addr  = entry->page.disk_addr;
+   uint64            addr  = clockcache_entry_addr(entry);
    const threadid    tid   = platform_get_tid();
 
    debug_assert(clockcache_test_flag(cc, entry_number, CC_WRITEBACK));
@@ -1000,7 +1015,7 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
          platform_error_log(
             "clockcache_get_write: re-issuing failed writeback of addr %lu "
             "(attempt %lu)\n",
-            clockcache_get_entry(cc, entry_number)->page.disk_addr,
+            clockcache_entry_addr(clockcache_get_entry(cc, entry_number)),
             sync_retries);
          clockcache_writeback_page_sync(cc, entry_number);
          continue;
@@ -1323,7 +1338,7 @@ clockcache_write_callback(void *wbs)
       entry_number =
          clockcache_data_to_entry_number(cc, (char *)iovec[i].iov_base);
       entry = clockcache_get_entry(cc, entry_number);
-      addr  = entry->page.disk_addr;
+      addr  = clockcache_entry_addr(entry);
 
       clockcache_log(addr,
                      entry_number,
@@ -1390,11 +1405,11 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
    // Iterate through the entries in the batch and try to write out the extents.
    for (entry_no = start_entry_no; entry_no < end_entry_no; entry_no++) {
       entry = &cc->entry[entry_no];
-      addr  = entry->page.disk_addr;
+      addr  = clockcache_entry_addr(entry);
       // test and test and set in the if condition
       if (clockcache_try_claim_writeback(cc, entry_no, is_urgent)) {
          debug_assert(clockcache_lookup(cc, addr) == entry_no);
-         first_addr = entry->page.disk_addr;
+         first_addr = clockcache_entry_addr(entry);
          // walk backwards through extent to find first cleanable entry
          do {
             first_addr -= page_size;
@@ -1407,7 +1422,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
             next_entry_no != CC_UNMAPPED_ENTRY
             && clockcache_try_claim_writeback(cc, next_entry_no, is_urgent));
          first_addr += page_size;
-         end_addr = entry->page.disk_addr;
+         end_addr = clockcache_entry_addr(entry);
          // walk forwards through extent to find last cleanable entry
          do {
             end_addr += page_size;
@@ -1548,7 +1563,7 @@ clockcache_writeback_dirty(clockcache *cc)
              */
             platform_error_log("clockcache_writeback_dirty: writeback of addr "
                                "%lu failed\n",
-                               entry->page.disk_addr);
+                               clockcache_entry_addr(entry));
             result = STATUS_IO_ERROR;
             break;
          }
@@ -1654,7 +1669,7 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
    }
 
    /* 5. clear lookup, disk addr */
-   uint64 addr = entry->page.disk_addr;
+   uint64 addr = clockcache_entry_addr(entry);
    if (addr != CC_UNMAPPED_ADDR) {
       uint64 lookup_no = clockcache_lookup_number(cc, addr);
       bool32 unmapped  = __sync_bool_compare_and_swap(
@@ -1664,7 +1679,7 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
                       entry_number,
                       addr,
                       cc->lookup[lookup_no]);
-      entry->page.disk_addr = CC_UNMAPPED_ADDR;
+      clockcache_entry_set_addr(entry, CC_UNMAPPED_ADDR);
    }
    debug_only uint32 debug_status =
       clockcache_test_flag(cc, entry_number, CC_WRITELOCKED | CC_CLAIMED);
@@ -1836,7 +1851,7 @@ clockcache_get_free_page(clockcache *cc,
                clockcache_inc_ref(cc, entry_no, tid);
             }
             platform_assert(entry->waiters.head == NULL);
-            debug_assert(entry->page.disk_addr == CC_UNMAPPED_ADDR);
+            debug_assert(clockcache_entry_addr(entry) == CC_UNMAPPED_ADDR);
             clockcache_record_backtrace(cc, entry_no);
             // The entry's loading/write-lock state protects it after the
             // batch is released. The remaining free entries are available
@@ -1939,11 +1954,11 @@ clockcache_evict_all(clockcache *cc, bool32 ignore_pinned_pages)
    for (uint32 entry_no = 0; entry_no < cc->cfg->page_capacity; entry_no++) {
       entry_status status = clockcache_get_status(cc, entry_no);
       if (status == CC_FREE_STATUS) {
-         if (cc->entry[entry_no].page.disk_addr != CC_UNMAPPED_ADDR) {
+         if (clockcache_entry_addr(&cc->entry[entry_no]) != CC_UNMAPPED_ADDR) {
             platform_error_log("clockcache_evict_all: free entry %u still "
                                "names addr %lu\n",
                                entry_no,
-                               cc->entry[entry_no].page.disk_addr);
+                               clockcache_entry_addr(&cc->entry[entry_no]));
             return STATUS_INVALID_STATE;
          }
          continue;
@@ -1954,7 +1969,7 @@ clockcache_evict_all(clockcache *cc, bool32 ignore_pinned_pages)
       platform_error_log("clockcache_evict_all: entry %u at addr %lu remained "
                          "resident with status 0x%x\n",
                          entry_no,
-                         cc->entry[entry_no].page.disk_addr,
+                         clockcache_entry_addr(&cc->entry[entry_no]),
                          status);
       return STATUS_BUSY;
    }
@@ -1996,9 +2011,10 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
                                               TRUE); // blocking
    clockcache_entry *entry    = &cc->entry[entry_no];
    entry->read_status         = STATUS_OK;
-   entry->page.disk_addr      = addr;
+   clockcache_entry_set_addr(entry, addr);
    entry->type                = type;
-   uint64 lookup_no = clockcache_lookup_number(cc, entry->page.disk_addr);
+   uint64 lookup_no =
+      clockcache_lookup_number(cc, clockcache_entry_addr(entry));
    bool32 mapped    = __sync_bool_compare_and_swap(
       &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_no);
    platform_assert(mapped,
@@ -2008,11 +2024,11 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
                    cc->lookup[lookup_no]);
    clockcache_record_backtrace(cc, entry_no);
 
-   clockcache_log(entry->page.disk_addr,
+   clockcache_log(clockcache_entry_addr(entry),
                   entry_no,
                   "alloc: entry %u addr %lu\n",
                   entry_no,
-                  entry->page.disk_addr);
+                  clockcache_entry_addr(entry));
    return &entry->page;
 }
 
@@ -2065,7 +2081,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
 
       clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
 
-      if (entry->page.disk_addr != addr) {
+      if (clockcache_entry_addr(entry) != addr) {
          // raced with eviction, try again
          clockcache_dec_ref(cc, entry_number, tid);
          continue;
@@ -2097,8 +2113,8 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
                       entry_number,
                       addr,
                       cc->lookup[lookup_no]);
-      debug_assert(entry->page.disk_addr == addr);
-      entry->page.disk_addr = CC_UNMAPPED_ADDR;
+      debug_assert(clockcache_entry_addr(entry) == addr);
+      clockcache_entry_set_addr(entry, CC_UNMAPPED_ADDR);
 
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
       platform_assert(entry->waiters.head == NULL);
@@ -2161,7 +2177,8 @@ clockcache_get_in_cache(clockcache      *cc,           // IN
                         addr);
          return TRUE;
       }
-      if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
+      if (clockcache_entry_addr(clockcache_get_entry(cc, entry_number)) != addr)
+      {
          // this also means we raced with eviction and really lost
          clockcache_dec_ref(cc, entry_number, tid);
          return TRUE;
@@ -2184,7 +2201,8 @@ clockcache_get_in_cache(clockcache      *cc,           // IN
                            addr);
             return TRUE;
          case GET_RC_SUCCESS:
-            if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr)
+            if (clockcache_entry_addr(clockcache_get_entry(cc, entry_number))
+                != addr)
             {
                // this also means we raced with eviction and really lost
                clockcache_dec_ref(cc, entry_number, tid);
@@ -2229,7 +2247,7 @@ static void
 clockcache_release_unpublished_entry(clockcache *cc, uint32 entry_number)
 {
    clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
-   entry->page.disk_addr   = CC_UNMAPPED_ADDR;
+   clockcache_entry_set_addr(entry, CC_UNMAPPED_ADDR);
    entry->type             = PAGE_TYPE_INVALID;
    __atomic_store_n(&entry->dirty_generation, 0, __ATOMIC_RELAXED);
    platform_assert(entry->waiters.head == NULL);
@@ -2275,7 +2293,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
 
    /* Set up the page */
    entry->read_status    = STATUS_OK;
-   entry->page.disk_addr = addr;
+   clockcache_entry_set_addr(entry, addr);
    return entry_number;
 }
 
@@ -2295,7 +2313,7 @@ clockcache_finish_load(clockcache     *cc,   // IN
       bool32 removed   = __sync_bool_compare_and_swap(
          &cc->lookup[lookup_no], entry_number, CC_UNMAPPED_ENTRY);
       platform_assert(removed);
-      entry->page.disk_addr = CC_UNMAPPED_ADDR;
+      clockcache_entry_set_addr(entry, CC_UNMAPPED_ADDR);
    }
    clockcache_log(addr,
                   entry_number,
@@ -2493,7 +2511,7 @@ clockcache_get_in_cache_async(clockcache_get_async_state *state, uint64 depth)
    }
 
    state->entry = clockcache_get_entry(state->cc, state->entry_number);
-   if (state->entry->page.disk_addr != state->addr) {
+   if (clockcache_entry_addr(state->entry) != state->addr) {
       // this also means we raced with eviction and really lost
       clockcache_dec_ref(state->cc, state->entry_number, state->tid);
       state->succeeded = FALSE;
@@ -2822,11 +2840,11 @@ clockcache_pin(clockcache *cc, page_handle *page)
    debug_assert(clockcache_test_flag(cc, entry_number, CC_WRITELOCKED));
    clockcache_inc_pin(cc, entry_number);
 
-   clockcache_log(entry->page.disk_addr,
+   clockcache_log(clockcache_entry_addr(entry),
                   entry_number,
                   "pin: entry %u addr %lu\n",
                   entry_number,
-                  entry->page.disk_addr);
+                  clockcache_entry_addr(entry));
 }
 
 void
@@ -2836,11 +2854,11 @@ clockcache_unpin(clockcache *cc, page_handle *page)
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
    clockcache_dec_pin(cc, entry_number);
 
-   clockcache_log(entry->page.disk_addr,
+   clockcache_log(clockcache_entry_addr(entry),
                   entry_number,
                   "unpin: entry %u addr %lu\n",
                   entry_number,
-                  entry->page.disk_addr);
+                  clockcache_entry_addr(entry));
 }
 
 /*
@@ -3185,7 +3203,7 @@ clockcache_writeback_get_page_status(clockcache *cc, uint64 addr, uint64 gen)
    entry_status status = clockcache_get_status(cc, entry_number);
    uint64       cur    = clockcache_writeback_get_generation(cc, entry_number);
 
-   if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
+   if (clockcache_entry_addr(clockcache_get_entry(cc, entry_number)) != addr) {
       // The entry was rebound under us, so it was evicted -- and hence written
       // back -- and the flag and generation we just read belong to some other
       // page.
@@ -3320,7 +3338,7 @@ clockcache_prefetch_callback(void *pfs)
          type = entry->type;
       }
 
-      uint64 addr = entry->page.disk_addr;
+      uint64 addr = clockcache_entry_addr(entry);
       debug_assert(addr != CC_UNMAPPED_ADDR);
       debug_assert(last_addr == CC_UNMAPPED_ADDR
                    || addr == last_addr + page_size);
@@ -3454,7 +3472,7 @@ clockcache_prefetch_pages(clockcache *cc,
             uint32 free_entry_no = clockcache_get_free_page(
                cc, CC_READ_LOADING_STATUS, type, FALSE, TRUE);
             clockcache_entry *entry = &cc->entry[free_entry_no];
-            entry->page.disk_addr   = addr;
+            clockcache_entry_set_addr(entry, addr);
             entry->type             = type;
             uint64 lookup_no        = clockcache_lookup_number(cc, addr);
 
@@ -4366,7 +4384,7 @@ clockcache_init(clockcache        *cc,   // OUT
    for (i = 0; i < cc->cfg->page_capacity; i++) {
       cc->entry[i].page.data =
          cc->data + clockcache_multiply_by_page_size(cc, i);
-      cc->entry[i].page.disk_addr = CC_UNMAPPED_ADDR;
+      clockcache_entry_set_addr(&cc->entry[i], CC_UNMAPPED_ADDR);
       clockcache_set_status(cc, i, CC_FREE_STATUS);
       __atomic_store_n(&cc->entry[i].dirty_generation, 0, __ATOMIC_RELAXED);
       cc->entry[i].type = PAGE_TYPE_INVALID;
