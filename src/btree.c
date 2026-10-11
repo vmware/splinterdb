@@ -3631,7 +3631,7 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
       } else {
          entry = btree_get_index_entry(itor->cfg, itor->curr.hdr, itor->idx);
       }
-      *curr_key = index_entry_key(entry);
+      *curr_key        = index_entry_key(entry);
       itor->pivot_data = (btree_pivot_data){
          .child_addr = entry->pivot_data.child_addr,
          .stats      = index_entry_stats(entry),

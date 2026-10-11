@@ -35,7 +35,7 @@ typedef struct parsed_blob_entry {
 } parsed_blob_entry;
 
 typedef struct parsed_blob {
-   const blob       *base;
+   const blob *base;
    /* Height one is the legacy flat layout. num_extents counts root entries;
     * each covers at most extent_span data extents. Neither depends on the
     * encoder's descriptor-size limit. */
@@ -65,9 +65,9 @@ typedef struct blob_page_iterator {
    uint64                  page_size;
    parsed_blob             pblob;
 
-   uint64        offset;
-   page_fragment fragment;
-   page_handle  *page;
+   uint64          offset;
+   page_fragment   fragment;
+   page_handle    *page;
    platform_status status;
    uint64          data_extent;
    uint64          data_extent_addr;

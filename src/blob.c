@@ -119,11 +119,11 @@ blob_parse_descriptor(cache *cc, slice sblob, parsed_blob *pblobby)
    }
 
    memset(pblobby, 0, sizeof(*pblobby));
-   pblobby->base    = blobby;
+   pblobby->base        = blobby;
    pblobby->height      = 1;
    pblobby->extent_span = 1;
-   uint64 remainder = blobby->length;
-   uint64 entry     = 0;
+   uint64 remainder     = blobby->length;
+   uint64 entry         = 0;
 
    if (can_round_up(extent_size, remainder)) {
       pblobby->num_extents =
@@ -340,12 +340,12 @@ blob_page_iterator_init(cache                  *cc,
                 || mode == BLOB_PAGE_ITERATOR_MODE_ALLOC
                 || mode == BLOB_PAGE_ITERATOR_MODE_VERIFY);
 
-   iter->cc          = cc;
-   iter->mode        = mode;
-   iter->extent_size = cache_extent_size(cc);
-   iter->page_size   = cache_page_size(cc);
-   iter->offset      = offset;
-   iter->page        = NULL;
+   iter->cc               = cc;
+   iter->mode             = mode;
+   iter->extent_size      = cache_extent_size(cc);
+   iter->page_size        = cache_page_size(cc);
+   iter->offset           = offset;
+   iter->page             = NULL;
    iter->status           = STATUS_OK;
    iter->data_extent_addr = 0;
 

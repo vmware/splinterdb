@@ -2775,7 +2775,7 @@ shard_log_iterator_init(cache              *cc,
             broken = TRUE;
             break;
          }
-         rc                 = shard_log_validate_page_header(cfg, page);
+         rc = shard_log_validate_page_header(cfg, page);
          if (SUCCESS(rc)) {
             rc = shard_log_validate_page_sequence(
                &sequence, hdr, page_addr, TRUE);

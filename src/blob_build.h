@@ -6,7 +6,7 @@
 #include "blob.h"
 #include "mini_allocator.h"
 
-#define NUM_BLOB_BATCHES (3)
+#define NUM_BLOB_BATCHES                 (3)
 #define BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE UINT64_C(512)
 /* Enough for every legacy packed-tail descriptor (at most eight full extents
  * plus three tail addresses). Smaller budgets would make tail/tree decoding
