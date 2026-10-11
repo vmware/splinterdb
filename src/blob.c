@@ -52,6 +52,41 @@ blob_range_is_valid(uint64 capacity,
    return extent_size <= addr && addr < capacity && len <= capacity - addr;
 }
 
+static bool32
+blob_extent_is_valid(cache *cc, uint64 addr)
+{
+   uint64 extent_size = cache_extent_size(cc);
+   uint64 capacity    = allocator_get_config(cache_get_allocator(cc))->capacity;
+   return addr % extent_size == 0
+          && blob_range_is_valid(capacity, extent_size, addr, extent_size);
+}
+
+/* Cache reads assert on unallocated addresses and short reads. Recovery must
+ * turn missing pointer pages into truncation before reaching that interface. */
+static platform_status
+blob_get_pointer_page(cache        *cc,
+                      uint64        addr,
+                      bool32        disk_only,
+                      page_handle **page)
+{
+   if (!allocator_page_valid(cache_get_allocator(cc), addr)) {
+      return STATUS_INVALID_STATE;
+   }
+   if (disk_only) {
+      bool32          readable;
+      platform_status rc =
+         cache_range_is_readable(cc, addr, cache_page_size(cc), &readable);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      if (!readable) {
+         return STATUS_IO_ERROR;
+      }
+   }
+   *page = cache_get(cc, addr, TRUE, PAGE_TYPE_BLOB);
+   return *page == NULL ? STATUS_IO_ERROR : STATUS_OK;
+}
+
 platform_status
 blob_parse_descriptor(cache *cc, slice sblob, parsed_blob *pblobby)
 {
@@ -76,20 +111,36 @@ blob_parse_descriptor(cache *cc, slice sblob, parsed_blob *pblobby)
       allocator_get_config(cache_get_allocator(cc));
    uint64 capacity = allocator_cfg->capacity;
 
-   if (page_size == 0 || extent_size == 0 || extent_size % page_size != 0
-       || capacity < extent_size)
+   if (page_size == 0 || page_size % sizeof(uint64) != 0 || extent_size == 0
+       || extent_size % page_size != 0 || capacity < extent_size
+       || extent_size / sizeof(uint64) < 2 || blobby->length > capacity)
    {
       return STATUS_INVALID_STATE;
    }
 
    memset(pblobby, 0, sizeof(*pblobby));
-   pblobby->base    = blobby;
-   uint64 remainder = blobby->length;
-   uint64 entry     = 0;
+   pblobby->base        = blobby;
+   pblobby->height      = 1;
+   pblobby->extent_span = 1;
+   uint64 remainder     = blobby->length;
+   uint64 entry         = 0;
 
    if (can_round_up(extent_size, remainder)) {
       pblobby->num_extents =
          remainder / extent_size + (remainder % extent_size != 0);
+      uint64 fanout = extent_size / sizeof(uint64);
+      while (pblobby->num_extents > available_addrs) {
+         if (available_addrs == 0 || pblobby->num_extents == 1
+             || pblobby->height == BLOB_MAX_HEIGHT
+             || pblobby->extent_span > UINT64_MAX / fanout)
+         {
+            return STATUS_INVALID_STATE;
+         }
+         pblobby->num_extents = pblobby->num_extents / fanout
+                                + (pblobby->num_extents % fanout != 0);
+         pblobby->extent_span *= fanout;
+         pblobby->height++;
+      }
       entry = pblobby->num_extents;
    } else {
       pblobby->num_extents = remainder / extent_size;
@@ -165,11 +216,11 @@ blob_length(slice sblobby)
 }
 
 static void
-fragment_for_offset(uint64             extent_size,
-                    uint64             page_size,
-                    const parsed_blob *pblobby,
-                    uint64             offset,
-                    page_fragment     *fragment)
+flat_fragment_for_offset(uint64             extent_size,
+                         uint64             page_size,
+                         const parsed_blob *pblobby,
+                         uint64             offset,
+                         page_fragment     *fragment)
 {
    uint64 byte_addr       = 0;
    uint64 entry_remainder = 0;
@@ -202,11 +253,73 @@ fragment_for_offset(uint64             extent_size,
    fragment->length = MIN(entry_remainder, page_size - fragment->offset);
 }
 
+static platform_status
+blob_fragment_for_offset(blob_page_iterator *iter)
+{
+   if (iter->pblob.height == 1) {
+      flat_fragment_for_offset(iter->extent_size,
+                               iter->page_size,
+                               &iter->pblob,
+                               iter->offset,
+                               &iter->fragment);
+      return STATUS_OK;
+   }
+
+   uint64 extent_no = iter->offset / iter->extent_size;
+   if (iter->data_extent_addr == 0 || iter->data_extent != extent_no) {
+      uint64 span   = iter->pblob.extent_span;
+      uint64 addr   = iter->pblob.base->addrs[extent_no / span];
+      uint64 within = extent_no % span;
+      uint64 fanout = iter->extent_size / sizeof(uint64);
+      for (uint64 level = iter->pblob.height - 1; level > 0; level--) {
+         span /= fanout;
+         uint64 slot = within / span;
+         within %= span;
+         uint64 byte        = slot * sizeof(uint64);
+         uint64 page_addr   = addr + byte / iter->page_size * iter->page_size;
+         page_handle **page = &iter->index_pages[level];
+         if (*page == NULL || (*page)->disk_addr != page_addr) {
+            if (*page != NULL) {
+               cache_unget(iter->cc, *page);
+               *page = NULL;
+            }
+            platform_status rc = blob_get_pointer_page(
+               iter->cc,
+               page_addr,
+               iter->mode == BLOB_PAGE_ITERATOR_MODE_VERIFY,
+               page);
+            if (!SUCCESS(rc)) {
+               return rc;
+            }
+         }
+         memcpy(&addr, (*page)->data + byte % iter->page_size, sizeof(addr));
+         if (!blob_extent_is_valid(iter->cc, addr)) {
+            return STATUS_INVALID_STATE;
+         }
+      }
+      iter->data_extent      = extent_no;
+      iter->data_extent_addr = addr;
+      if (iter->mode == BLOB_PAGE_ITERATOR_MODE_PREFETCH) {
+         if (!allocator_page_valid(cache_get_allocator(iter->cc), addr)) {
+            return STATUS_INVALID_STATE;
+         }
+         cache_prefetch(iter->cc, addr, PAGE_TYPE_BLOB);
+      }
+   }
+   uint64 within = iter->offset % iter->extent_size;
+   iter->fragment.addr =
+      iter->data_extent_addr + within / iter->page_size * iter->page_size;
+   iter->fragment.offset = within % iter->page_size;
+   iter->fragment.length = MIN(iter->pblob.base->length - iter->offset,
+                               iter->page_size - iter->fragment.offset);
+   return STATUS_OK;
+}
+
 static void
 maybe_do_prefetch(blob_page_iterator *iter)
 {
    uint64 curr_extent_num = iter->offset / iter->extent_size;
-   if (iter->mode == BLOB_PAGE_ITERATOR_MODE_PREFETCH
+   if (iter->pblob.height == 1 && iter->mode == BLOB_PAGE_ITERATOR_MODE_PREFETCH
        && curr_extent_num + 1 < iter->pblob.num_extents)
    {
       cache_prefetch(iter->cc,
@@ -224,14 +337,17 @@ blob_page_iterator_init(cache                  *cc,
 {
    debug_assert(mode == BLOB_PAGE_ITERATOR_MODE_PREFETCH
                 || mode == BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH
-                || mode == BLOB_PAGE_ITERATOR_MODE_ALLOC);
+                || mode == BLOB_PAGE_ITERATOR_MODE_ALLOC
+                || mode == BLOB_PAGE_ITERATOR_MODE_VERIFY);
 
-   iter->cc          = cc;
-   iter->mode        = mode;
-   iter->extent_size = cache_extent_size(cc);
-   iter->page_size   = cache_page_size(cc);
-   iter->offset      = offset;
-   iter->page        = NULL;
+   iter->cc               = cc;
+   iter->mode             = mode;
+   iter->extent_size      = cache_extent_size(cc);
+   iter->page_size        = cache_page_size(cc);
+   iter->offset           = offset;
+   iter->page             = NULL;
+   iter->status           = STATUS_OK;
+   iter->data_extent_addr = 0;
 
    platform_status rc = blob_parse_descriptor(cc, sblobby, &iter->pblob);
    if (!SUCCESS(rc)) {
@@ -241,12 +357,15 @@ blob_page_iterator_init(cache                  *cc,
       return STATUS_BAD_PARAM;
    }
 
+   for (uint64 level = 1; level < iter->pblob.height; level++) {
+      iter->index_pages[level] = NULL;
+   }
    if (offset < iter->pblob.base->length) {
-      fragment_for_offset(iter->extent_size,
-                          iter->page_size,
-                          &iter->pblob,
-                          iter->offset,
-                          &iter->fragment);
+      rc = blob_fragment_for_offset(iter);
+      if (!SUCCESS(rc)) {
+         blob_page_iterator_deinit(iter);
+         return rc;
+      }
       maybe_do_prefetch(iter);
    }
 
@@ -294,6 +413,12 @@ void
 blob_page_iterator_deinit(blob_page_iterator *iter)
 {
    blob_page_iterator_release_page(iter);
+   for (uint64 level = 1; level < iter->pblob.height; level++) {
+      if (iter->index_pages[level] != NULL) {
+         cache_unget(iter->cc, iter->index_pages[level]);
+         iter->index_pages[level] = NULL;
+      }
+   }
 }
 
 platform_status
@@ -301,6 +426,28 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
                             uint64             *offset,
                             slice              *result)
 {
+   if (!SUCCESS(iter->status)) {
+      return iter->status;
+   }
+   if (blob_page_iterator_at_end(iter)) {
+      return STATUS_BAD_PARAM;
+   }
+   if (iter->mode == BLOB_PAGE_ITERATOR_MODE_VERIFY) {
+      bool32          readable;
+      platform_status rc = cache_range_is_readable(
+         iter->cc, iter->fragment.addr, iter->page_size, &readable);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      if (!readable) {
+         return STATUS_IO_ERROR;
+      }
+   }
+   if (!allocator_page_valid(cache_get_allocator(iter->cc),
+                             iter->fragment.addr))
+   {
+      return STATUS_INVALID_STATE;
+   }
    if (iter->page == NULL) {
       if (should_alloc(iter)) {
          iter->page =
@@ -341,12 +488,10 @@ blob_page_iterator_advance_bytes(blob_page_iterator *iter, uint64 num_bytes)
 
    iter->offset += num_bytes;
    if (iter->offset < iter->pblob.base->length) {
-      fragment_for_offset(iter->extent_size,
-                          iter->page_size,
-                          &iter->pblob,
-                          iter->offset,
-                          &iter->fragment);
-      maybe_do_prefetch(iter);
+      iter->status = blob_fragment_for_offset(iter);
+      if (SUCCESS(iter->status)) {
+         maybe_do_prefetch(iter);
+      }
    }
 }
 
@@ -390,24 +535,13 @@ blob_validate(cache *cc, slice sblob)
     * truncation that validation must report to the log iterator.
     */
    rc = blob_page_iterator_init(
-      cc, &iter, sblob, 0, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH);
+      cc, &iter, sblob, 0, BLOB_PAGE_ITERATOR_MODE_VERIFY);
    if (!SUCCESS(rc)) {
       XXH3_freeState(checksum_state);
       return rc;
    }
 
    while (!blob_page_iterator_at_end(&iter)) {
-      bool32 readable;
-      rc = cache_range_is_readable(
-         cc, iter.fragment.addr, iter.page_size, &readable);
-      if (!SUCCESS(rc)) {
-         goto out;
-      }
-      if (!readable) {
-         rc = STATUS_IO_ERROR;
-         goto out;
-      }
-
       uint64 offset;
       slice  data;
       rc = blob_page_iterator_get_curr(&iter, &offset, &data);
@@ -453,16 +587,15 @@ blob_materialize(cache           *cc,
       return STATUS_BAD_PARAM;
    }
 
-   rc = writable_buffer_resize(result, end - start);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
    blob_page_iterator iter;
    rc = blob_page_iterator_init(
       cc, &iter, sblobby, start, BLOB_PAGE_ITERATOR_MODE_PREFETCH);
    if (!SUCCESS(rc)) {
       return rc;
+   }
+   rc = writable_buffer_resize(result, end - start);
+   if (!SUCCESS(rc)) {
+      goto out;
    }
 
    while (!blob_page_iterator_at_end(&iter) && iter.offset < end) {
@@ -497,13 +630,99 @@ blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)
    return blob_materialize(cc, sblob, 0, blobby->length, result);
 }
 
+static platform_status
+blob_walk_extent(cache               *cc,
+                 uint64               addr,
+                 uint64               height,
+                 uint64               span,
+                 uint64               data_extents,
+                 bool32               disk_only,
+                 blob_extent_callback visit,
+                 void                *arg)
+{
+   if (!blob_extent_is_valid(cc, addr)) {
+      return STATUS_INVALID_STATE;
+   }
+   platform_status rc = visit(cc, addr, arg);
+   if (!SUCCESS(rc) || height == 0) {
+      return rc;
+   }
+   uint64 fanout     = cache_extent_size(cc) / sizeof(uint64);
+   uint64 child_span = span / fanout;
+   uint64 children =
+      data_extents / child_span + (data_extents % child_span != 0);
+   uint64       per_page = cache_page_size(cc) / sizeof(uint64);
+   page_handle *page     = NULL;
+   for (uint64 i = 0; i < children; i++) {
+      if (i % per_page == 0) {
+         if (page != NULL) {
+            cache_unget(cc, page);
+            page = NULL;
+         }
+         rc = blob_get_pointer_page(
+            cc, addr + i * sizeof(uint64), disk_only, &page);
+         if (!SUCCESS(rc)) {
+            break;
+         }
+      }
+      uint64 child;
+      memcpy(
+         &child, page->data + (i % per_page) * sizeof(uint64), sizeof(child));
+      uint64 count = MIN(data_extents, child_span);
+      rc           = blob_walk_extent(
+         cc, child, height - 1, child_span, count, disk_only, visit, arg);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+      data_extents -= count;
+   }
+   if (page != NULL) {
+      cache_unget(cc, page);
+   }
+   return rc;
+}
+
+platform_status
+blob_walk_extents(cache               *cc,
+                  slice                sblob,
+                  bool32               disk_only,
+                  blob_extent_callback visit,
+                  void                *arg)
+{
+   parsed_blob     pblob;
+   platform_status rc = blob_parse_descriptor(cc, sblob, &pblob);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   uint64 extent_size = cache_extent_size(cc);
+   uint64 remaining   = pblob.base->length / extent_size
+                      + (pblob.base->length % extent_size != 0);
+   for (uint64 i = 0; i < pblob.num_extents; i++) {
+      uint64 count = MIN(remaining, pblob.extent_span);
+      rc           = blob_walk_extent(cc,
+                            pblob.base->addrs[i],
+                            pblob.height - 1,
+                            pblob.extent_span,
+                            count,
+                            disk_only,
+                            visit,
+                            arg);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      remaining -= count;
+   }
+   return STATUS_OK;
+}
+
 /*
  * Record one reference for the extent containing addr, unless something already
  * has.  See blob_recover_allocations().
  */
 static platform_status
-blob_recover_extent(cache *cc, uint64 addr)
+blob_recover_extent(cache *cc, uint64 addr, void *unused)
 {
+   (void)unused;
    allocator *al = cache_get_allocator(cc);
    uint64     base =
       allocator_config_extent_base_addr(allocator_get_config(al), addr);
@@ -524,11 +743,9 @@ blob_recover_allocations(cache *cc, slice sblob)
       return rc;
    }
 
-   for (uint64 i = 0; i < pblob.num_extents; i++) {
-      rc = blob_recover_extent(cc, pblob.base->addrs[i]);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
+   rc = blob_walk_extents(cc, sblob, TRUE, blob_recover_extent, NULL);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
    /*
     * The tail lives in up to three page-aligned fragments, which may sit in an
@@ -538,12 +755,20 @@ blob_recover_allocations(cache *cc, slice sblob)
       if (pblob.leftovers[i].length == 0) {
          break;
       }
-      rc = blob_recover_extent(cc, pblob.leftovers[i].addr);
+      rc = blob_recover_extent(cc, pblob.leftovers[i].addr, NULL);
       if (!SUCCESS(rc)) {
          return rc;
       }
    }
    return STATUS_OK;
+}
+
+static platform_status
+blob_writeback_extent(cache *cc, uint64 addr, void *arg)
+{
+   writeback_set *set = arg;
+   return set != NULL ? writeback_set_add_extent(set, addr, PAGE_TYPE_BLOB)
+                      : cache_writeback_extent(cc, addr, PAGE_TYPE_BLOB, NULL);
 }
 
 platform_status
@@ -557,17 +782,9 @@ blob_writeback(cache *cc, slice sblob, writeback_set *set)
       return rc;
    }
 
-   for (uint64 i = 0; i < pblob.num_extents; i++) {
-      if (set != NULL) {
-         rc =
-            writeback_set_add_extent(set, pblob.base->addrs[i], PAGE_TYPE_BLOB);
-      } else {
-         rc = cache_writeback_extent(
-            cc, pblob.base->addrs[i], PAGE_TYPE_BLOB, NULL);
-      }
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
+   rc = blob_walk_extents(cc, sblob, FALSE, blob_writeback_extent, set);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
    for (uint64 i = 0; i < ARRAY_SIZE(pblob.leftovers); i++) {

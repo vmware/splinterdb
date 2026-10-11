@@ -102,27 +102,155 @@ allocate_leftover_entries(const blob_build_config *cfg,
    return STATUS_OK;
 }
 
+/* Plan with counts of data extents, avoiding overflowing byte capacities. */
+static platform_status
+blob_plan(const blob_build_config *cfg,
+          uint64                   extent_size,
+          uint64                   length,
+          uint64                  *height,
+          uint64                  *span,
+          uint64                  *entries)
+{
+   uint64 budget = cfg->blob_max_descriptor_size;
+   if (budget == 0) {
+      budget = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE;
+   }
+   if (budget < BLOB_MIN_MAX_DESCRIPTOR_SIZE
+       || extent_size % sizeof(uint64) != 0 || extent_size / sizeof(uint64) < 2)
+   {
+      return STATUS_BAD_PARAM;
+   }
+   *height = 1;
+   *span   = 1;
+   if (!can_round_up(extent_size, length)) {
+      *entries = length / extent_size + 3;
+      return STATUS_OK;
+   }
+   *entries           = length / extent_size + (length % extent_size != 0);
+   uint64 max_entries = (budget - sizeof(blob)) / sizeof(uint64);
+   uint64 fanout      = extent_size / sizeof(uint64);
+   while (*entries > max_entries) {
+      if (*height == BLOB_MAX_HEIGHT || *span > UINT64_MAX / fanout) {
+         return STATUS_LIMIT_EXCEEDED;
+      }
+      *entries = *entries / fanout + (*entries % fanout != 0);
+      *span *= fanout;
+      (*height)++;
+   }
+   return STATUS_OK;
+}
+
+platform_status
+blob_descriptor_size_bound(const blob_build_config *cfg,
+                           uint64                   extent_size,
+                           uint64                   length,
+                           uint64                  *size)
+{
+   if (cfg == NULL || size == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+   uint64          height, span, entries;
+   platform_status rc =
+      blob_plan(cfg, extent_size, length, &height, &span, &entries);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   if (entries > (UINT64_MAX - sizeof(blob)) / sizeof(uint64)) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   *size = sizeof(blob) + entries * sizeof(uint64);
+   return STATUS_OK;
+}
+
+/* Construct private, immutable pointer extents. Only pages containing used
+ * slots are initialized. source is non-NULL when re-encoding a large clone;
+ * in that case share data extents while constructing a smaller descriptor. */
+static platform_status
+build_blob_extent(const blob_build_config *cfg,
+                  cache                   *cc,
+                  mini_allocator          *mini,
+                  uint64                   height,
+                  uint64                   span,
+                  uint64                   count,
+                  blob_page_iterator      *source,
+                  uint64                  *addr)
+{
+   if (height == 0 && source != NULL) {
+      if (!SUCCESS(source->status)) {
+         return source->status;
+      }
+      *addr              = source->fragment.addr;
+      platform_status rc = mini_attach_extent(mini, cfg->extent_batch, *addr);
+      if (SUCCESS(rc)) {
+         uint64 bytes = MIN(cache_extent_size(cc),
+                            source->pblob.base->length - source->offset);
+         blob_page_iterator_advance_bytes(source, bytes);
+      }
+      return rc;
+   }
+   platform_status rc = mini_alloc_extent(mini, cfg->extent_batch, addr, NULL);
+   if (!SUCCESS(rc) || height == 0) {
+      return rc;
+   }
+   uint64       child_span = span / (cache_extent_size(cc) / sizeof(uint64));
+   uint64       children   = count / child_span + (count % child_span != 0);
+   uint64       per_page   = cache_page_size(cc) / sizeof(uint64);
+   page_handle *page       = NULL;
+   for (uint64 i = 0; i < children; i++) {
+      if (i % per_page == 0) {
+         if (page != NULL) {
+            cache_unlock(cc, page);
+            cache_unclaim(cc, page);
+            cache_unget(cc, page);
+         }
+         page = cache_alloc(cc, *addr + i * sizeof(uint64), PAGE_TYPE_BLOB);
+         memset(page->data, 0, cache_page_size(cc));
+      }
+      uint64 child;
+      uint64 child_count = MIN(count, child_span);
+      rc                 = build_blob_extent(
+         cfg, cc, mini, height - 1, child_span, child_count, source, &child);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+      memcpy(
+         page->data + (i % per_page) * sizeof(uint64), &child, sizeof(child));
+      count -= child_count;
+   }
+   if (page != NULL) {
+      cache_unlock(cc, page);
+      cache_unclaim(cc, page);
+      cache_unget(cc, page);
+   }
+   return rc;
+}
+
 static platform_status
 build_blob_table(const blob_build_config *cfg,
                  cache                   *cc,
                  mini_allocator          *mini,
                  uint64                   data_len,
+                 blob_page_iterator      *source,
                  writable_buffer         *result)
 {
    uint64 extent_size = cache_extent_size(cc);
-   uint64 num_extents;
-   uint64 remainder;
-
-   if (can_round_up(extent_size, data_len)) {
-      num_extents = (data_len + extent_size - 1) / extent_size;
-      remainder   = 0;
-   } else {
+   if (data_len > allocator_get_config(cache_get_allocator(cc))->capacity) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   uint64          height, span, num_extents;
+   platform_status rc =
+      blob_plan(cfg, extent_size, data_len, &height, &span, &num_extents);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   uint64 remainder = 0;
+   if (!can_round_up(extent_size, data_len)) {
       num_extents = data_len / extent_size;
-      remainder   = data_len - num_extents * extent_size;
+      remainder   = data_len % extent_size;
    }
 
-   platform_status rc = writable_buffer_resize(
-      result, sizeof(blob) + num_extents * sizeof(uint64));
+   rc = writable_buffer_resize(result,
+                               sizeof(blob) + num_extents * sizeof(uint64));
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -132,13 +260,17 @@ build_blob_table(const blob_build_config *cfg,
    blobby->checksum = (checksum128){0};
    blobby->format   = BLOB_FORMAT;
 
+   uint64 remaining = data_len / extent_size + (data_len % extent_size != 0);
    for (uint64 i = 0; i < num_extents; i++) {
       uint64 alloced_page;
-      rc = mini_alloc_extent(mini, cfg->extent_batch, &alloced_page, NULL);
+      uint64 count = MIN(remaining, span);
+      rc           = build_blob_extent(
+         cfg, cc, mini, height - 1, span, count, source, &alloced_page);
       if (!SUCCESS(rc)) {
          return rc;
       }
       blobby->addrs[i] = alloced_page;
+      remaining -= count;
    }
 
    return allocate_leftover_entries(cfg, cc, mini, data_len, remainder, result);
@@ -152,7 +284,7 @@ blob_build(const blob_build_config *cfg,
            writable_buffer         *result)
 {
    platform_status rc =
-      build_blob_table(cfg, cc, mini, slice_length(data), result);
+      build_blob_table(cfg, cc, mini, slice_length(data), NULL, result);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -193,11 +325,25 @@ out:
    return rc;
 }
 
+typedef struct blob_clone_extents {
+   mini_allocator *mini;
+   uint64          batch;
+} blob_clone_extents;
+
+static platform_status
+blob_attach_extent(cache *cc, uint64 addr, void *arg)
+{
+   (void)cc;
+   blob_clone_extents *state = arg;
+   return mini_attach_extent(state->mini, state->batch, addr);
+}
+
 static platform_status
 clone_blob_table(const blob_build_config *cfg,
                  cache                   *cc,
                  mini_allocator          *mini,
                  parsed_blob             *pblobby,
+                 slice                    sblob,
                  writable_buffer         *result)
 {
    platform_status rc = writable_buffer_resize(
@@ -209,16 +355,19 @@ clone_blob_table(const blob_build_config *cfg,
    blob *blobby = writable_buffer_data(result);
    memcpy(blobby, pblobby->base, sizeof(*blobby));
 
-   for (uint64 i = 0; i < pblobby->num_extents; i++) {
-      blobby->addrs[i] = pblobby->base->addrs[i];
-      rc = mini_attach_extent(mini, cfg->extent_batch, blobby->addrs[i]);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
+   memcpy(blobby->addrs,
+          pblobby->base->addrs,
+          pblobby->num_extents * sizeof(uint64));
+   blob_clone_extents state = {.mini = mini, .batch = cfg->extent_batch};
+   rc = blob_walk_extents(cc, sblob, FALSE, blob_attach_extent, &state);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
    uint64 extent_size = cache_extent_size(cc);
-   if (pblobby->num_extents * extent_size < pblobby->base->length) {
+   if (pblobby->height == 1
+       && pblobby->num_extents * extent_size < pblobby->base->length)
+   {
       uint64 remainder =
          pblobby->base->length - pblobby->num_extents * extent_size;
       rc = allocate_leftover_entries(
@@ -246,12 +395,38 @@ blob_clone(const blob_build_config *cfg,
       return rc;
    }
 
-   rc = clone_blob_table(cfg, cc, mini, &pblobby, result);
+   uint64 budget = cfg->blob_max_descriptor_size != 0
+                      ? cfg->blob_max_descriptor_size
+                      : BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE;
+   if (budget < BLOB_MIN_MAX_DESCRIPTOR_SIZE) {
+      return STATUS_BAD_PARAM;
+   }
+   if (slice_length(sblob) > budget) {
+      /* Packed-tail descriptors always fit the minimum budget. */
+      blob_page_iterator source;
+      rc = blob_page_iterator_init(
+         cc, &source, sblob, 0, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      rc =
+         build_blob_table(cfg, cc, mini, pblobby.base->length, &source, result);
+      blob_page_iterator_deinit(&source);
+      if (SUCCESS(rc)) {
+         ((blob *)writable_buffer_data(result))->checksum =
+            pblobby.base->checksum;
+      }
+      return rc;
+   }
+
+   rc = clone_blob_table(cfg, cc, mini, &pblobby, sblob, result);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   if (pblobby.num_extents * extent_size < pblobby.base->length) {
+   if (pblobby.height == 1
+       && pblobby.num_extents * extent_size < pblobby.base->length)
+   {
       uint64 start = pblobby.num_extents * extent_size;
 
       blob_page_iterator src_iter;
