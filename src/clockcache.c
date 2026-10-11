@@ -474,9 +474,7 @@ clockcache_entry_set_addr(clockcache_entry *entry, uint64 addr)
 static inline clockcache_entry *
 clockcache_page_to_entry(const clockcache *cc, page_handle *page)
 {
-   uint32 entry_number =
-      clockcache_divide_by_page_size(cc, page->data - cc->data);
-   return &cc->entry[entry_number];
+   return (clockcache_entry *)page->page;
 }
 
 static inline uint32
@@ -970,7 +968,7 @@ clockcache_writeback_page_sync(clockcache *cc, uint32 entry_number)
 static void
 clockcache_get_write(clockcache *cc, uint32 entry_number, threadid tid)
 {
-   const uint64   rc_number = clockcache_get_ref_internal(cc, entry_number);
+   const uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
 
    debug_assert(clockcache_test_flag(cc, entry_number, CC_CLAIMED));
    debug_only uint32 was_writing =
@@ -2005,10 +2003,10 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type, page_handle *page)
    clockcache_entry *entry    = &cc->entry[entry_no];
    entry->read_status         = STATUS_OK;
    clockcache_entry_set_addr(entry, addr);
-   entry->type                = type;
+   entry->type = type;
    uint64 lookup_no =
       clockcache_lookup_number(cc, clockcache_entry_addr(entry));
-   bool32 mapped    = __sync_bool_compare_and_swap(
+   bool32 mapped = __sync_bool_compare_and_swap(
       &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_no);
    platform_assert(mapped,
                    "allocation of entry %u at addr %lu found lookup entry %u",
@@ -2022,8 +2020,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type, page_handle *page)
                   "alloc: entry %u addr %lu\n",
                   entry_no,
                   clockcache_entry_addr(entry));
-   page->data         = entry->page.data;
-   page->disk_addr    = addr;
+   page->page         = &entry->page;
    page->read_ref_tid = platform_get_tid();
    return page;
 }
@@ -2153,13 +2150,13 @@ clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type)
  * Get addr if addr is at entry_number.  Returns TRUE if successful.
  */
 static bool32
-clockcache_get_in_cache(clockcache       *cc,           // IN
-                        uint64            addr,         // IN
-                        bool32            blocking,     // IN
-                        page_type         type,         // IN
-                        uint32            entry_number, // IN
-                        clockcache_page **page,         // OUT
-                        platform_status  *rc)            // OUT
+clockcache_get_in_cache(clockcache      *cc,           // IN
+                        uint64           addr,         // IN
+                        bool32           blocking,     // IN
+                        page_type        type,         // IN
+                        uint32           entry_number, // IN
+                        cache_page     **page,         // OUT
+                        platform_status *rc)           // OUT
 {
    threadid tid = platform_get_tid();
 
@@ -2244,7 +2241,7 @@ clockcache_release_unpublished_entry(clockcache *cc, uint32 entry_number)
 {
    clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    clockcache_entry_set_addr(entry, CC_UNMAPPED_ADDR);
-   entry->type             = PAGE_TYPE_INVALID;
+   entry->type = PAGE_TYPE_INVALID;
    __atomic_store_n(&entry->dirty_generation, 0, __ATOMIC_RELAXED);
    platform_assert(entry->waiters.head == NULL);
    clockcache_set_status(cc, entry_number, CC_FREE_STATUS);
@@ -2288,7 +2285,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
    }
 
    /* Set up the page */
-   entry->read_status    = STATUS_OK;
+   entry->read_status = STATUS_OK;
    clockcache_entry_set_addr(entry, addr);
    return entry_number;
 }
@@ -2326,11 +2323,11 @@ clockcache_finish_load(clockcache     *cc,   // IN
 }
 
 static bool32
-clockcache_get_from_disk(clockcache       *cc,   // IN
-                         uint64            addr, // IN
-                         page_type         type, // IN
-                         clockcache_page **page, // OUT
-                         platform_status  *rc)    // OUT
+clockcache_get_from_disk(clockcache      *cc,   // IN
+                         uint64           addr, // IN
+                         page_type        type, // IN
+                         cache_page     **page, // OUT
+                         platform_status *rc)   // OUT
 {
    threadid tid       = platform_get_tid();
    uint64   page_size = clockcache_page_size(cc);
@@ -2390,12 +2387,12 @@ clockcache_get_from_disk(clockcache       *cc,   // IN
  *----------------------------------------------------------------------
  */
 static bool32
-clockcache_get_internal(clockcache       *cc,       // IN
-                        uint64            addr,     // IN
-                        bool32            blocking, // IN
-                        page_type         type,     // IN
-                        clockcache_page **page,     // OUT
-                        platform_status  *rc)        // OUT
+clockcache_get_internal(clockcache      *cc,       // IN
+                        uint64           addr,     // IN
+                        bool32           blocking, // IN
+                        page_type        type,     // IN
+                        cache_page     **page,     // OUT
+                        platform_status *rc)       // OUT
 {
    clockcache_assert_page_type_valid(addr, type);
 
@@ -2434,8 +2431,8 @@ clockcache_get(clockcache  *cc,
                page_type    type,
                page_handle *page)
 {
-   bool32       retry;
-   clockcache_page *handle = NULL;
+   bool32          retry;
+   cache_page     *handle = NULL;
    platform_status rc     = STATUS_OK;
 
    debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
@@ -2444,8 +2441,7 @@ clockcache_get(clockcache  *cc,
       retry = clockcache_get_internal(cc, addr, blocking, type, &handle, &rc);
       if (!retry) {
          if (SUCCESS(rc)) {
-            page->data         = handle->data;
-            page->disk_addr    = addr;
+            page->page         = handle;
             page->read_ref_tid = platform_get_tid();
          }
          return rc;
@@ -2464,7 +2460,7 @@ DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
    param, page_type, type,
    param, async_callback_fn, callback,
    param, void *, callback_arg,
-   local, clockcache_page *, __async_result,
+   local, cache_page *, __async_result,
    local, platform_status, result_status,
    local, bool32, succeeded,
    local, threadid, tid,
@@ -2695,7 +2691,7 @@ clockcache_get_async(clockcache_get_async_state *state)
    debug_assert(state->cc->per_thread[platform_get_tid()].enable_sync_get
                 || state->type == PAGE_TYPE_MEMTABLE);
 
-   state->succeeded = FALSE;
+   state->succeeded      = FALSE;
    state->result_status  = STATUS_OK;
    state->__async_result = NULL;
    while (!state->succeeded) {
@@ -2717,11 +2713,11 @@ clockcache_unget(clockcache *cc, page_handle *page)
       clockcache_set_flag(cc, entry_number, CC_ACCESSED);
    }
 
-   clockcache_log(page->disk_addr,
+   clockcache_log(page_handle_addr(page),
                   entry_number,
                   "unget: entry %u addr %lu rc %u\n",
                   entry_number,
-                  page->disk_addr,
+                  page_handle_addr(page),
                   clockcache_get_ref(cc, entry_number, tid) - 1);
    clockcache_dec_ref(cc, entry_number, tid);
 }
@@ -2746,11 +2742,11 @@ clockcache_try_claim(clockcache *cc, page_handle *page)
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_record_backtrace(cc, entry_number);
-   clockcache_log(page->disk_addr,
+   clockcache_log(page_handle_addr(page),
                   entry_number,
                   "claim: entry %u addr %lu\n",
                   entry_number,
-                  page->disk_addr);
+                  page_handle_addr(page));
 
    return clockcache_try_get_claim(cc, entry_number) == GET_RC_SUCCESS;
 }
@@ -2761,11 +2757,11 @@ clockcache_unclaim(clockcache *cc, page_handle *page)
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_record_backtrace(cc, entry_number);
-   clockcache_log(page->disk_addr,
+   clockcache_log(page_handle_addr(page),
                   entry_number,
                   "unclaim: entry %u addr %lu\n",
                   entry_number,
-                  page->disk_addr);
+                  page_handle_addr(page));
 
    debug_only uint32 status =
       clockcache_clear_flag(cc, entry_number, CC_CLAIMED);
@@ -2790,11 +2786,11 @@ clockcache_lock(clockcache *cc, page_handle *page)
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_record_backtrace(cc, entry_number);
-   clockcache_log(page->disk_addr,
+   clockcache_log(page_handle_addr(page),
                   entry_number,
                   "lock: entry %u addr %lu\n",
                   entry_number,
-                  page->disk_addr);
+                  page_handle_addr(page));
    clockcache_get_write(cc, entry_number, page->read_ref_tid);
    // A write lock marks the page dirty (and stamps its dirty generation). The
    // CC_WRITEBACK exclusion in clockcache_get_write guarantees this cannot race
@@ -2808,11 +2804,11 @@ clockcache_unlock(clockcache *cc, page_handle *page)
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_record_backtrace(cc, entry_number);
-   clockcache_log(page->disk_addr,
+   clockcache_log(page_handle_addr(page),
                   entry_number,
                   "unlock: entry %u addr %lu\n",
                   entry_number,
-                  page->disk_addr);
+                  page_handle_addr(page));
    debug_only uint32 was_writing =
       clockcache_clear_flag(cc, entry_number, CC_WRITELOCKED);
    debug_assert(was_writing);
@@ -2983,7 +2979,7 @@ clockcache_writeback_page(clockcache              *cc,
 {
    uint32          entry_number = clockcache_page_to_entry_number(cc, page);
    async_io_state *state;
-   uint64          addr = page->disk_addr;
+   uint64          addr = page_handle_addr(page);
    const threadid  tid  = platform_get_tid();
    platform_status status;
 
@@ -3025,7 +3021,7 @@ clockcache_writeback_page(clockcache              *cc,
                          platform_status_to_string(status));
    }
    platform_assert_status_ok(status);
-   status = io_async_state_append_page(state->iostate, page->data);
+   status = io_async_state_append_page(state->iostate, page_handle_data(page));
    if (!SUCCESS(status)) {
       platform_error_log("clockcache_writeback_page: "
                          "io_async_state_append_page failed for addr %lu, "
@@ -3471,8 +3467,8 @@ clockcache_prefetch_pages(clockcache *cc,
                cc, CC_READ_LOADING_STATUS, type, FALSE, TRUE);
             clockcache_entry *entry = &cc->entry[free_entry_no];
             clockcache_entry_set_addr(entry, addr);
-            entry->type             = type;
-            uint64 lookup_no        = clockcache_lookup_number(cc, addr);
+            entry->type      = type;
+            uint64 lookup_no = clockcache_lookup_number(cc, addr);
 
             if (state == NULL) {
                state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
@@ -3638,7 +3634,7 @@ void
 clockcache_validate_page(clockcache *cc, page_handle *page, uint64 addr)
 {
    debug_assert(allocator_page_valid(cc->al, addr));
-   debug_assert(page->disk_addr == addr);
+   debug_assert(page_handle_addr(page) == addr);
    debug_assert(!clockcache_test_flag(
       cc, clockcache_page_to_entry_number(cc, page), CC_FREE));
 }
@@ -3850,7 +3846,7 @@ clockcache_get_read_ref(clockcache *cc, page_handle *page)
 bool32
 clockcache_present(clockcache *cc, page_handle *page)
 {
-   return clockcache_lookup(cc, page->disk_addr) != CC_UNMAPPED_ENTRY;
+   return clockcache_lookup(cc, page_handle_addr(page)) != CC_UNMAPPED_ENTRY;
 }
 
 static void
@@ -4029,8 +4025,7 @@ clockcache_get_async_state_result_virtual(void *payload, page_handle *page)
 {
    clockcache_get_async_state *state = (clockcache_get_async_state *)payload;
    if (SUCCESS(state->result_status)) {
-      page->data         = state->__async_result->data;
-      page->disk_addr    = state->addr;
+      page->page         = state->__async_result;
       page->read_ref_tid = state->tid;
    }
    return state->result_status;

@@ -158,13 +158,13 @@ mini_recover_references(cache *cc, uint64 meta_head, page_type type);
  * can do other work and retry later (the meta page lands shortly).
  */
 typedef struct mini_meta_cursor {
-   cache       *cc;
-   page_type    meta_type;
-   page_handle  meta_page;    // currently held meta page, or zero
-   uint64       meta_addr;    // addr of meta_page, or the next page to load
-   uint64       meta_page_no; // ordinal of meta_page in the metadata stream
-   uint64       entry_idx;    // index of the current entry on meta_page
-   uint64       num_entries;  // number of entries on meta_page
+   cache      *cc;
+   page_type   meta_type;
+   page_handle meta_page;    // currently held meta page, or zero
+   uint64      meta_addr;    // addr of meta_page, or the next page to load
+   uint64      meta_page_no; // ordinal of meta_page in the metadata stream
+   uint64      entry_idx;    // index of the current entry on meta_page
+   uint64      num_entries;  // number of entries on meta_page
 } mini_meta_cursor;
 
 // Result of a non-blocking cursor operation.

@@ -67,18 +67,11 @@ typedef uint32 entry_status; // Saved in clockcache_entry->status
  * clockcache_entry --
  *
  *     The meta data entry in the cache. Each entry has the underlying
- *     page_handle together with some flags.
+ *     shared cache_page identity together with some flags.
  *-----------------------------------------------------------------------------
  */
-/* Shared slot identity excludes the read-reference receipt: that belongs to
- * each caller-owned handle, not to the cached page. */
-typedef struct {
-   char  *data;
-   uint64 disk_addr;
-} clockcache_page;
-
 struct clockcache_entry {
-   clockcache_page page;
+   cache_page page;
    // Accessed atomically; see clockcache_get_status() and the flag helpers.
    volatile entry_status status;
    /* Published before CC_LOADING is cleared; protected by the read reference.

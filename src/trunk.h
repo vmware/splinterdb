@@ -186,12 +186,12 @@ typedef struct trunk_snapshot {
 } trunk_snapshot;
 
 typedef struct trunk_ondisk_node_handle {
-   cache       *cc;
-   uint64       page_size;
-   uint64       extent_size;
-   page_handle  header_page;
-   page_handle  pivot_page;
-   page_handle  inflight_bundle_page;
+   cache      *cc;
+   uint64      page_size;
+   uint64      extent_size;
+   page_handle header_page;
+   page_handle pivot_page;
+   page_handle inflight_bundle_page;
 } trunk_ondisk_node_handle;
 
 /********************************

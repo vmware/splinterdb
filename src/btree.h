@@ -91,9 +91,9 @@ typedef struct btree_config {
 typedef struct ONDISK btree_hdr btree_hdr;
 
 typedef struct btree_node {
-   uint64       addr;
-   page_handle  page;
-   btree_hdr   *hdr;
+   uint64      addr;
+   page_handle page;
+   btree_hdr  *hdr;
 } btree_node;
 
 typedef struct {

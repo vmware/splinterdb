@@ -255,7 +255,7 @@ routing_get_header(cache                *cc,
    if (index_page_no > (UINT64_MAX - filter_addr) / page_size) {
       return STATUS_INVALID_STATE;
    }
-   uint64       index_addr = filter_addr + page_size * index_page_no;
+   uint64          index_addr = filter_addr + page_size * index_page_no;
    page_handle     index_storage;
    page_handle    *index_page = &index_storage;
    platform_status rc =
@@ -263,7 +263,8 @@ routing_get_header(cache                *cc,
    if (!SUCCESS(rc)) {
       return rc;
    }
-   *hdr_raw_addr = ((uint64 *)index_page->data)[index % addrs_per_page];
+   *hdr_raw_addr =
+      ((uint64 *)page_handle_data(index_page))[index % addrs_per_page];
    cache_unget(cc, index_page);
    if (*hdr_raw_addr == 0 || *hdr_raw_addr % sizeof(uint32) != 0) {
       return STATUS_INVALID_STATE;
@@ -302,10 +303,10 @@ routing_header_view_init(const routing_config *cfg,
                          routing_header_view  *view)
 {
    uint64 page_size = cfg->page_size;
-   if (filter_page == NULL || hdr_raw_addr < filter_page->disk_addr) {
+   if (filter_page == NULL || hdr_raw_addr < page_handle_addr(filter_page)) {
       return STATUS_INVALID_STATE;
    }
-   uint64 header_off = hdr_raw_addr - filter_page->disk_addr;
+   uint64 header_off = hdr_raw_addr - page_handle_addr(filter_page);
    if (header_off > page_size || page_size - header_off < sizeof(routing_hdr)
        || hdr_raw_addr % sizeof(uint32) != 0 || bits_per_item == 0
        || bits_per_item > 32)
@@ -313,8 +314,9 @@ routing_header_view_init(const routing_config *cfg,
       return STATUS_INVALID_STATE;
    }
 
-   routing_hdr *hdr = (routing_hdr *)(filter_page->data + header_off);
-   uint64       num_remainders = hdr->num_remainders;
+   routing_hdr *hdr =
+      (routing_hdr *)(page_handle_data(filter_page) + header_off);
+   uint64 num_remainders = hdr->num_remainders;
    if (num_remainders > ROUTING_FPS_PER_PAGE) {
       return STATUS_INVALID_STATE;
    }
@@ -679,8 +681,8 @@ routing_filter_add(cache                *cc,
    uint64         num_index_pages                  = 0;
    page_handle    index_storage[MAX_PAGES_PER_EXTENT];
    page_handle    filter_storage;
-   page_handle   *filter_page                      = NULL;
-   page_handle    old_filter_node                  = {0};
+   page_handle   *filter_page     = NULL;
+   page_handle    old_filter_node = {0};
    rc = allocator_alloc(al, &meta_head, PAGE_TYPE_FILTER);
    if (!SUCCESS(rc)) {
       goto cleanup;
@@ -742,7 +744,7 @@ routing_filter_add(cache                *cc,
       rc = STATUS_NO_MEMORY;
       goto cleanup;
    }
-   char  *filter_cursor           = filter_page->data;
+   char  *filter_cursor           = page_handle_data(filter_page);
    uint64 bytes_remaining_on_page = page_size;
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
@@ -948,7 +950,7 @@ routing_filter_add(cache                *cc,
             }
 
             bytes_remaining_on_page = page_size;
-            filter_cursor           = filter_page->data;
+            filter_cursor           = page_handle_data(filter_page);
          }
 
          // Set the index_no
@@ -961,10 +963,12 @@ routing_filter_add(cache                *cc,
             rc = STATUS_INVALID_STATE;
             goto cleanup;
          }
-         uint64 *index_cursor = (uint64 *)(index_page[index_page_no]->data);
+         uint64 *index_cursor =
+            (uint64 *)(page_handle_data(index_page[index_page_no]));
          index_cursor += index_offset;
-         uint64 filter_page_offset = filter_cursor - filter_page->data;
-         *index_cursor             = addr + filter_page_offset;
+         uint64 filter_page_offset =
+            filter_cursor - page_handle_data(filter_page);
+         *index_cursor = addr + filter_page_offset;
 
          routing_hdr *hdr    = (routing_hdr *)filter_cursor;
          hdr->num_remainders = fps_added;
@@ -1011,7 +1015,7 @@ routing_filter_add(cache                *cc,
    return STATUS_OK;
 
 cleanup:
-   if (old_filter_node.data != NULL) {
+   if (!page_handle_is_null(&old_filter_node)) {
       routing_unget_header(cc, &old_filter_node);
    }
    if (filter_page != NULL) {
@@ -1084,7 +1088,7 @@ routing_filter_prefetch(cache                *cc,
       }
       for (index_no = 0; index_no < max_index_no; index_no++) {
          uint64 hdr_raw_addr =
-            ((uint64 *)index_page->data)[index_no % addrs_per_page];
+            ((uint64 *)page_handle_data(index_page))[index_no % addrs_per_page];
          if (hdr_raw_addr == 0 || hdr_raw_addr % sizeof(uint32) != 0) {
             cache_unget(cc, index_page);
             return STATUS_INVALID_STATE;
@@ -1190,10 +1194,10 @@ routing_filter_estimate_unique_fp(cache                *cc,
 
          for (uint32 index_no = 0; index_no < num_indices; index_no++) {
             // process metadata
-            char        *block_start;
-            uint16       index_count = 0;
-            page_handle  filter_node = {0};
-            uint64       hdr_raw_addr;
+            char       *block_start;
+            uint16      index_count = 0;
+            page_handle filter_node = {0};
+            uint64      hdr_raw_addr;
             rc = routing_get_header(
                cc, cfg, filter[i].addr, index_no, &filter_node, &hdr_raw_addr);
             if (!SUCCESS(rc)) {
@@ -1343,8 +1347,8 @@ routing_get_header_async(routing_filter_lookup_async_state *state, uint64 depth)
       }
    }
 
-   state->hdr_raw_addr =
-      ((uint64 *)state->index_page.data)[state->index % state->addrs_per_page];
+   state->hdr_raw_addr = ((uint64 *)page_handle_data(
+      &state->index_page))[state->index % state->addrs_per_page];
    cache_unget(state->cc, &state->index_page);
    state->index_page = (page_handle){0};
    if (state->hdr_raw_addr == 0 || state->hdr_raw_addr % sizeof(uint32) != 0) {
@@ -1481,8 +1485,8 @@ routing_filter_lookup(cache                *cc,
       return STATUS_INVALID_STATE;
    }
 
-   page_handle  filter_node = {0};
-   uint64       hdr_raw_addr;
+   page_handle filter_node = {0};
+   uint64      hdr_raw_addr;
    rc = routing_get_header(
       cc, cfg, filter->addr, index, &filter_node, &hdr_raw_addr);
    if (!SUCCESS(rc)) {
@@ -1747,8 +1751,8 @@ routing_filter_print(cache *cc, routing_config *cfg, routing_filter *filter)
    for (i = 0; i < params.num_indices; i++) {
       platform_default_log("----------------------------------------\n");
       platform_default_log("--- Index 0x%lx\n", i);
-      page_handle  filter_page = {0};
-      uint64       hdr_raw_addr;
+      page_handle filter_page = {0};
+      uint64      hdr_raw_addr;
       rc = routing_get_header(
          cc, cfg, filter->addr, i, &filter_page, &hdr_raw_addr);
       if (!SUCCESS(rc)) {

@@ -12,13 +12,47 @@
 #include "allocator.h"
 #include "async.h"
 
-typedef struct page_handle {
+/* Shared page identity, immutable while a successful handle owns a reference.
+ * Cache implementations keep this object alive until the reference is released.
+ * Callers access it through page_handle_data()/page_handle_addr(). */
+typedef struct cache_page {
    char  *data;
    uint64 disk_addr;
-   /* Receipt for the cache read reference, independent of the thread that
-    * later owns this handle. Not an extra reference and not a thread pin. */
+} cache_page;
+
+/* Caller-owned receipt for one cache reference. Copying it transfers ownership;
+ * it does not acquire another reference. cache_unget() clears this receipt. */
+typedef struct page_handle {
+   cache_page *page;
+   /* Stripe receipt, independent of the thread that later owns the handle. */
    threadid read_ref_tid;
 } page_handle;
+
+static inline bool32
+page_handle_is_null(const page_handle *page)
+{
+   return page->page == NULL;
+}
+
+static inline bool32
+page_handle_same_page(const page_handle *a, const page_handle *b)
+{
+   return a->page == b->page;
+}
+
+/* These accessors require a live, successful handle. Neither the identity
+ * pointer nor the returned data pointer may be retained after cache_unget(). */
+static inline char *
+page_handle_data(const page_handle *page)
+{
+   return page->page->data;
+}
+
+static inline uint64
+page_handle_addr(const page_handle *page)
+{
+   return page->page->disk_addr;
+}
 
 typedef struct cache_config cache_config;
 typedef struct cache        cache;
@@ -289,7 +323,7 @@ struct cache {
  *
  * Fills the caller-owned handle and returns it with the write lock held.
  * On failure returns NULL and clears the handle. The handle can be moved to
- * another thread with ordinary synchronization, just like cache_get().
+ * another registered thread with ordinary synchronization, like cache_get().
  *----------------------------------------------------------------------
  */
 static inline page_handle *
@@ -401,7 +435,8 @@ cache_get_async_state_result(page_get_async_state_buffer *buffer,
 static inline void
 cache_unget(cache *cc, page_handle *page)
 {
-   return cc->ops->page_unget(cc, page);
+   cc->ops->page_unget(cc, page);
+   ZERO_CONTENTS(page);
 }
 
 /*

@@ -1,6 +1,6 @@
 # Cross-thread page handles
 
-This branch is stacked on project 1, `robj/cache-errors` at `c409c6b`. Compare
+This branch is stacked on project 1, `robj/cache-errors` at `068fef0`. Compare
 performance against that commit to isolate the handoff change.
 
 ## Implementation and contract
@@ -13,19 +13,19 @@ ordinary synchronization. The acquiring thread may exit and its registration ID
 may be reused while the handle remains live. A copied handle does not acquire an
 extra reference: ownership still transfers and the reference is released once.
 
-`cache_alloc()` now accepts an output handle and returns that handle on success
-(or NULL with a cleared handle on failure). Retained log-page handles are stored
-by value, and mini-allocator metadata rollover preserves the old receipt until
-its page is released. Sync and async gets never modify another user's receipt.
+Project 1 supplies caller-owned storage for both `cache_get()` and
+`cache_alloc()`. This change adds the acquisition stripe to each successful
+receipt. Sync and async gets never modify another user's receipt.
 
 Public iterators may be advanced, reversed, and destroyed on a different thread;
 only one thread may access an iterator at a time and it must be destroyed before
 closing its database. The existing warning about a live mutable-leaf iterator
 blocking an insert remains applicable.
 
-The public handle grows from 16 to 24 bytes on this platform. Cache entries keep
-a separate private 16-byte page identity and remain 64 bytes; a static assertion
-checks this layout. Reference increments/decrements already used atomic
+The public handle grows from 8 to 16 bytes on this platform: a shared-page
+identity pointer plus the reference-stripe receipt. Cache entries keep a shared
+16-byte page identity and remain 64 bytes; a static assertion checks this layout.
+Reference increments/decrements already used atomic
 read-modify-write operations, and the stripe loads were already sequentially
 consistent. Their operations and ordering are unchanged. Lock upgrade waits for
 all references except the single reference represented by the given handle,
@@ -33,7 +33,7 @@ including extra references in the same stripe after registration-ID reuse.
 
 ## Validation
 
-The final private-slot layout passed the following checks on 2026-10-11.
+The compact receipt layout passed the following checks on 2026-10-11.
 The full debug build passed, along with all 16 writeback-set tests, all 48
 public quick tests, all 3 trunk-split tests, both async trunk tests, both log
 allocation/packing tests, and the listed functional drivers. The release

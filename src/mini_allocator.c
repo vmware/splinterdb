@@ -123,7 +123,8 @@ meta_entry_pack(cache      *cc,
 static meta_entry *
 first_entry(page_handle *meta_page)
 {
-   return (meta_entry *)((mini_meta_hdr *)meta_page->data)->entry_buffer;
+   return (meta_entry *)((mini_meta_hdr *)page_handle_data(meta_page))
+      ->entry_buffer;
 }
 
 static meta_entry *
@@ -173,7 +174,7 @@ mini_init_meta_page(mini_allocator *mini,
                     page_handle    *meta_page,
                     uint64          meta_page_no)
 {
-   mini_meta_hdr *hdr  = (mini_meta_hdr *)meta_page->data;
+   mini_meta_hdr *hdr  = (mini_meta_hdr *)page_handle_data(meta_page);
    hdr->next_meta_addr = 0;
    hdr->prev_meta_addr = 0;
    hdr->meta_page_no   = meta_page_no;
@@ -402,7 +403,7 @@ mini_init_with_types(mini_allocator  *mini,
 static uint64
 mini_num_entries(page_handle *meta_page)
 {
-   mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
+   mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(meta_page);
    return hdr->num_entries;
 }
 
@@ -430,7 +431,7 @@ mini_append_entry_to_page(mini_allocator *mini,
    platform_assert(extent_addr != 0);
    platform_assert((extent_addr % page_size) == 0);
 
-   mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
+   mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(meta_page);
 
    if (!entry_fits_in_page(page_size, hdr->pos, sizeof(meta_entry))) {
       return FALSE;
@@ -509,7 +510,7 @@ mini_unlock_batch_set_next_addr(mini_allocator *mini,
 static uint64
 mini_get_next_meta_addr(page_handle *meta_page)
 {
-   mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
+   mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(meta_page);
    return hdr->next_meta_addr;
 }
 
@@ -518,7 +519,7 @@ mini_set_next_meta_addr(mini_allocator *mini,
                         page_handle    *meta_page,
                         uint64          next_meta_addr)
 {
-   mini_meta_hdr *hdr  = (mini_meta_hdr *)meta_page->data;
+   mini_meta_hdr *hdr  = (mini_meta_hdr *)page_handle_data(meta_page);
    hdr->next_meta_addr = next_meta_addr;
 }
 
@@ -527,7 +528,7 @@ mini_set_prev_meta_addr(mini_allocator *mini,
                         page_handle    *meta_page,
                         uint64          prev_meta_addr)
 {
-   mini_meta_hdr *hdr  = (mini_meta_hdr *)meta_page->data;
+   mini_meta_hdr *hdr  = (mini_meta_hdr *)page_handle_data(meta_page);
    hdr->prev_meta_addr = prev_meta_addr;
 }
 
@@ -540,7 +541,7 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   bool32       success;
+   bool32 success;
    success = mini_append_entry_to_page(
       mini, meta_page, next_addr, mini->types[batch], batch);
    if (!success) {
@@ -562,8 +563,9 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
 
       page_handle    last_meta_storage = *meta_page;
       page_handle   *last_meta_page    = &last_meta_storage;
-      uint64         last_meta_addr = old_meta_tail;
-      mini_meta_hdr *last_meta_hdr  = (mini_meta_hdr *)meta_page->data;
+      uint64         last_meta_addr    = old_meta_tail;
+      mini_meta_hdr *last_meta_hdr =
+         (mini_meta_hdr *)page_handle_data(meta_page);
       platform_assert(last_meta_hdr->meta_page_no != UINT64_MAX,
                       "mini allocator metadata page number overflow");
       uint64 new_meta_page_no = last_meta_hdr->meta_page_no + 1;
@@ -816,8 +818,8 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type)
       if (!SUCCESS(rc)) {
          return rc;
       }
-      uint64       last_meta_addr = meta_addr;
-      meta_addr                   = mini_get_next_meta_addr(meta_page);
+      uint64 last_meta_addr = meta_addr;
+      meta_addr             = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
 
       allocator_config *allocator_cfg =
@@ -923,7 +925,7 @@ mini_for_each_meta_page(cache                     *cc,
          return rc;
       }
 
-      if (meta_page->disk_addr != meta_addr) {
+      if (page_handle_addr(meta_page) != meta_addr) {
          cache_unget(cc, meta_page);
          return mini_metadata_corruption("metadata page address mismatch",
                                          meta_addr);
@@ -1295,8 +1297,8 @@ mini_validate_meta_page_contents(cache       *cc,
       return mini_metadata_corruption("metadata page is invalid", 0);
    }
 
-   uint64          meta_addr = meta_page->disk_addr;
-   mini_meta_hdr  *hdr       = (mini_meta_hdr *)meta_page->data;
+   uint64          meta_addr = page_handle_addr(meta_page);
+   mini_meta_hdr  *hdr       = (mini_meta_hdr *)page_handle_data(meta_page);
    platform_status rc        = mini_validate_meta_header(hdr,
                                                   cfg->io_cfg->page_size,
                                                   expected_prev,
@@ -1340,14 +1342,14 @@ mini_meta_cursor_validate_page(mini_meta_cursor *cursor,
                                uint64            expected_page_no,
                                bool32            check_page_no)
 {
-   mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
+   mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(meta_page);
    return mini_validate_meta_header(hdr,
                                     cache_page_size(cursor->cc),
                                     expected_prev,
                                     check_prev,
                                     expected_page_no,
                                     check_page_no,
-                                    meta_page->disk_addr);
+                                    page_handle_addr(meta_page));
 }
 
 static platform_status
@@ -1404,7 +1406,7 @@ mini_recover_visit_meta_page(cache       *cc,
    mini_recover_state *state = (mini_recover_state *)arg;
    (void)type;
 
-   mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
+   mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(meta_page);
 
    meta_entry *entry = first_entry(meta_page);
    for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
@@ -1553,10 +1555,10 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
       return MINI_META_CURSOR_INVALID;
    }
 
-   mini_meta_hdr *hdr          = (mini_meta_hdr *)cursor->meta_page.data;
-   cursor->meta_page_no        = hdr->meta_page_no;
-   cursor->num_entries         = mini_num_entries(&cursor->meta_page);
-   cursor->entry_idx           = 0;
+   mini_meta_hdr *hdr   = (mini_meta_hdr *)page_handle_data(&cursor->meta_page);
+   cursor->meta_page_no = hdr->meta_page_no;
+   cursor->num_entries  = mini_num_entries(&cursor->meta_page);
+   cursor->entry_idx    = 0;
    uint64 target_extent_number = target_extent_addr / cfg->io_cfg->extent_size;
    while (cursor->entry_idx < cursor->num_entries) {
       meta_entry *entry = first_entry(&cursor->meta_page) + cursor->entry_idx;
@@ -1588,7 +1590,7 @@ mini_meta_cursor_deinit(mini_meta_cursor *cursor)
 {
    platform_assert(cursor != NULL);
 
-   if (cursor->meta_page.data != NULL) {
+   if (!page_handle_is_null(&cursor->meta_page)) {
       cache_unget(cursor->cc, &cursor->meta_page);
       cursor->meta_page = (page_handle){0};
    }
@@ -1609,7 +1611,7 @@ mini_meta_cursor_curr(mini_meta_cursor *cursor,
    platform_assert(batch != NULL);
    platform_assert(PAGE_TYPE_FIRST <= cursor->meta_type
                    && cursor->meta_type < NUM_PAGE_TYPES);
-   platform_assert(cursor->meta_page.data != NULL);
+   platform_assert(!page_handle_is_null(&cursor->meta_page));
    platform_assert(cursor->entry_idx < cursor->num_entries);
 
    meta_entry *entry = first_entry(&cursor->meta_page) + cursor->entry_idx;
@@ -1620,7 +1622,8 @@ mini_meta_cursor_curr(mini_meta_cursor *cursor,
 mini_meta_cursor_status
 mini_meta_cursor_next(mini_meta_cursor *cursor)
 {
-   if (cursor == NULL || cursor->cc == NULL || cursor->meta_page.data == NULL
+   if (cursor == NULL || cursor->cc == NULL
+       || page_handle_is_null(&cursor->meta_page)
        || cursor->entry_idx >= cursor->num_entries)
    {
       return MINI_META_CURSOR_INVALID;
@@ -1691,7 +1694,8 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
 mini_meta_cursor_status
 mini_meta_cursor_prev(mini_meta_cursor *cursor)
 {
-   if (cursor == NULL || cursor->cc == NULL || cursor->meta_page.data == NULL
+   if (cursor == NULL || cursor->cc == NULL
+       || page_handle_is_null(&cursor->meta_page)
        || cursor->entry_idx >= cursor->num_entries)
    {
       return MINI_META_CURSOR_INVALID;
@@ -1707,7 +1711,7 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_ENTRY;
    }
 
-   mini_meta_hdr *hdr       = (mini_meta_hdr *)cursor->meta_page.data;
+   mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(&cursor->meta_page);
    uint64         prev_addr = hdr->prev_meta_addr;
    if (prev_addr == 0) {
       return MINI_META_CURSOR_END;
@@ -1738,11 +1742,11 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
    }
    rc = mini_meta_cursor_validate_page(
       cursor, prev_page, 0, FALSE, cursor->meta_page_no - 1, TRUE);
-   mini_meta_hdr *prev_hdr = (mini_meta_hdr *)prev_page->data;
+   mini_meta_hdr *prev_hdr = (mini_meta_hdr *)page_handle_data(prev_page);
    uint64 prev_num_entries = SUCCESS(rc) ? mini_num_entries(prev_page) : 0;
    if (SUCCESS(rc)) {
       rc = mini_validate_next_meta_addr(
-         cfg, prev_page->disk_addr, prev_hdr->next_meta_addr);
+         cfg, page_handle_addr(prev_page), prev_hdr->next_meta_addr);
    }
    if (!SUCCESS(rc) || prev_hdr->next_meta_addr != cursor->meta_addr
        || prev_num_entries == 0)
