@@ -363,6 +363,16 @@ def main():
                                 "p99": float(row["insert_response_p99_ms"]),
                                 "p999": float(row["insert_response_p999_ms"])})
 
+    def open_loop_overloaded(target, points):
+        if target == 0:
+            return False
+        for version in ("head", "main"):
+            achieved = [p["achieved"] for p in points
+                        if p["target"] == target and p["version"] == version]
+            if achieved and median(achieved) < 0.99 * target:
+                return True
+        return False
+
     bar_svg(core, graphs / "core-throughput.svg")
     representatives = []
     for version in ("head", "main"):
@@ -418,7 +428,10 @@ def main():
                  "response_p99_ms": p["p99"]} for p in selected]
         for metric in ("achieved_insert_ops_s", "response_p99_ms"):
             comparison = paired_summary(fake, metric)
-            if comparison and "regression" in comparison["flag"]:
+            overloaded = (metric == "response_p99_ms"
+                          and open_loop_overloaded(target, open_points))
+            if (comparison and not overloaded
+                    and "regression" in comparison["flag"]):
                 enhanced_flags.append(
                     f"Open-loop target {target} `{metric}`: "
                     f"{comparison['improvement_pct']:+.1f}% "
@@ -512,7 +525,8 @@ def main():
 
     report += ["", "## Paced open-loop insertion", "",
                "Each point uses scheduled arrivals. Response latency starts at the scheduled arrival and therefore includes queueing backlog; "
-               "service latency starts when the library call begins. The target-0 point is closed-loop capacity and is listed in the table but omitted from the curve because it has no scheduled-arrival backlog.", ""]
+               "service latency starts when the library call begins. The target-0 point is closed-loop capacity and is listed in the table but omitted from the curve because it has no scheduled-arrival backlog. "
+               "When either version sustains less than 99% of an offered rate, the queue is considered overloaded: its response latency depends on run duration and is reported as characterization rather than classified as a regression.", ""]
     if open_points:
         report += ["| version | rep | offered ops/s | achieved ops/s | response p99 ms | response p99.9 ms |",
                    "|---|---:|---:|---:|---:|---:|"]
@@ -529,10 +543,14 @@ def main():
             for metric in ("achieved_insert_ops_s", "response_p99_ms"):
                 comparison = paired_summary(fake, metric)
                 if comparison:
+                    flag = comparison["flag"]
+                    if (metric == "response_p99_ms"
+                            and open_loop_overloaded(target, open_points)):
+                        flag = "overload characterization"
                     report.append(f"| {target} | {metric} | {fmt(comparison['head'])} | "
                                   f"{fmt(comparison['main'])} | {comparison['improvement_pct']:+.1f}% | "
                                   f"{' '.join(f'{p:+.1f}%' for p in comparison['pairs'])} | "
-                                  f"{comparison['flag']} |")
+                                  f"{flag} |")
         report += ["", "![Open-loop curve](graphs/open-loop.svg)"]
     else:
         report.append("No completed open-loop runs.")
