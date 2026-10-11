@@ -541,7 +541,7 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
    if (!SUCCESS(rc)) {
       return rc;
    }
-   bool32       success;
+   bool32 success;
    success = mini_append_entry_to_page(
       mini, meta_page, next_addr, mini->types[batch], batch);
    if (!success) {
@@ -563,7 +563,7 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
 
       page_handle    last_meta_storage = *meta_page;
       page_handle   *last_meta_page    = &last_meta_storage;
-      uint64         last_meta_addr = old_meta_tail;
+      uint64         last_meta_addr    = old_meta_tail;
       mini_meta_hdr *last_meta_hdr =
          (mini_meta_hdr *)page_handle_data(meta_page);
       platform_assert(last_meta_hdr->meta_page_no != UINT64_MAX,
@@ -818,8 +818,8 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type)
       if (!SUCCESS(rc)) {
          return rc;
       }
-      uint64       last_meta_addr = meta_addr;
-      meta_addr                   = mini_get_next_meta_addr(meta_page);
+      uint64 last_meta_addr = meta_addr;
+      meta_addr             = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
 
       allocator_config *allocator_cfg =
@@ -1555,10 +1555,10 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
       return MINI_META_CURSOR_INVALID;
    }
 
-   mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(&cursor->meta_page);
-   cursor->meta_page_no        = hdr->meta_page_no;
-   cursor->num_entries         = mini_num_entries(&cursor->meta_page);
-   cursor->entry_idx           = 0;
+   mini_meta_hdr *hdr   = (mini_meta_hdr *)page_handle_data(&cursor->meta_page);
+   cursor->meta_page_no = hdr->meta_page_no;
+   cursor->num_entries  = mini_num_entries(&cursor->meta_page);
+   cursor->entry_idx    = 0;
    uint64 target_extent_number = target_extent_addr / cfg->io_cfg->extent_size;
    while (cursor->entry_idx < cursor->num_entries) {
       meta_entry *entry = first_entry(&cursor->meta_page) + cursor->entry_idx;

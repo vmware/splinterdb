@@ -4142,7 +4142,7 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
    }
    state->itor->curr.hdr =
       (btree_hdr *)page_handle_data(&state->itor->curr.page);
-   platform_status rc    = btree_node_read_header(state->itor->cc,
+   platform_status rc = btree_node_read_header(state->itor->cc,
                                                state->itor->cfg,
                                                &state->itor->curr,
                                                state->itor->page_type);
@@ -4309,7 +4309,7 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
       }
       state->live_curr.hdr =
          (btree_hdr *)page_handle_data(&state->live_curr.page);
-      platform_status rc   = btree_node_read_header(state->itor->cc,
+      platform_status rc = btree_node_read_header(state->itor->cc,
                                                   state->itor->cfg,
                                                   &state->live_curr,
                                                   state->itor->page_type);
@@ -4357,7 +4357,7 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    }
    state->itor->curr.hdr =
       (btree_hdr *)page_handle_data(&state->itor->curr.page);
-   platform_status rc    = btree_node_read_header(state->itor->cc,
+   platform_status rc = btree_node_read_header(state->itor->cc,
                                                state->itor->cfg,
                                                &state->itor->curr,
                                                state->itor->page_type);
@@ -4427,7 +4427,7 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
       }
       state->itor->curr.hdr =
          (btree_hdr *)page_handle_data(&state->itor->curr.page);
-      rc                    = btree_node_read_header(state->itor->cc,
+      rc = btree_node_read_header(state->itor->cc,
                                   state->itor->cfg,
                                   &state->itor->curr,
                                   state->itor->page_type);
@@ -5413,7 +5413,7 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
    }
 
    btree_hdr_set_last_in_level(req->edge[req->height][0].hdr);
-   root.addr = req->root_addr;
+   root.addr          = req->root_addr;
    platform_status rc = btree_node_get(cc, cfg, &root, PAGE_TYPE_BRANCH);
    if (!SUCCESS(rc)) {
       return rc;

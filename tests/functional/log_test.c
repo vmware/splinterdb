@@ -1758,7 +1758,7 @@ test_log_malformed_record_bounds(clockcache        *cc,
    platform_assert(hdr->num_entries == 1);
    ondisk_tuple *tuple = (ondisk_tuple *)(page_handle_data(page) + sizeof(*hdr)
                                           + 2 * sizeof(uint64));
-   tuple->key_length = ONDISK_KEY_POSITIVE_INFINITY - 1;
+   tuple->key_length   = ONDISK_KEY_POSITIVE_INFINITY - 1;
    hdr->checksum =
       platform_checksum128(page_handle_data(page) + sizeof(checksum128),
                            cache_page_size(cacheh) - sizeof(checksum128),
@@ -2127,8 +2127,8 @@ test_log_missing_group_preserves_prefix(clockcache             *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   uint64         missing_addr = segment.addr + cache_page_size(cacheh);
-   page_handle    acquired_page =
+   uint64      missing_addr = segment.addr + cache_page_size(cacheh);
+   page_handle acquired_page =
       test_cache_get_page(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
    page_handle   *page = &acquired_page;
    shard_log_hdr *hdr  = (shard_log_hdr *)page_handle_data(page);

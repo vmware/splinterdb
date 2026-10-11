@@ -469,8 +469,8 @@ shard_log_validate_page_records(cache            *cc,
          return STATUS_INVALID_STATE;
       }
 
-      log_entry    *le = (log_entry *)(page_handle_data(page) + offset);
-      ondisk_tuple *tuple         = &le->tuple;
+      log_entry    *le    = (log_entry *)(page_handle_data(page) + offset);
+      ondisk_tuple *tuple = &le->tuple;
       message_type  message_class = ondisk_tuple_message_class(tuple);
       if (le->memtable_generation == INVALID_LOG_GENERATION
           || le->leaf_generation == INVALID_LOG_GENERATION
@@ -915,7 +915,7 @@ shard_log_group_malloc(shard_log *log, bool32 emergency)
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(group, thr_i);
-      thread_data->buf          = group->thread_buffers + thr_i * page_size;
+      thread_data->buf = group->thread_buffers + thr_i * page_size;
       ZERO_CONTENTS(&thread_data->incache_page);
       writeback_set_init(&thread_data->wbset, log->cc, log->heap_id);
    }
@@ -2243,7 +2243,7 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
          if (!SUCCESS(rc)) {
             return rc;
          }
-         bool32       ends_stream = FALSE;
+         bool32 ends_stream = FALSE;
          if (shard_log_valid(cfg, page, head.nonce)) {
             rc = shard_log_validate_page_records(cc, cfg, page);
             if (SUCCESS(rc)) {
@@ -2563,7 +2563,7 @@ shard_log_print(shard_log *log)
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       uint64 next_extent_addr = 0;
       for (uint64 i = 0; i < pages_per_extent; i++) {
-         uint64       page_addr = extent_addr + i * shard_log_page_size(cfg);
+         uint64          page_addr = extent_addr + i * shard_log_page_size(cfg);
          page_handle     page_storage;
          page_handle    *page = &page_storage;
          platform_status get_rc =

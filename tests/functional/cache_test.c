@@ -687,10 +687,10 @@ test_cache_writeback_fence(cache             *cc,
    platform_status rc            = STATUS_OK;
    uint64       pages_per_extent = cache_config_pages_per_extent(&cfg->super);
    uint64      *addr_arr         = NULL;
-   page_handle     old_page_storage;
-   page_handle    *old_page = NULL;
-   page_handle     new_page_storage;
-   page_handle    *new_page    = NULL;
+   page_handle  old_page_storage;
+   page_handle *old_page = NULL;
+   page_handle  new_page_storage;
+   page_handle *new_page    = NULL;
    bool32       new_claimed = FALSE, new_locked = FALSE;
    bool32       fence_thread_started = FALSE;
    const uint8  old_baseline = 0x11, old_value = 0x22;
@@ -866,8 +866,8 @@ test_cache_writeback_fence_claimed_page(cache             *cc,
    platform_status rc            = STATUS_OK;
    uint64       pages_per_extent = cache_config_pages_per_extent(&cfg->super);
    uint64      *addr_arr         = NULL;
-   page_handle     page_storage;
-   page_handle    *page    = NULL;
+   page_handle  page_storage;
+   page_handle *page    = NULL;
    bool32       claimed = FALSE, locked = FALSE;
    bool32       fence_thread_started = FALSE;
    const uint8  baseline = 0x55, final_value = 0x66;
@@ -1029,8 +1029,8 @@ cache_test_hammer_thread(void *arg)
    cache_hammer_context *ctxt = (cache_hammer_context *)arg;
    uint64                i    = 0;
    while (!__atomic_load_n(&ctxt->stop, __ATOMIC_ACQUIRE)) {
-      uint64       addr = ctxt->addrs[i % ctxt->num_addrs];
-      page_handle  acquired_page =
+      uint64      addr = ctxt->addrs[i % ctxt->num_addrs];
+      page_handle acquired_page =
          test_cache_get_page(ctxt->cc, addr, TRUE, PAGE_TYPE_MISC);
       page_handle *page = &acquired_page;
       if (cache_try_claim(ctxt->cc, page)) {
@@ -2306,8 +2306,8 @@ test_cache_idle_batches(clockcache *main_cc, platform_heap_id hid)
                                              "idle batches",
                                              hid,
                                              platform_get_module_id()));
-   uint64       *addrs = TYPED_ARRAY_MALLOC(hid, addrs, cfg.page_capacity);
-   page_handle  *pages = TYPED_ARRAY_MALLOC(hid, pages, cfg.page_capacity);
+   uint64      *addrs = TYPED_ARRAY_MALLOC(hid, addrs, cfg.page_capacity);
+   page_handle *pages = TYPED_ARRAY_MALLOC(hid, pages, cfg.page_capacity);
    platform_assert(addrs != NULL && pages != NULL);
    cache_batch_test test = {.cc            = (cache *)&cc,
                             .addrs         = addrs,

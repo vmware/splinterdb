@@ -37,9 +37,9 @@ typedef struct ONDISK trunk_async_test_pivot {
 } trunk_async_test_pivot;
 
 typedef struct trunk_async_test_cache {
-   cache        super;
-   page_handle *pivot_page;
-   uint64       async_calls;
+   cache           super;
+   page_handle    *pivot_page;
+   uint64          async_calls;
    platform_status result;
 } trunk_async_test_cache;
 
@@ -161,23 +161,23 @@ trunk_async_test_pivot_lookup(bool32 fail)
    };
    page_handle            header_page = {.page = &header_identity};
    page_handle            pivot_page  = {.page = &pivot_identity};
-   trunk_async_test_cache test_cc = {
-      .super      = {.ops = &trunk_async_test_cache_ops},
-      .pivot_page = &pivot_page,
-      .result     = fail ? STATUS_TIMEDOUT : STATUS_OK,
+   trunk_async_test_cache test_cc     = {
+          .super      = {.ops = &trunk_async_test_cache_ops},
+          .pivot_page = &pivot_page,
+          .result     = fail ? STATUS_TIMEDOUT : STATUS_OK,
    };
 
    trunk_async_test_node *header =
       (trunk_async_test_node *)page_handle_data(&header_page);
-   header->height                = 0;
-   header->num_pivots            = 2;
-   header->pivot_offsets[0]      = TRUNK_ASYNC_TEST_PAGE_SIZE;
-   header->pivot_offsets[1]      = 2 * TRUNK_ASYNC_TEST_PAGE_SIZE;
+   header->height           = 0;
+   header->num_pivots       = 2;
+   header->pivot_offsets[0] = TRUNK_ASYNC_TEST_PAGE_SIZE;
+   header->pivot_offsets[1] = 2 * TRUNK_ASYNC_TEST_PAGE_SIZE;
 
    trunk_async_test_pivot *pivot =
       (trunk_async_test_pivot *)page_handle_data(&pivot_page);
-   pivot->key.flags              = ONDISK_KEY_DEFAULT_FLAGS;
-   pivot->key.length             = 0;
+   pivot->key.flags  = ONDISK_KEY_DEFAULT_FLAGS;
+   pivot->key.length = 0;
 
    trunk_ondisk_node_handle handle = {
       .cc          = &test_cc.super,

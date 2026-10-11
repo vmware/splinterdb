@@ -120,8 +120,8 @@ test_filter_add_rejects_late_malformed_index(cache           *cc,
       goto out;
    }
 
-   uint64       page_size = cache_page_size(cc);
-   page_handle  index_page_handle =
+   uint64      page_size = cache_page_size(cc);
+   page_handle index_page_handle =
       test_filter_claim_page(cc, old_filter.addr, PAGE_TYPE_FILTER);
    page_handle *index_page   = &index_page_handle;
    uint64       hdr_raw_addr = ((uint64 *)page_handle_data(index_page))[1];
@@ -134,7 +134,7 @@ test_filter_add_rejects_late_malformed_index(cache           *cc,
    page_handle      *header_page = &header_page_handle;
    test_routing_hdr *hdr =
       (test_routing_hdr *)(page_handle_data(header_page) + header_off);
-   uint64 encoding_size  = (hdr->num_remainders + cfg->index_size - 1) / 8 + 4;
+   uint64 encoding_size = (hdr->num_remainders + cfg->index_size - 1) / 8 + 4;
    if (encoding_size < sizeof(uint64)) {
       test_filter_unclaim_page(cc, header_page);
       rc = STATUS_TEST_FAILED;
@@ -240,10 +240,10 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
 
-   uint64       page_size = cache_page_size(cc);
-   page_handle  index_page_handle =
+   uint64      page_size = cache_page_size(cc);
+   page_handle index_page_handle =
       test_filter_claim_page(cc, filter.addr, PAGE_TYPE_FILTER);
-   page_handle *index_page         = &index_page_handle;
+   page_handle *index_page   = &index_page_handle;
    uint64 saved_hdr_raw_addr = ((uint64 *)page_handle_data(index_page))[0];
    ((uint64 *)page_handle_data(index_page))[0] =
       saved_hdr_raw_addr - saved_hdr_raw_addr % page_size + page_size - 1;
@@ -264,10 +264,10 @@ test_filter_malicious_metadata(cache           *cc,
    page_handle      *header_page = &header_page_handle;
    test_routing_hdr *hdr =
       (test_routing_hdr *)(page_handle_data(header_page) + header_off);
-   uint16            saved_num_remainders = hdr->num_remainders;
-   hdr->num_remainders                    = UINT16_MAX;
+   uint16 saved_num_remainders = hdr->num_remainders;
+   hdr->num_remainders         = UINT16_MAX;
    test_filter_unclaim_page(cc, header_page);
-   rejected    = test_filter_lookup_rejects(cc, cfg, &filter, target);
+   rejected     = test_filter_lookup_rejects(cc, cfg, &filter, target);
    *header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
    hdr = (test_routing_hdr *)(page_handle_data(header_page) + header_off);
    hdr->num_remainders = saved_num_remainders;
@@ -289,7 +289,7 @@ test_filter_malicious_metadata(cache           *cc,
    memcpy(saved_encoding, hdr->encoding, encoding_size);
    memset(hdr->encoding, 0, encoding_size);
    test_filter_unclaim_page(cc, header_page);
-   rejected    = test_filter_lookup_rejects(cc, cfg, &filter, target);
+   rejected     = test_filter_lookup_rejects(cc, cfg, &filter, target);
    *header_page = test_filter_claim_page(cc, header_addr, PAGE_TYPE_FILTER);
    hdr = (test_routing_hdr *)(page_handle_data(header_page) + header_off);
    memcpy(hdr->encoding, saved_encoding, encoding_size);
@@ -481,7 +481,7 @@ test_filter_malicious_metadata(cache           *cc,
       &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
    mini_meta_cursor_deinit(&cursor);
    *meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr      = (test_mini_meta_hdr *)page_handle_data(meta_page);
+   meta_hdr   = (test_mini_meta_hdr *)page_handle_data(meta_page);
    meta_hdr->pos = saved_pos;
    test_filter_unclaim_page(cc, meta_page);
    if (cursor_rc != MINI_META_CURSOR_INVALID) {
@@ -493,7 +493,7 @@ test_filter_malicious_metadata(cache           *cc,
     * allocator considers metadata pages allocated. Verify both rejection and
     * a clean retry from a freshly reset recovery map. */
    *meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr      = (test_mini_meta_hdr *)page_handle_data(meta_page);
+   meta_hdr   = (test_mini_meta_hdr *)page_handle_data(meta_page);
    meta_hdr->pos = saved_pos + 1;
    test_filter_unclaim_page(cc, meta_page);
    allocator *al = cache_get_allocator(cc);
@@ -507,7 +507,7 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
    *meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr      = (test_mini_meta_hdr *)page_handle_data(meta_page);
+   meta_hdr   = (test_mini_meta_hdr *)page_handle_data(meta_page);
    meta_hdr->pos = saved_pos;
    test_filter_unclaim_page(cc, meta_page);
    rc = allocator_recovery_begin(al);
@@ -522,7 +522,7 @@ test_filter_malicious_metadata(cache           *cc,
 
    *meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
    meta_hdr   = (test_mini_meta_hdr *)page_handle_data(meta_page);
-   entry     = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   entry      = (test_mini_meta_entry *)meta_hdr->entry_buffer;
    uint64 saved_entry = entry->packed;
    entry->packed      = (saved_entry & ~UINT64_C(0xff)) | UINT64_C(0xff);
    test_filter_unclaim_page(cc, meta_page);
@@ -530,8 +530,8 @@ test_filter_malicious_metadata(cache           *cc,
       &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
    mini_meta_cursor_deinit(&cursor);
    *meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
-   meta_hdr      = (test_mini_meta_hdr *)page_handle_data(meta_page);
-   entry     = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   meta_hdr   = (test_mini_meta_hdr *)page_handle_data(meta_page);
+   entry      = (test_mini_meta_entry *)meta_hdr->entry_buffer;
    entry->packed = saved_entry;
    test_filter_unclaim_page(cc, meta_page);
    if (cursor_rc != MINI_META_CURSOR_INVALID) {

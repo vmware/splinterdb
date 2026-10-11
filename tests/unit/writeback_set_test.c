@@ -292,8 +292,8 @@ CTEST2(writeback_set, test_wait_makes_pages_clean)
    writeback_set_init(&set, ccp, data->hid);
 
    for (uint64 i = 0; i < num_pages; i++) {
-      uint64       addr = base_addr + i * page_size;
-      page_handle  acquired_page =
+      uint64      addr = base_addr + i * page_size;
+      page_handle acquired_page =
          test_cache_get_page(ccp, addr, TRUE, PAGE_TYPE_MISC);
       page_handle *page = &acquired_page;
       ASSERT_NOT_NULL(page);
@@ -375,8 +375,8 @@ CTEST2(writeback_set, test_add_clean_page)
    writeback_set set;
    writeback_set_init(&set, ccp, data->hid);
    for (uint64 i = 0; i < num_pages; i++) {
-      uint64       addr = base_addr + i * page_size;
-      page_handle  acquired_page =
+      uint64      addr = base_addr + i * page_size;
+      page_handle acquired_page =
          test_cache_get_page(ccp, addr, TRUE, PAGE_TYPE_MISC);
       page_handle *page = &acquired_page;
       ASSERT_NOT_NULL(page);
@@ -407,8 +407,8 @@ CTEST2(writeback_set, test_repeated_rounds)
       if (round > 0) {
          // Re-dirty every page.
          for (uint64 i = 0; i < num_pages; i++) {
-            uint64       addr = base_addr + i * page_size;
-            page_handle  acquired_page =
+            uint64      addr = base_addr + i * page_size;
+            page_handle acquired_page =
                test_cache_get_page(ccp, addr, TRUE, PAGE_TYPE_MISC);
             page_handle *page = &acquired_page;
             ASSERT_NOT_NULL(page);

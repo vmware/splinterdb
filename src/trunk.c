@@ -1033,7 +1033,7 @@ trunk_ondisk_node_read_header(trunk_ondisk_node_handle *handle)
 
    trunk_ondisk_node *header =
       (trunk_ondisk_node *)page_handle_data(&handle->header_page);
-   uint64             max_pivots =
+   uint64 max_pivots =
       (page_size - sizeof(*header)) / sizeof(header->pivot_offsets[0]);
    if (header->height >= TRUNK_MAX_HEIGHT || header->num_pivots < 2
        || max_pivots < header->num_pivots
@@ -1514,7 +1514,7 @@ trunk_ondisk_node_get_pivot_bundle(trunk_ondisk_node_handle *handle,
                                    uint64                    pivot_num,
                                    trunk_ondisk_bundle     **bundle)
 {
-   *bundle                   = NULL;
+   *bundle = NULL;
    trunk_ondisk_node *header =
       (trunk_ondisk_node *)page_handle_data(&handle->header_page);
    if (pivot_num + 1 >= header->num_pivots) {
@@ -1888,7 +1888,7 @@ trunk_pivot_deserialize(platform_heap_id          hid,
 {
    trunk_ondisk_node *header =
       (trunk_ondisk_node *)page_handle_data(&handle->header_page);
-   *pivot                    = NULL;
+   *pivot = NULL;
    trunk_ondisk_pivot *odp;
    platform_status     rc = trunk_ondisk_node_read_pivot(handle, i, &odp);
    if (!SUCCESS(rc)) {
@@ -2727,7 +2727,7 @@ static trunk_ondisk_node_ref *
 trunk_node_serialize(trunk_context *context, trunk_node *node)
 {
    platform_status        rc;
-   uint64                 header_addr  = 0;
+   uint64                 header_addr = 0;
    page_handle            header_storage, current_storage;
    page_handle           *header_page  = NULL;
    page_handle           *current_page = NULL;
@@ -2796,8 +2796,8 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
 
    trunk_ondisk_node *odnode =
       (trunk_ondisk_node *)page_handle_data(header_page);
-   odnode->height            = node->height;
-   odnode->num_pivots        = vector_length(&node->pivots);
+   odnode->height     = node->height;
+   odnode->num_pivots = vector_length(&node->pivots);
    odnode->num_inflight_bundles =
       vector_length(&node->inflight_bundles) - min_inflight_bundle_start;
 
@@ -8315,9 +8315,9 @@ visit_nodes(trunk_context *context,
 
 typedef struct space_use_stats {
    platform_status status;
-   uint64 trunk_bytes[TRUNK_MAX_HEIGHT];
-   uint64 maplet_bytes[TRUNK_MAX_HEIGHT];
-   uint64 branch_bytes[TRUNK_MAX_HEIGHT];
+   uint64          trunk_bytes[TRUNK_MAX_HEIGHT];
+   uint64          maplet_bytes[TRUNK_MAX_HEIGHT];
+   uint64          branch_bytes[TRUNK_MAX_HEIGHT];
 } space_use_stats;
 
 static void

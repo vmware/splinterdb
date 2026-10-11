@@ -102,7 +102,7 @@ test_splinter_pivot_bundle(page_handle *page,
    platform_assert(page_size - page_offset >= sizeof(test_trunk_pivot));
    test_trunk_pivot *pivot =
       (test_trunk_pivot *)(page_handle_data(page) + page_offset);
-   uint64            key_size = sizeof_ondisk_key_data(&pivot->key);
+   uint64 key_size = sizeof_ondisk_key_data(&pivot->key);
    platform_assert(key_size
                    <= page_size - page_offset - sizeof(test_trunk_pivot));
    test_trunk_bundle *bundle =
@@ -1398,9 +1398,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    merge_accumulator_deinit(&insert_msg);
    ASSERT_NOT_NULL(spl.trunk_context.root);
 
-   uint64       root_addr = spl.trunk_context.root->ref.addr;
-   uint64       page_size = cache_page_size(cc);
-   page_handle  root_page_handle =
+   uint64      root_addr = spl.trunk_context.root->ref.addr;
+   uint64      page_size = cache_page_size(cc);
+   page_handle root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
    page_handle         *root_page = &root_page_handle;
    test_trunk_node_hdr *node =
@@ -1537,9 +1537,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_stats)
    merge_accumulator_deinit(&insert_msg);
    ASSERT_NOT_NULL(spl.trunk_context.root);
 
-   uint64       root_addr = spl.trunk_context.root->ref.addr;
-   uint64       page_size = cache_page_size(cc);
-   page_handle  root_page_handle =
+   uint64      root_addr = spl.trunk_context.root->ref.addr;
+   uint64      page_size = cache_page_size(cc);
+   page_handle root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
    page_handle         *root_page = &root_page_handle;
    test_trunk_node_hdr *node =
@@ -1658,9 +1658,9 @@ CTEST2(splinter, test_malformed_trunk_child_height)
    merge_accumulator_deinit(&insert_msg);
    ASSERT_NOT_NULL(spl.trunk_context.root);
 
-   uint64       root_addr = spl.trunk_context.root->ref.addr;
-   uint64       page_size = cache_page_size(cc);
-   page_handle  root_page_handle =
+   uint64      root_addr = spl.trunk_context.root->ref.addr;
+   uint64      page_size = cache_page_size(cc);
+   page_handle root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
    page_handle         *root_page = &root_page_handle;
    test_trunk_node_hdr *node =
@@ -1737,7 +1737,7 @@ CTEST2(splinter, test_malformed_trunk_child_height)
    }
 
    *pivot_page = test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
-   pivot      = test_splinter_pivot(pivot_page, pivot_offset, page_size);
+   pivot       = test_splinter_pivot(pivot_page, pivot_offset, page_size);
    pivot->child_addr = saved_child_addr;
    test_splinter_unclaim_page(cc, pivot_page);
    *root_page   = test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);

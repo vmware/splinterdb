@@ -2010,10 +2010,10 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type, page_handle *page)
    clockcache_entry *entry    = &cc->entry[entry_no];
    entry->read_status         = STATUS_OK;
    clockcache_entry_set_addr(entry, addr);
-   entry->type                = type;
+   entry->type = type;
    uint64 lookup_no =
       clockcache_lookup_number(cc, clockcache_entry_addr(entry));
-   bool32 mapped    = __sync_bool_compare_and_swap(
+   bool32 mapped = __sync_bool_compare_and_swap(
       &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_no);
    platform_assert(mapped,
                    "allocation of entry %u at addr %lu found lookup entry %u",
@@ -2247,7 +2247,7 @@ clockcache_release_unpublished_entry(clockcache *cc, uint32 entry_number)
 {
    clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    clockcache_entry_set_addr(entry, CC_UNMAPPED_ADDR);
-   entry->type             = PAGE_TYPE_INVALID;
+   entry->type = PAGE_TYPE_INVALID;
    __atomic_store_n(&entry->dirty_generation, 0, __ATOMIC_RELAXED);
    platform_assert(entry->waiters.head == NULL);
    clockcache_set_status(cc, entry_number, CC_FREE_STATUS);
@@ -2291,7 +2291,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
    }
 
    /* Set up the page */
-   entry->read_status    = STATUS_OK;
+   entry->read_status = STATUS_OK;
    clockcache_entry_set_addr(entry, addr);
    return entry_number;
 }
@@ -2437,7 +2437,7 @@ clockcache_get(clockcache  *cc,
                page_type    type,
                page_handle *page)
 {
-   bool32       retry;
+   bool32          retry;
    cache_page     *handle = NULL;
    platform_status rc     = STATUS_OK;
 
@@ -2696,7 +2696,7 @@ clockcache_get_async(clockcache_get_async_state *state)
    debug_assert(state->cc->per_thread[platform_get_tid()].enable_sync_get
                 || state->type == PAGE_TYPE_MEMTABLE);
 
-   state->succeeded = FALSE;
+   state->succeeded      = FALSE;
    state->result_status  = STATUS_OK;
    state->__async_result = NULL;
    while (!state->succeeded) {
@@ -3472,8 +3472,8 @@ clockcache_prefetch_pages(clockcache *cc,
                cc, CC_READ_LOADING_STATUS, type, FALSE, TRUE);
             clockcache_entry *entry = &cc->entry[free_entry_no];
             clockcache_entry_set_addr(entry, addr);
-            entry->type             = type;
-            uint64 lookup_no        = clockcache_lookup_number(cc, addr);
+            entry->type      = type;
+            uint64 lookup_no = clockcache_lookup_number(cc, addr);
 
             if (state == NULL) {
                state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);

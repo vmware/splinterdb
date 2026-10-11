@@ -1408,7 +1408,7 @@ test_btree_memtable_validation_bypass(cache        *cc,
       cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, target, TRUE);
 
    *page = test_btree_claim_page(cc, root_addr, PAGE_TYPE_MEMTABLE);
-   hdr                 = (btree_hdr *)page_handle_data(page);
+   hdr   = (btree_hdr *)page_handle_data(page);
    hdr->meta_page_addr = saved_meta_page_addr;
    test_btree_unclaim_page(cc, page);
    return lookup_ok ? STATUS_OK : STATUS_TEST_FAILED;
@@ -1505,8 +1505,8 @@ test_btree_query_validation(cache           *cc,
       test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
    page_handle *page              = &acquired_page;
    btree_hdr   *hdr               = (btree_hdr *)page_handle_data(page);
-   table_index saved_num_entries = hdr->num_entries;
-   hdr->num_entries              = 0;
+   table_index  saved_num_entries = hdr->num_entries;
+   hdr->num_entries               = 0;
    btree_print_locked_node(Platform_default_log_handle,
                            cfg,
                            cc,
@@ -1607,7 +1607,7 @@ test_btree_query_validation(cache           *cc,
       cc, cfg, root_addr, less_than, key_buffer_key(&touched_key), TRUE);
 
    *page = test_btree_claim_page(cc, touched_leaf_addr, PAGE_TYPE_BRANCH);
-   hdr          = (btree_hdr *)page_handle_data(page);
+   hdr   = (btree_hdr *)page_handle_data(page);
    hdr->page_no = saved_page_no;
    test_btree_unclaim_page(cc, page);
    if (!point_lookup_ok || !STATUS_IS_EQ(forward_rc, STATUS_INVALID_STATE)
