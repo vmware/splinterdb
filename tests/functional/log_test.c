@@ -1998,6 +1998,40 @@ test_log_blob_checksum_prefix(clockcache        *cc,
    return 0;
 }
 
+/* Reopen the I/O handle after external truncation, as crash recovery does.
+ * The live handle deliberately caches file size between its own writes; an
+ * external truncate is not one of those writes and cannot invalidate it. */
+static void
+test_log_expect_empty_recovery(clockcache_config *cache_cfg,
+                               allocator         *al,
+                               shard_log_config  *cfg,
+                               platform_heap_id   hid,
+                               log_head           head)
+{
+   io_config reopen_cfg = *cache_cfg->io_cfg;
+   reopen_cfg.flags &= ~(O_TRUNC | O_CREAT);
+   io_handle *reopen_io = io_handle_create(&reopen_cfg, hid);
+   platform_assert(reopen_io != NULL);
+   clockcache *reopen_cc = TYPED_MALLOC(hid, reopen_cc);
+   platform_assert(reopen_cc != NULL);
+   platform_assert_status_ok(clockcache_init(reopen_cc,
+                                             cache_cfg,
+                                             reopen_io,
+                                             al,
+                                             "log-eof-reopen",
+                                             hid,
+                                             platform_get_module_id()));
+   log_iterator *itor;
+   platform_assert_status_ok(
+      shard_log_iterator_create((cache *)reopen_cc, cfg, hid, head, 0, &itor));
+   platform_assert(!log_iterator_can_next(itor));
+   platform_assert(!log_iterator_stream_complete(itor));
+   log_iterator_deinit(itor);
+   clockcache_deinit(reopen_cc);
+   platform_free(hid, reopen_cc);
+   io_handle_destroy(reopen_io);
+}
+
 /*
  * Recovery must treat pages beyond a regular file's EOF as absent rather than
  * relaxing all reads.  Cover both shapes that motivated the range query: a
@@ -2019,18 +2053,27 @@ test_log_recovery_at_eof(clockcache        *cc,
    platform_assert_status_ok(shard_log_create((cache *)cc, cfg, hid, &log));
    log_head empty = log_get_head(log);
 
-   /* No log page has been written: EOF is exactly the initial extent base. */
+   /* Prime a readable range beyond the eventual EOF, so this fixture cannot
+    * accidentally pass by relying on an unpopulated live size cache. These
+    * zeros are not a valid log page. Recovery must reopen the I/O handle. */
+   buffer_handle zeros;
+   uint64        empty_page_size = cache_page_size((cache *)cc);
+   platform_assert_status_ok(platform_buffer_init(&zeros, empty_page_size));
+   memset(platform_buffer_getaddr(&zeros), 0, empty_page_size);
+   platform_assert_status_ok(io_write(
+      io, platform_buffer_getaddr(&zeros), empty_page_size, empty.addr));
+   platform_buffer_deinit(&zeros);
+   bool32 readable;
+   platform_assert_status_ok(cache_range_is_readable(
+      (cache *)cc, empty.addr, empty_page_size, &readable));
+   platform_assert(readable);
+   /* No valid log page remains: EOF is exactly the initial extent base. */
    io_wait_all(io);
    int sys_rc = truncate(filename, empty.addr);
    platform_assert(
       sys_rc == 0, "truncate(%s) failed with errno %d", filename, errno);
 
-   log_iterator *itor;
-   platform_assert_status_ok(
-      shard_log_iterator_create((cache *)cc, cfg, hid, empty, 0, &itor));
-   platform_assert(!log_iterator_can_next(itor));
-   platform_assert(!log_iterator_stream_complete(itor));
-   log_iterator_deinit(itor);
+   test_log_expect_empty_recovery(cache_cfg, al, cfg, hid, empty);
 
    log_deinit(log);
    shard_log_dec_ref((cache *)cc, &empty);
@@ -2080,11 +2123,7 @@ test_log_recovery_at_eof(clockcache        *cc,
       cc, cache_cfg, io, al, "partial-log-eof", hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
-   platform_assert_status_ok(
-      shard_log_iterator_create((cache *)cc, cfg, hid, partial, 0, &itor));
-   platform_assert(!log_iterator_can_next(itor));
-   platform_assert(!log_iterator_stream_complete(itor));
-   log_iterator_deinit(itor);
+   test_log_expect_empty_recovery(cache_cfg, al, cfg, hid, partial);
    shard_log_dec_ref((cache *)cc, &partial);
 
    return 0;
@@ -2515,6 +2554,270 @@ cleanup:
 }
 
 
+/* No explicit barrier/seal: crossing the threshold must leave a replayable
+ * prefix. Blob bytes must trigger even when their descriptor fits one page. */
+static void
+test_log_automatic_durability(cache            *cc,
+                              shard_log_config *cfg,
+                              platform_heap_id  hid)
+{
+   uint64 saved = cfg->group_size_pages;
+   for (uint64 threshold = 1; threshold <= 4; threshold *= 2) {
+      cfg->group_size_pages = threshold;
+      for (int large = 0; large < 2; large++) {
+         log_handle *logh;
+         platform_assert_status_ok(shard_log_create(cc, cfg, hid, &logh));
+         log_head   head       = log_get_head(logh);
+         shard_log *log        = (shard_log *)logh;
+         char       key_data[] = "automatic-durability";
+         key        k = key_create(FALSE, sizeof(key_data) - 1, key_data);
+         merge_accumulator value;
+         merge_accumulator_init(&value, hid);
+         uint64 bytes =
+            large ? 5 * cache_page_size(cc) + 1 : cache_page_size(cc) / 2;
+         platform_assert(merge_accumulator_resize(&value, bytes));
+         merge_accumulator_set_class(&value, MESSAGE_TYPE_INSERT);
+         memset(merge_accumulator_data(&value), 'A', bytes);
+         uint64 count = large ? 1 : 8;
+         for (uint64 i = 0; i < count; i++) {
+            platform_assert(
+               log_write(logh, k, merge_accumulator_to_message(&value), 0, i)
+               == 0);
+         }
+         platform_assert(__atomic_load_n(&log->durable_ticket, __ATOMIC_ACQUIRE)
+                         != 0);
+         log_deinit(logh);
+         // The log's barrier has already completed. Flush the mini-allocator
+         // metadata so this live allocator can still release the test image;
+         // this is not an additional durability barrier or log seal.
+         platform_assert_status_ok(cache_writeback_dirty(cc));
+         platform_assert_status_ok(cache_evict(cc, FALSE));
+         log_iterator *itor;
+         platform_assert_status_ok(
+            shard_log_iterator_create(cc, cfg, hid, head, 0, &itor));
+         platform_assert(!log_iterator_stream_complete(itor));
+         uint64 recovered = 0;
+         while (log_iterator_can_next(itor)) {
+            key     actual_key;
+            message actual_value;
+            log_iterator_curr(itor, &actual_key, &actual_value);
+            platform_assert(data_key_compare(cfg->data_cfg, k, actual_key)
+                            == 0);
+            platform_assert(
+               message_lex_cmp(merge_accumulator_to_message(&value),
+                               actual_value)
+               == 0);
+            recovered++;
+            platform_assert_status_ok(log_iterator_next(itor));
+         }
+         platform_assert(recovered == count);
+         log_iterator_deinit(itor);
+         merge_accumulator_deinit(&value);
+         shard_log_dec_ref(cc, &head);
+      }
+   }
+   // The disabled option retains the previous unbounded-group behavior.
+   cfg->group_size_pages = UINT64_MAX;
+   log_handle *logh;
+   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &logh));
+   log_head head = log_get_head(logh);
+   key      k    = key_create(FALSE, 1, "k");
+   message  msg =
+      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
+   platform_assert(log_write(logh, k, msg, 0, 0) == 0);
+   platform_assert(((shard_log *)logh)->durable_ticket == 0);
+   log_deinit(logh);
+   shard_log_dec_ref(cc, &head);
+   cfg->group_size_pages = saved;
+}
+
+#if SPLINTER_DEBUG
+typedef struct {
+   log_handle        *log;
+   platform_thread    thread;
+   threadid           tid;
+   bool32             paused;
+   bool32             release;
+   bool32             started;
+   log_durable_ticket ticket;
+   platform_status    status;
+} test_log_automatic_racer;
+
+static void
+test_log_automatic_pause(void                     *arg,
+                         shard_log_test_hook_event event,
+                         uint64                    group_id)
+{
+   test_log_automatic_racer *racer = arg;
+   if (event == SHARD_LOG_TEST_RESERVATION_ID_LOADED && group_id == 1
+       && platform_get_tid() == __atomic_load_n(&racer->tid, __ATOMIC_ACQUIRE))
+   {
+      __atomic_store_n(&racer->paused, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&racer->release, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(1000);
+      }
+   }
+}
+
+static void
+test_log_automatic_race_run(void *arg)
+{
+   test_log_automatic_racer *racer = arg;
+   __atomic_store_n(&racer->tid, platform_get_tid(), __ATOMIC_RELEASE);
+   racer->status = log_make_durable_if_needed_begin(
+      racer->log, &racer->ticket, &racer->started);
+}
+
+static void
+test_log_automatic_cut_does_not_chase(cache            *cc,
+                                      shard_log_config *cfg,
+                                      platform_heap_id  hid)
+{
+   uint64 saved          = cfg->group_size_pages;
+   cfg->group_size_pages = 1;
+   log_handle *logh;
+   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &logh));
+   log_head head = log_get_head(logh);
+   key      k    = key_create(FALSE, 1, "k");
+   message  msg =
+      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
+   log_write_prepared prepared;
+   log_write_token    token;
+   platform_assert_status_ok(log_write_prepare(logh, k, msg, FALSE, &prepared));
+   platform_assert_status_ok(log_write_reserve(&prepared, &token));
+   log_write_finish(&token, 0, 0);
+   test_log_automatic_racer racer = {.log = logh, .tid = INVALID_TID};
+   shard_log               *log   = (shard_log *)logh;
+   log->test_hook                 = test_log_automatic_pause;
+   log->test_hook_arg             = &racer;
+   platform_assert_status_ok(platform_thread_create(
+      &racer.thread, FALSE, test_log_automatic_race_run, &racer, hid));
+   platform_assert(test_log_wait_for_flag(&racer.paused));
+   log_durable_ticket first;
+   platform_assert_status_ok(log_make_durable_begin(logh, &first));
+   platform_assert(first == 1);
+   // A peer crosses the successor's threshold and returns even while the
+   // first automatic driver is paused. No later write will trigger a retry.
+   platform_assert(log_write(logh, k, msg, 0, 1) == 0);
+   __atomic_store_n(&racer.release, TRUE, __ATOMIC_RELEASE);
+   platform_thread_join(&racer.thread);
+   platform_assert_status_ok(racer.status);
+   platform_assert(racer.started && racer.ticket == 1);
+   platform_assert(log->accepting.id == 2);
+   log->test_hook     = NULL;
+   log->test_hook_arg = NULL;
+   // Both tickets pin the handle after retirement. Automatic completion must
+   // still cut and drain the pending successor without reacquiring an owner.
+   log_deinit(logh);
+   platform_assert_status_ok(
+      log_make_durable_if_needed_wait(logh, racer.ticket));
+   platform_assert(log->durable_ticket >= 2);
+   platform_assert(!log->automatic_active);
+   platform_assert_status_ok(log_make_durable_wait(logh, first));
+   shard_log_dec_ref(cc, &head);
+   cfg->group_size_pages = saved;
+}
+
+/* A ticket-owning automatic driver may publish a conservative reservation
+ * after a sealer's authoritative drain scan. That reservation is harmless:
+ * the accepting pointer is now NULL, and the driver still pins the handle. */
+typedef struct {
+   log_handle        *log;
+   log_durable_ticket ticket;
+   platform_thread    thread;
+   threadid           tid;
+   bool32             id_loaded;
+   bool32             publish_lower;
+   bool32             lower_published;
+   bool32             finish;
+   platform_status    status;
+} test_log_automatic_retire_racer;
+
+static void
+test_log_automatic_retire_hook(void                     *arg,
+                               shard_log_test_hook_event event,
+                               uint64                    group_id)
+{
+   test_log_automatic_retire_racer *racer = arg;
+   if (group_id != 2
+       || platform_get_tid() != __atomic_load_n(&racer->tid, __ATOMIC_ACQUIRE))
+   {
+      return;
+   }
+   if (event == SHARD_LOG_TEST_RESERVATION_ID_LOADED) {
+      __atomic_store_n(&racer->id_loaded, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&racer->publish_lower, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(1000);
+      }
+   } else if (event == SHARD_LOG_TEST_RESERVATION_LOWER_PUBLISHED) {
+      __atomic_store_n(&racer->lower_published, TRUE, __ATOMIC_RELEASE);
+      while (!__atomic_load_n(&racer->finish, __ATOMIC_ACQUIRE)) {
+         platform_sleep_ns(1000);
+      }
+   }
+}
+
+static void
+test_log_automatic_retire_run(void *arg)
+{
+   test_log_automatic_retire_racer *racer = arg;
+   __atomic_store_n(&racer->tid, platform_get_tid(), __ATOMIC_RELEASE);
+   racer->status = log_make_durable_if_needed_wait(racer->log, racer->ticket);
+}
+
+static void
+test_log_automatic_retire_with_late_reservation(cache            *cc,
+                                                shard_log_config *cfg,
+                                                platform_heap_id  hid)
+{
+   uint64 saved          = cfg->group_size_pages;
+   cfg->group_size_pages = 1;
+   log_handle *logh;
+   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &logh));
+   log_head   head = log_get_head(logh);
+   shard_log *log  = (shard_log *)logh;
+   key        k    = key_create(FALSE, 1, "k");
+   message    msg =
+      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
+   log_write_prepared prepared;
+   log_write_token    token;
+   platform_assert_status_ok(log_write_prepare(logh, k, msg, FALSE, &prepared));
+   platform_assert_status_ok(log_write_reserve(&prepared, &token));
+   log_write_finish(&token, 0, 0);
+
+   test_log_automatic_retire_racer racer = {.log = logh, .tid = INVALID_TID};
+   bool32                          started;
+   platform_assert_status_ok(
+      log_make_durable_if_needed_begin(logh, &racer.ticket, &started));
+   platform_assert(started && racer.ticket == 1);
+   // A peer leaves the successor's threshold for this automatic driver.
+   platform_assert(log_write(logh, k, msg, 0, 1) == 0);
+   log->test_hook     = test_log_automatic_retire_hook;
+   log->test_hook_arg = &racer;
+   platform_assert_status_ok(platform_thread_create(
+      &racer.thread, FALSE, test_log_automatic_retire_run, &racer, hid));
+   platform_assert(test_log_wait_for_flag(&racer.id_loaded));
+
+   // Seal and graduate group 2 before the driver publishes its lower bound.
+   platform_assert_status_ok(log_seal(logh));
+   platform_assert(log->durable_ticket >= 2);
+   __atomic_store_n(&racer.publish_lower, TRUE, __ATOMIC_RELEASE);
+   platform_assert(test_log_wait_for_flag(&racer.lower_published));
+
+   // The late reservation is live, but the driver's original ticket pins it.
+   // Checking all reservation slots here used to abort. Final destruction,
+   // after the driver clears its slot and drops the final pin, may check them.
+   log_deinit(logh);
+   log->test_hook     = NULL;
+   log->test_hook_arg = NULL;
+   __atomic_store_n(&racer.finish, TRUE, __ATOMIC_RELEASE);
+   platform_thread_join(&racer.thread);
+   platform_assert_status_ok(racer.status);
+   shard_log_dec_ref(cc, &head);
+   cfg->group_size_pages = saved;
+}
+#endif
+
 static void
 usage(const char *argv0)
 {
@@ -2626,6 +2929,26 @@ log_test(int argc, char *argv[])
                             hid,
                             platform_get_module_id());
    platform_assert_status_ok(status);
+
+   test_log_automatic_durability((cache *)cc, &system_cfg.log_cfg, hid);
+#if SPLINTER_DEBUG
+   test_log_automatic_cut_does_not_chase((cache *)cc, &system_cfg.log_cfg, hid);
+   test_log_automatic_retire_with_late_reservation(
+      (cache *)cc, &system_cfg.log_cfg, hid);
+#endif
+   system_cfg.log_cfg.group_size_pages = 1;
+   rc                                  = test_log_concurrent_durability(cc,
+                                       &system_cfg.cache_cfg,
+                                       io,
+                                       (allocator *)&al,
+                                       &system_cfg.log_cfg,
+                                       hid,
+                                       &gen,
+                                       workload_cfg.key_size);
+   platform_assert(rc == 0);
+
+   // The existing group-state tests control every durability cut explicitly.
+   system_cfg.log_cfg.group_size_pages = UINT64_MAX;
 
    rc = test_log_recovery_at_eof(cc,
                                  &system_cfg.cache_cfg,

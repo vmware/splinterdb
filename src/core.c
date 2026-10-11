@@ -1299,6 +1299,8 @@ typedef struct core_log_write_context {
    key                         tuple_key;
    const btree_insert_results *insert_results;
    log_write_prepared          prepared;
+   log_durable_ticket          automatic_ticket;
+   bool32                      automatic_started;
    log_write_token             token;
    bool32                      reserved;
 } core_log_write_context;
@@ -1431,7 +1433,9 @@ core_log_insert(core_handle            *spl,
       __atomic_store_n(&spl->log_reached_threshold, TRUE, __ATOMIC_RELAXED);
    }
 
-   return STATUS_OK;
+   return log_make_durable_if_needed_begin(write_ctxt->log,
+                                           &write_ctxt->automatic_ticket,
+                                           &write_ctxt->automatic_started);
 }
 
 /*
@@ -2868,6 +2872,11 @@ core_insert(core_handle   *spl,
    }
 
    memtable_end_insert(&spl->mt_ctxt);
+
+   if (write_ctxt.automatic_started) {
+      rc = log_make_durable_if_needed_wait(write_ctxt.log,
+                                           write_ctxt.automatic_ticket);
+   }
 
    btree_insert_results_deinit(&insert_results);
    if (fetch_and_update) {

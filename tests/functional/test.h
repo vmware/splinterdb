@@ -269,6 +269,9 @@ test_config_init(system_config *system_cfg, // OUT
 
    shard_log_config_init(
       &system_cfg->log_cfg, &system_cfg->cache_cfg.super, system_cfg->data_cfg);
+   if (master_cfg->log_group_size_pages != 0) {
+      system_cfg->log_cfg.group_size_pages = master_cfg->log_group_size_pages;
+   }
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_NORMAL]      = master_cfg->num_normal_bg_threads;

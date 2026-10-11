@@ -795,8 +795,9 @@ shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
    group->state        = SHARD_LOG_GROUP_OPEN;
    group->close        = SHARD_LOG_CLOSE_NONE;
    group->next_page_no = 0;
-   group->next         = NULL;
-   group->pool_next    = NULL;
+   __atomic_store_n(&group->estimated_pages, 0, __ATOMIC_RELAXED);
+   group->next      = NULL;
+   group->pool_next = NULL;
    __atomic_store_n(&group->ever_used, FALSE, __ATOMIC_RELAXED);
    uint64 page_size = shard_log_page_size(log->cfg);
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
@@ -1177,6 +1178,7 @@ typedef struct shard_log_prepared_write {
    message           msg;
    merge_accumulator log_blob;
    uint64            entry_size;
+   uint64            blob_pages;
    threadid          owner_tid;
    bool32            log_blob_inited;
    bool32            reserved;
@@ -1294,6 +1296,10 @@ shard_log_write_prepare(log_handle         *logh,
       goto fail;
    }
 
+   if (message_is_blob(msg)) {
+      uint64 bytes      = blob_length(message_slice(msg));
+      state->blob_pages = bytes / page_size + (bytes % page_size != 0);
+   }
    state->tuple_key  = tuple_key;
    state->msg        = msg;
    state->entry_size = entry_size;
@@ -1409,6 +1415,37 @@ shard_log_write_finish(log_write_token *token,
    debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
 
    shard_log_atomic_bool_set_once(&log->has_records);
+
+   if (log->cfg->group_size_pages != UINT64_MAX) {
+      uint64 added =
+         state->blob_pages + (token->internal_offset == sizeof(shard_log_hdr));
+      if (added != 0) {
+         uint64 pages =
+            __atomic_load_n(&group->estimated_pages, __ATOMIC_RELAXED);
+         uint64 next;
+         do {
+            next = added > UINT64_MAX - pages ? UINT64_MAX : pages + added;
+         } while (!__atomic_compare_exchange_n(&group->estimated_pages,
+                                               &pages,
+                                               next,
+                                               FALSE,
+                                               __ATOMIC_RELAXED,
+                                               __ATOMIC_RELAXED));
+         if (next >= log->cfg->group_size_pages) {
+            uint64 target =
+               __atomic_load_n(&log->automatic_target, __ATOMIC_RELAXED);
+            while (target < ticket
+                   && !__atomic_compare_exchange_n(&log->automatic_target,
+                                                   &target,
+                                                   ticket,
+                                                   FALSE,
+                                                   __ATOMIC_SEQ_CST,
+                                                   __ATOMIC_RELAXED))
+            {
+            }
+         }
+      }
+   }
 
    /* Consume the preparation and token before publishing the finished entry. */
    shard_log_prepared_state_deinit(prepared);
@@ -1778,7 +1815,10 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
 
 /* Install a fresh accepting group and return the closed group's ticket. */
 static platform_status
-shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
+shard_log_make_durable_begin_through(log_handle         *logh,
+                                     log_durable_ticket *ticket_out,
+                                     log_durable_ticket  max_target,
+                                     bool32              acquire_pin)
 {
    platform_assert(ticket_out != NULL);
    *ticket_out    = 0;
@@ -1791,18 +1831,33 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
       uint64 install_state =
          __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
       platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
-      target = install_state & SHARD_LOG_INSTALL_ID_MASK;
+      target = MIN(install_state & SHARD_LOG_INSTALL_ID_MASK, max_target);
       platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
-      shard_log_handle_ref_acquire(log);
+      if (acquire_pin) {
+         shard_log_handle_ref_acquire(log);
+      }
 
       *ticket_out = target;
+      return STATUS_OK;
+   }
+
+   if (target > max_target) {
+      // A competing cutter already installed the requested successor. Join
+      // the original target even if its successor has accepted newer records.
+      if (acquire_pin) {
+         shard_log_handle_ref_acquire(log);
+      }
+      shard_log_reservation_slot_clear(log, tid);
+      *ticket_out = max_target;
       return STATUS_OK;
    }
 
    if (!shard_log_atomic_bool_load(&current->ever_used)) {
       platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
       target--;
-      shard_log_handle_ref_acquire(log);
+      if (acquire_pin) {
+         shard_log_handle_ref_acquire(log);
+      }
 
       shard_log_reservation_slot_clear(log, tid);
       *ticket_out = target;
@@ -1868,7 +1923,9 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
             candidate->id = target + 1;
             current->next = candidate;
 
-            shard_log_handle_ref_acquire(log);
+            if (acquire_pin) {
+               shard_log_handle_ref_acquire(log);
+            }
 
             /* Pointer first, ticket last: see shard_log_publish_reservation().
              */
@@ -1888,11 +1945,108 @@ shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
 
    /* Another installer or seal owns this target; never chase its successor. */
    platform_assert((install_state & SHARD_LOG_INSTALL_ID_MASK) >= target);
-   shard_log_handle_ref_acquire(log);
+   if (acquire_pin) {
+      shard_log_handle_ref_acquire(log);
+   }
 
    shard_log_put_unused_group(log, candidate);
    *ticket_out = target;
    return STATUS_OK;
+}
+
+static platform_status
+shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
+{
+   return shard_log_make_durable_begin_through(
+      logh, ticket_out, UINT64_MAX, TRUE);
+}
+
+static platform_status
+shard_log_make_durable_if_needed_begin(log_handle         *logh,
+                                       log_durable_ticket *ticket,
+                                       bool32             *started)
+{
+   shard_log *log = (shard_log *)logh;
+   *started       = FALSE;
+   *ticket        = 0;
+   if (log->cfg->group_size_pages == UINT64_MAX
+       || __atomic_load_n(&log->automatic_active, __ATOMIC_SEQ_CST))
+   {
+      return STATUS_OK;
+   }
+   uint64 target = __atomic_load_n(&log->automatic_target, __ATOMIC_SEQ_CST);
+   if (target <= shard_log_durable_ticket_load(log)) {
+      return STATUS_OK;
+   }
+   bool32 inactive = FALSE;
+   if (!__atomic_compare_exchange_n(&log->automatic_active,
+                                    &inactive,
+                                    TRUE,
+                                    FALSE,
+                                    __ATOMIC_SEQ_CST,
+                                    __ATOMIC_SEQ_CST))
+   {
+      return STATUS_OK;
+   }
+   // A prior cutter may already own this group. Join its ticket without
+   // cutting a partially filled successor merely because its I/O is pending.
+   if (target < __atomic_load_n(&log->accepting.id, __ATOMIC_ACQUIRE)) {
+      shard_log_handle_ref_acquire(log);
+      *ticket  = target;
+      *started = TRUE;
+      return STATUS_OK;
+   }
+   platform_status rc =
+      shard_log_make_durable_begin_through(logh, ticket, target, TRUE);
+   *started = SUCCESS(rc);
+   if (!SUCCESS(rc)) {
+      __atomic_store_n(&log->automatic_active, FALSE, __ATOMIC_SEQ_CST);
+   }
+   return rc;
+}
+
+static platform_status
+shard_log_make_durable_if_needed_wait(log_handle        *logh,
+                                      log_durable_ticket ticket)
+{
+   shard_log      *log = (shard_log *)logh;
+   platform_status rc;
+   /* Keep the original ticket's handle pin for the complete drain, including
+    * after rotation retires the log. Peers may finish their inserts while this
+    * driver waits, so it must drain their threshold crossings even if no more
+    * insert calls follow. */
+   while (TRUE) {
+      rc = shard_log_wait_for_ticket_to_be_durable(log, ticket);
+      __atomic_store_n(&log->automatic_active, FALSE, __ATOMIC_SEQ_CST);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+      /* SC ordering with target publication and writers' active checks closes
+       * the lost-wakeup window: a writer either sees inactive and takes over,
+       * or its target is visible to this post-release check. */
+      uint64 target = __atomic_load_n(&log->automatic_target, __ATOMIC_SEQ_CST);
+      if (target <= shard_log_durable_ticket_load(log)) {
+         break;
+      }
+      bool32 inactive = FALSE;
+      if (!__atomic_compare_exchange_n(&log->automatic_active,
+                                       &inactive,
+                                       TRUE,
+                                       FALSE,
+                                       __ATOMIC_SEQ_CST,
+                                       __ATOMIC_SEQ_CST))
+      {
+         break;
+      }
+      rc = shard_log_make_durable_begin_through(logh, &ticket, target, FALSE);
+      if (!SUCCESS(rc)) {
+         __atomic_store_n(&log->automatic_active, FALSE, __ATOMIC_SEQ_CST);
+         break;
+      }
+      // The original pin protects the cut even after the owner retires it.
+   }
+   shard_log_handle_ref_release(log);
+   return rc;
 }
 
 static platform_status
@@ -1982,6 +2136,14 @@ shard_log_seal(log_handle *logh)
 static void
 shard_log_destroy(shard_log *log)
 {
+   /* Automatic ticket holders can publish a late conservative reservation
+    * after the owner's seal has drained its groups. The pin keeps that
+    * publication safe across owner retirement; only the last pin's release
+    * establishes that no operation can still own a reservation. */
+   for (threadid tid = 0; tid < MAX_THREADS; tid++) {
+      platform_assert(shard_log_reservation_slot_load(log, tid) == 0,
+                      "log destruction with an unconsumed operation");
+   }
    mini_release(&log->mini);
 
    shard_log_group *group = log->groups_head;
@@ -2024,10 +2186,6 @@ shard_log_deinit(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
 
-   for (threadid tid = 0; tid < MAX_THREADS; tid++) {
-      platform_assert(shard_log_reservation_slot_load(log, tid) == 0,
-                      "log_deinit with an unconsumed operation");
-   }
    debug_assert(
       !__atomic_exchange_n(&log->owner_released, TRUE, __ATOMIC_ACQ_REL),
       "log owner reference consumed more than once");
@@ -2291,18 +2449,20 @@ shard_log_is_empty(log_handle *logh)
 }
 
 static log_ops shard_log_ops = {
-   .write_prepare          = shard_log_write_prepare,
-   .write_prepared_message = shard_log_write_prepared_message,
-   .write_abort            = shard_log_write_abort,
-   .write_reserve          = shard_log_write_reserve,
-   .write_finish           = shard_log_write_finish,
-   .make_durable_begin     = shard_log_make_durable_begin,
-   .make_durable_wait      = shard_log_make_durable_wait,
-   .seal                   = shard_log_seal,
-   .deinit                 = shard_log_deinit,
-   .head                   = shard_log_get_head,
-   .is_empty               = shard_log_is_empty,
-   .size                   = shard_log_get_size,
+   .write_prepare                = shard_log_write_prepare,
+   .write_prepared_message       = shard_log_write_prepared_message,
+   .write_abort                  = shard_log_write_abort,
+   .write_reserve                = shard_log_write_reserve,
+   .write_finish                 = shard_log_write_finish,
+   .make_durable_begin           = shard_log_make_durable_begin,
+   .make_durable_if_needed_begin = shard_log_make_durable_if_needed_begin,
+   .make_durable_wait            = shard_log_make_durable_wait,
+   .make_durable_if_needed_wait  = shard_log_make_durable_if_needed_wait,
+   .seal                         = shard_log_seal,
+   .deinit                       = shard_log_deinit,
+   .head                         = shard_log_get_head,
+   .is_empty                     = shard_log_is_empty,
+   .size                         = shard_log_get_size,
 };
 
 static void
@@ -2527,14 +2687,15 @@ shard_log_config_init(shard_log_config *log_cfg,
                       data_config      *data_cfg)
 {
    ZERO_CONTENTS(log_cfg);
-   log_cfg->cache_cfg = cache_cfg;
-   log_cfg->data_cfg  = data_cfg;
-   log_cfg->seed      = HASH_SEED;
-   log_cfg->blob_cfg  = (blob_build_config){
-       .extent_batch  = 1,
-       .page_batch    = 2,
-       .subpage_batch = 3,
-       .alignment     = cache_config_page_size(cache_cfg),
+   log_cfg->cache_cfg        = cache_cfg;
+   log_cfg->data_cfg         = data_cfg;
+   log_cfg->seed             = HASH_SEED;
+   log_cfg->group_size_pages = MAX_THREADS;
+   log_cfg->blob_cfg         = (blob_build_config){
+              .extent_batch  = 1,
+              .page_batch    = 2,
+              .subpage_batch = 3,
+              .alignment     = cache_config_page_size(cache_cfg),
    };
 }
 

@@ -157,6 +157,7 @@ config_usage()
    platform_error_log("\t--no-stats\n");
    platform_error_log("\t--log\n");
    platform_error_log("\t--no-log\n");
+   platform_error_log("\t--log-group-size-pages (0 => MAX_THREADS)\n");
    platform_error_log("\t--checkpoint-log-size-gib\n");
    platform_error_log("\t--checkpoint-log-size-mib\n");
    platform_error_log("\t--checkpoint-log-size-bytes (0 => cache capacity)\n");
@@ -395,6 +396,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_mib("prefetch-budget", cfg, prefetch_budget) {}
          config_set_gib("prefetch-budget", cfg, prefetch_budget) {}
          config_set_uint64("prefetch-budget-bytes", cfg, prefetch_budget) {}
+         config_set_uint64("log-group-size-pages", cfg, log_group_size_pages) {}
          config_set_mib("checkpoint-log-size", cfg, checkpoint_log_size) {}
          config_set_gib("checkpoint-log-size", cfg, checkpoint_log_size) {}
          config_set_uint64(

@@ -1812,6 +1812,8 @@ CTEST2(splinter, test_logged_large_insert_shares_blob_extents)
    cache     *cc                          = (cache *)data->clock_cache;
    data->system_cfg->splinter_cfg.use_log = TRUE;
    data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = UINT64_MAX;
+   // This test inspects both records in their mutable staging buffer.
+   data->system_cfg->log_cfg.group_size_pages = UINT64_MAX;
 
    core_handle     spl;
    platform_status rc = core_mkfs(&spl,
@@ -5116,4 +5118,47 @@ test_lookup_by_range(void         *datap,
                   num_ranges);
 
    return rc;
+}
+
+/* Automatic barriers run after visibility; report device failure accurately,
+ * release the insert epoch, and let a later operation retry the pending cut. */
+CTEST2(splinter, test_automatic_log_barrier_reports_failure_and_retries)
+{
+   allocator *al                          = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = UINT64_MAX;
+   data->system_cfg->log_cfg.group_size_pages               = 1;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &data->system_cfg->splinter_cfg,
+                                 al,
+                                 (cache *)data->clock_cache,
+                                 data->io,
+                                 &data->tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   checkpoint_barrier_fault fault = {0};
+   checkpoint_barrier_fault_install(&fault, data->io);
+   checkpoint_barrier_fault_arm(&fault, 0);
+   platform_status rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_IO_ERROR));
+   ASSERT_EQUAL(0, ((shard_log *)spl.log)->durable_ticket);
+   checkpoint_barrier_fault_uninstall(&fault);
+   lookup_result result;
+   lookup_result_init(&result, data->system_cfg->data_cfg, 0, 0, NULL);
+   ASSERT_TRUE(SUCCESS(core_lookup(&spl, key_buffer_key(&keybuf), &result)));
+   ASSERT_TRUE(lookup_result_found(&result));
+   lookup_result_deinit(&result);
+   rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(((shard_log *)spl.log)->durable_ticket >= 2);
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
 }

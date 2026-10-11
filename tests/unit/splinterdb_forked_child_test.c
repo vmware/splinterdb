@@ -13,6 +13,7 @@
  * functional usages in this multi-process configuration.
  * -----------------------------------------------------------------------------
  */
+#include <fcntl.h>
 #include <sys/wait.h>
 
 #include "splinterdb/default_data_config.h"
@@ -84,6 +85,71 @@ CTEST_SETUP(splinterdb_forked_child)
 
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(splinterdb_forked_child) {}
+
+/* The child never closes, checkpoints, or explicitly makes the log durable.
+ * Only the configured automatic threshold can make these records replayable. */
+CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
+{
+   data_config dcfg;
+   default_data_config_init(&dcfg);
+   for (unsigned large = 0; large < 2; large++) {
+      splinterdb_config cfg = {
+         .filename                   = data->master_cfg.io_filename,
+         .cache_size                 = 64 * Mega,
+         .disk_size                  = 4 * Giga,
+         .data_cfg                   = &dcfg,
+         .use_log                    = TRUE,
+         .log_group_size_pages       = large ? 0 : 1,
+         .checkpoint_log_size_bytes  = UINT64_MAX,
+         .checkpoint_log_grace_bytes = UINT64_MAX,
+      };
+      const uint64 count      = large ? 4 : 32;
+      const uint64 value_size = large ? 64 * 4096 + 1 : 128;
+      char         value[64 * 4096 + 1];
+      pid_t        child = fork();
+      ASSERT_TRUE(child >= 0);
+      if (child == 0) {
+         cfg.io_flags = O_RDWR | O_CREAT | O_TRUNC;
+         splinterdb *db;
+         if (splinterdb_create(&cfg, &db) != 0) {
+            _exit(1);
+         }
+         for (uint64 i = 0; i < count; i++) {
+            memset(value, i + 1, value_size);
+            if (splinterdb_insert(db,
+                                  slice_create(sizeof(i), &i),
+                                  slice_create(value_size, value),
+                                  NULL)
+                != 0)
+            {
+               _exit(2);
+            }
+         }
+         _exit(0);
+      }
+      int status;
+      ASSERT_EQUAL(child, waitpid(child, &status, 0));
+      ASSERT_TRUE(WIFEXITED(status));
+      ASSERT_EQUAL(0, WEXITSTATUS(status));
+      splinterdb *db;
+      ASSERT_EQUAL(0, splinterdb_open(&cfg, &db));
+      splinterdb_lookup_result result;
+      splinterdb_lookup_result_init(
+         db, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      for (uint64 i = 0; i < count; i++) {
+         ASSERT_EQUAL(
+            0, splinterdb_lookup(db, slice_create(sizeof(i), &i), &result));
+         ASSERT_TRUE(splinterdb_lookup_found(&result));
+         slice actual;
+         ASSERT_EQUAL(0, splinterdb_lookup_result_value(&result, &actual));
+         ASSERT_EQUAL(value_size, slice_length(actual));
+         memset(value, i + 1, value_size);
+         ASSERT_EQUAL(0, memcmp(value, slice_data(actual), value_size));
+      }
+      splinterdb_lookup_result_deinit(&result);
+      ASSERT_EQUAL(0, splinterdb_close(&db, FALSE));
+   }
+}
 
 /*
  * ------------------------------------------------------------------------------

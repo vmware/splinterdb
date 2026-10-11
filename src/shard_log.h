@@ -27,6 +27,7 @@ typedef struct shard_log_config {
    cache_config     *cache_cfg;
    data_config      *data_cfg;
    uint64            seed;
+   uint64            group_size_pages; // UINT64_MAX disables automatic cuts
    blob_build_config blob_cfg;
 } shard_log_config;
 
@@ -130,6 +131,8 @@ struct shard_log_group {
    shard_log_close_mode  close;
    /* Next group-local on-disk page number, serialized by mini batch 0. */
    uint64 next_page_no;
+   // Atomic admission estimate: staging pages plus page-rounded blob bytes.
+   uint64 estimated_pages;
    /* Atomic, set once by the first reservation in this incarnation. */
    bool32 ever_used;
    bool32 emergency; // Is this group from the pool of emergency groups?
@@ -193,6 +196,9 @@ typedef struct shard_log {
    /* Includes one owner ref plus one per successful durability begin.
     */
    uint64 handle_refs;
+   // Highest group to cross the automatic durability threshold.
+   uint64 automatic_target;
+   bool32 automatic_active;
    /* Atomic diagnostic: the owner has consumed its handle reference. */
 #if SPLINTER_DEBUG
    bool32 owner_released;

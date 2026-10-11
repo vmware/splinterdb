@@ -166,12 +166,16 @@ typedef struct log_ops {
    log_write_reserve_fn          write_reserve;
    log_write_finish_fn           write_finish;
    log_make_durable_begin_fn     make_durable_begin;
-   log_make_durable_wait_fn      make_durable_wait;
-   log_seal_fn                   seal;
-   log_deinit_fn                 deinit;
-   log_head_fn                   head;
-   log_is_empty_fn               is_empty;
-   log_size_fn                   size;
+   platform_status (*make_durable_if_needed_begin)(log_handle         *log,
+                                                   log_durable_ticket *ticket,
+                                                   bool32             *started);
+   log_make_durable_wait_fn make_durable_wait;
+   log_make_durable_wait_fn make_durable_if_needed_wait;
+   log_seal_fn              seal;
+   log_deinit_fn            deinit;
+   log_head_fn              head;
+   log_is_empty_fn          is_empty;
+   log_size_fn              size;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -232,6 +236,27 @@ log_write_finish(log_write_token *token,
    platform_assert(token->log == NULL);
 }
 
+/* Complete automatic durability outside the caller's update locks. A true
+ * started result owns a ticket, consumed by log_make_durable_if_needed_wait().
+ * One caller drives pending automatic cuts while concurrent writers proceed.
+ * Call after finish while the log handle is still externally protected
+ * against deinit. */
+static inline platform_status
+log_make_durable_if_needed_begin(log_handle         *log,
+                                 log_durable_ticket *ticket,
+                                 bool32             *started)
+{
+   *started = FALSE;
+   *ticket  = 0;
+   return log->ops->make_durable_if_needed_begin(log, ticket, started);
+}
+
+static inline platform_status
+log_make_durable_if_needed_wait(log_handle *log, log_durable_ticket ticket)
+{
+   return log->ops->make_durable_if_needed_wait(log, ticket);
+}
+
 /* Convenience for callers whose three phases are adjacent. */
 static inline int
 log_write(log_handle *log,
@@ -253,7 +278,13 @@ log_write(log_handle *log,
       return rc.r;
    }
    log_write_finish(&token, memtable_generation, leaf_generation);
-   return STATUS_OK.r;
+   log_durable_ticket ticket;
+   bool32             started;
+   rc = log_make_durable_if_needed_begin(log, &ticket, &started);
+   if (SUCCESS(rc) && started) {
+      rc = log_make_durable_if_needed_wait(log, ticket);
+   }
+   return rc.r;
 }
 
 /*

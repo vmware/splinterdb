@@ -201,6 +201,9 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    if (!cfg->prefetch_budget) {
       cfg->prefetch_budget = CORE_DEFAULT_PREFETCH_BUDGET;
    }
+   if (!cfg->log_group_size_pages) {
+      cfg->log_group_size_pages = MAX_THREADS;
+   }
    if (!cfg->checkpoint_log_size_bytes) {
       /*
        * Arm a checkpoint once the log has grown by a cache's worth: replaying
@@ -395,6 +398,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                           cfg.use_stats);
 
    shard_log_config_init(&kvs->log_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
+   kvs->log_cfg.group_size_pages = cfg.log_group_size_pages;
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_MEMTABLE]    = kvs_cfg->num_memtable_bg_threads;
