@@ -21,6 +21,7 @@
 #include "../config.h"
 #include "platform_io.h"
 #include "platform_units.h"
+#include "platform_sleep.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
 // For the init_*_config_from_master_config() helpers.
@@ -203,7 +204,9 @@ CTEST2(writeback_set, test_rejected_page_submission)
    uint64 base_addr = alloc_and_dirty_extent(&data->cc, &data->al);
    writeback_set set;
    writeback_set_init(&set, ccp, data->hid);
-   page_handle *page = cache_get(ccp, base_addr, TRUE, PAGE_TYPE_MISC);
+   page_handle acquired_page =
+      test_cache_get_page(ccp, base_addr, TRUE, PAGE_TYPE_MISC);
+   page_handle *page = &acquired_page;
 
    reject_write_submissions(data->io);
    ASSERT_TRUE(SUCCESS(writeback_set_add_page(&set, page, PAGE_TYPE_MISC)));
@@ -230,8 +233,9 @@ CTEST2(writeback_set, test_rejected_extent_submissions)
    writeback_set_init(&set, ccp, data->hid);
 
    /* A clean middle page splits the extent into two separate submissions. */
-   page_handle *page = cache_get(
+   page_handle acquired_page = test_cache_get_page(
       ccp, base_addr + (num_pages / 2) * page_size, TRUE, PAGE_TYPE_MISC);
+   page_handle *page = &acquired_page;
    ASSERT_TRUE(SUCCESS(writeback_set_add_page(&set, page, PAGE_TYPE_MISC)));
    cache_unget(ccp, page);
    ASSERT_TRUE(SUCCESS(writeback_set_wait(&set)));
@@ -288,7 +292,9 @@ CTEST2(writeback_set, test_wait_makes_pages_clean)
 
    for (uint64 i = 0; i < num_pages; i++) {
       uint64       addr = base_addr + i * page_size;
-      page_handle *page = cache_get(ccp, addr, TRUE, PAGE_TYPE_MISC);
+      page_handle  acquired_page =
+         test_cache_get_page(ccp, addr, TRUE, PAGE_TYPE_MISC);
+      page_handle *page = &acquired_page;
       ASSERT_NOT_NULL(page);
       ASSERT_TRUE(SUCCESS(writeback_set_add_page(&set, page, PAGE_TYPE_MISC)));
       cache_unget(ccp, page);
@@ -369,7 +375,9 @@ CTEST2(writeback_set, test_add_clean_page)
    writeback_set_init(&set, ccp, data->hid);
    for (uint64 i = 0; i < num_pages; i++) {
       uint64       addr = base_addr + i * page_size;
-      page_handle *page = cache_get(ccp, addr, TRUE, PAGE_TYPE_MISC);
+      page_handle  acquired_page =
+         test_cache_get_page(ccp, addr, TRUE, PAGE_TYPE_MISC);
+      page_handle *page = &acquired_page;
       ASSERT_NOT_NULL(page);
       ASSERT_TRUE(SUCCESS(writeback_set_add_page(&set, page, PAGE_TYPE_MISC)));
       cache_unget(ccp, page);
@@ -399,11 +407,13 @@ CTEST2(writeback_set, test_repeated_rounds)
          // Re-dirty every page.
          for (uint64 i = 0; i < num_pages; i++) {
             uint64       addr = base_addr + i * page_size;
-            page_handle *page = cache_get(ccp, addr, TRUE, PAGE_TYPE_MISC);
+            page_handle  acquired_page =
+               test_cache_get_page(ccp, addr, TRUE, PAGE_TYPE_MISC);
+            page_handle *page = &acquired_page;
             ASSERT_NOT_NULL(page);
             while (!cache_try_claim(ccp, page)) {
                cache_unget(ccp, page);
-               page = cache_get(ccp, addr, TRUE, PAGE_TYPE_MISC);
+               *page = test_cache_get_page(ccp, addr, TRUE, PAGE_TYPE_MISC);
             }
             cache_lock(ccp, page);
             memset(page->data, (int)(round & 0xff), page_size);
@@ -423,4 +433,326 @@ CTEST2(writeback_set, test_repeated_rounds)
       ASSERT_TRUE(SUCCESS(writeback_set_make_durable(&set)));
       writeback_set_deinit(&set);
    }
+}
+
+/* Exercise cache read failures below the cache API, including shared loading
+ * entries. A timeout (rather than EIO) verifies exact status propagation. */
+static const io_ops      *read_saved_ops;
+static io_ops             read_fault_ops;
+static io_async_state_ops read_fault_state_ops;
+static async_callback_fn  read_fault_callback;
+static void              *read_fault_callback_arg;
+static bool32             read_fault_complete;
+static bool32             read_fault_reject_init;
+static bool32             read_fault_reject_append;
+
+static platform_status
+reject_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
+{
+   return STATUS_TIMEDOUT;
+}
+
+static async_status
+read_fault_run(io_async_state *state)
+{
+   return read_fault_complete ? ASYNC_STATUS_DONE : ASYNC_STATUS_RUNNING;
+}
+
+static platform_status
+read_fault_result(io_async_state *state)
+{
+   return STATUS_TIMEDOUT;
+}
+
+static platform_status
+read_fault_append(io_async_state *state, void *buf)
+{
+   return STATUS_NO_MEMORY;
+}
+
+static platform_status
+read_fault_init(io_async_state   *state,
+                io_handle        *io,
+                io_async_cmd      cmd,
+                uint64            addr,
+                async_callback_fn callback,
+                void             *callback_arg)
+{
+   if (cmd == io_async_preadv && read_fault_reject_init) {
+      return STATUS_NO_MEMORY;
+   }
+   platform_status rc = read_saved_ops->async_state_init(
+      state, io, cmd, addr, callback, callback_arg);
+   if (SUCCESS(rc) && cmd == io_async_preadv) {
+      read_fault_state_ops            = *state->ops;
+      read_fault_state_ops.run        = read_fault_run;
+      read_fault_state_ops.get_result = read_fault_result;
+      if (read_fault_reject_append) {
+         read_fault_state_ops.append_page = read_fault_append;
+      }
+      state->ops              = &read_fault_state_ops;
+      read_fault_callback     = callback;
+      read_fault_callback_arg = callback_arg;
+   }
+   return rc;
+}
+
+static void
+read_fault_install(io_handle *io)
+{
+   io_wait_all(io);
+   read_saved_ops                  = io->ops;
+   read_fault_ops                  = *io->ops;
+   read_fault_ops.read             = reject_read;
+   read_fault_ops.async_state_init = read_fault_init;
+   read_fault_complete             = FALSE;
+   read_fault_reject_init          = FALSE;
+   read_fault_reject_append        = FALSE;
+   io->ops                         = &read_fault_ops;
+}
+
+static void
+read_ready(void *arg)
+{
+   bool32 *ready = arg;
+   *ready        = TRUE;
+}
+
+CTEST2(writeback_set, test_cache_sync_read_error_and_retry)
+{
+   cache *cc   = (cache *)&data->cc;
+   uint64 addr = alloc_and_dirty_extent(&data->cc, &data->al);
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   page_handle page = {.data = (char *)1, .disk_addr = UINT64_MAX};
+   ASSERT_TRUE(STATUS_IS_EQ(cache_get(cc, addr, FALSE, PAGE_TYPE_MISC, &page),
+                            STATUS_BUSY));
+   ASSERT_NULL(page.data);
+   read_fault_install(data->io);
+   platform_status rc = cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page);
+   data->io->ops      = read_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+   ASSERT_NULL(page.data);
+   ASSERT_EQUAL(0, page.disk_addr);
+   cache_assert_free(cc);
+   ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page)));
+   ASSERT_EQUAL(addr, page.disk_addr);
+   ASSERT_EQUAL(0, (unsigned char)page.data[0]);
+   cache_unget(cc, &page);
+}
+
+CTEST2(writeback_set, test_cache_async_read_setup_failures)
+{
+   cache *cc   = (cache *)&data->cc;
+   uint64 addr = alloc_and_dirty_extent(&data->cc, &data->al);
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   for (unsigned fail_step = 0; fail_step < 3; fail_step++) {
+      read_fault_install(data->io);
+      read_fault_reject_init   = fail_step == 0;
+      read_fault_reject_append = fail_step == 1;
+      read_fault_complete      = fail_step == 2;
+      page_get_async_state_buffer state;
+      bool32                      ready = FALSE;
+      cache_get_async_state_init(
+         &state, cc, addr, PAGE_TYPE_MISC, read_ready, &ready);
+      ASSERT_EQUAL(ASYNC_STATUS_DONE, cache_get_async(&state));
+      page_handle     page;
+      platform_status rc = cache_get_async_state_result(&state, &page);
+      data->io->ops      = read_saved_ops;
+      ASSERT_TRUE(
+         STATUS_IS_EQ(rc, fail_step == 2 ? STATUS_TIMEDOUT : STATUS_NO_MEMORY));
+      ASSERT_NULL(page.data);
+      cache_assert_free(cc);
+   }
+   page_handle page;
+   ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page)));
+   cache_unget(cc, &page);
+}
+
+CTEST2(writeback_set, test_cache_failed_load_wakes_waiters)
+{
+   cache *cc   = (cache *)&data->cc;
+   uint64 addr = alloc_and_dirty_extent(&data->cc, &data->al);
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   read_fault_install(data->io);
+   page_get_async_state_buffer states[3];
+   bool32                      ready[3] = {FALSE};
+   for (unsigned i = 0; i < ARRAY_SIZE(states); i++) {
+      cache_get_async_state_init(
+         &states[i], cc, addr, PAGE_TYPE_MISC, read_ready, &ready[i]);
+      ASSERT_EQUAL(ASYNC_STATUS_RUNNING, cache_get_async(&states[i]));
+   }
+   /* The first operation owns I/O; the others wait on its cache entry. */
+   read_fault_complete = TRUE;
+   read_fault_callback(read_fault_callback_arg);
+   data->io->ops = read_saved_ops;
+   for (unsigned i = 0; i < ARRAY_SIZE(states); i++) {
+      ASSERT_TRUE(ready[i]);
+      while (cache_get_async(&states[i]) != ASYNC_STATUS_DONE) {
+         cache_cleanup(cc);
+      }
+      page_handle     page;
+      platform_status rc = cache_get_async_state_result(&states[i], &page);
+      if (i == 0) {
+         ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+         ASSERT_NULL(page.data);
+      } else {
+         /* Queued readers retry identity/readiness after a wakeup. */
+         ASSERT_TRUE(SUCCESS(rc));
+         ASSERT_EQUAL(addr, page.disk_addr);
+         ASSERT_EQUAL(0, (unsigned char)page.data[0]);
+         cache_unget(cc, &page);
+      }
+   }
+   cache_assert_free(cc);
+}
+
+static const cache_ops *reclaim_saved_ops;
+static cache_ops        reclaim_fault_ops;
+static uint64           reclaim_failed_addr;
+static uint64           reclaim_reads;
+
+static platform_status
+reclaim_fail_second_read(cache       *cc,
+                         uint64       addr,
+                         bool32       blocking,
+                         page_type    type,
+                         page_handle *page)
+{
+   if (addr == reclaim_failed_addr && ++reclaim_reads == 2) {
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
+   }
+   return reclaim_saved_ops->page_get(cc, addr, blocking, type, page);
+}
+
+CTEST2(writeback_set, test_partial_reclamation_requires_recovery)
+{
+   cache     *cc = (cache *)&data->cc;
+   allocator *al = (allocator *)&data->al;
+   uint64     meta_head;
+   ASSERT_TRUE(SUCCESS(allocator_alloc(al, &meta_head, PAGE_TYPE_MISC)));
+   mini_allocator mini;
+   ASSERT_TRUE(
+      SUCCESS(mini_init(&mini, cc, meta_head, 0, 1, PAGE_TYPE_MISC, NULL)));
+   uint64 first_extent = 0;
+   uint64 last_extent;
+   do {
+      ASSERT_TRUE(SUCCESS(mini_alloc_extent(&mini, 0, &last_extent, NULL)));
+      if (first_extent == 0) {
+         first_extent = last_extent;
+      }
+   } while (mini.meta_tail == meta_head);
+   mini_release(&mini);
+   reclaim_saved_ops          = cc->ops;
+   reclaim_fault_ops          = *cc->ops;
+   reclaim_fault_ops.page_get = reclaim_fail_second_read;
+   reclaim_failed_addr        = mini.meta_tail;
+   reclaim_reads              = 0;
+   cc->ops                    = &reclaim_fault_ops;
+   /* The validation pass succeeds. The release pass frees the first page's
+    * extents and then fails, making a restart from the head unsafe. */
+   ASSERT_EQUAL(0, mini_dec_ref(cc, meta_head, PAGE_TYPE_MISC));
+   cc->ops = reclaim_saved_ops;
+   ASSERT_EQUAL(2, reclaim_reads);
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, first_extent));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, last_extent));
+   ASSERT_TRUE(STATUS_IS_EQ(allocator_reclamation_status(al), STATUS_TIMEDOUT));
+   uint64 state_addr = UINT64_MAX;
+   ASSERT_TRUE(
+      STATUS_IS_EQ(allocator_persist(al, &state_addr), STATUS_TIMEDOUT));
+   ASSERT_EQUAL(0, state_addr);
+   cache_assert_free(cc);
+
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   /* An empty reachable-root set does not visit the abandoned metadata. */
+   ASSERT_TRUE(SUCCESS(allocator_recovery_begin(al)));
+   allocator_recovery_finish(al);
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, meta_head));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, last_extent));
+   ASSERT_TRUE(SUCCESS(allocator_reclamation_status(al)));
+}
+
+CTEST2(writeback_set, test_failed_prefetch_leaves_demand_read_retryable)
+{
+   cache *cc   = (cache *)&data->cc;
+   uint64 addr = alloc_and_dirty_extent(&data->cc, &data->al);
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   for (unsigned fail_step = 0; fail_step < 3; fail_step++) {
+      read_fault_install(data->io);
+      read_fault_reject_init   = fail_step == 0;
+      read_fault_reject_append = fail_step == 1;
+      read_fault_complete      = TRUE;
+      cache_prefetch(cc, addr, PAGE_TYPE_MISC);
+      data->io->ops = read_saved_ops;
+      cache_assert_free(cc);
+      page_handle page;
+      ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page)));
+      ASSERT_EQUAL(0, (unsigned char)page.data[0]);
+      cache_unget(cc, &page);
+      ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   }
+}
+
+typedef struct sync_read_waiter {
+   cache          *cc;
+   uint64          addr;
+   platform_status rc;
+   page_handle     page;
+} sync_read_waiter;
+
+static void
+sync_read_wait_for_load(void *arg)
+{
+   sync_read_waiter *waiter = arg;
+   waiter->rc =
+      cache_get(waiter->cc, waiter->addr, TRUE, PAGE_TYPE_MISC, &waiter->page);
+   if (SUCCESS(waiter->rc)) {
+      cache_unget(waiter->cc, &waiter->page);
+   }
+}
+
+CTEST2(writeback_set, test_failed_load_releases_synchronous_waiter)
+{
+   cache *cc   = (cache *)&data->cc;
+   uint64 addr = alloc_and_dirty_extent(&data->cc, &data->al);
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   read_fault_install(data->io);
+   page_get_async_state_buffer state;
+   bool32                      ready = FALSE;
+   cache_get_async_state_init(
+      &state, cc, addr, PAGE_TYPE_MISC, read_ready, &ready);
+   ASSERT_EQUAL(ASYNC_STATUS_RUNNING, cache_get_async(&state));
+   /* The async owner holds this entry stable. Wait until the synchronous
+    * reader owns its reference before publishing the failed completion. */
+   uint32           entry   = data->cc.lookup[addr / cache_page_size(cc)];
+   page_handle      loading = data->cc.entry[entry].page;
+   sync_read_waiter waiter  = {.cc = cc, .addr = addr};
+   platform_thread  thread;
+   ASSERT_TRUE(SUCCESS(platform_thread_create(
+      &thread, FALSE, sync_read_wait_for_load, &waiter, data->hid)));
+   timestamp start = platform_get_timestamp();
+   while (cache_get_read_ref(cc, &loading) < 2
+          && platform_timestamp_elapsed(start) < SEC_TO_NSEC(5))
+   {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   bool32 waiting      = cache_get_read_ref(cc, &loading) >= 2;
+   read_fault_complete = TRUE;
+   read_fault_callback(read_fault_callback_arg);
+   ASSERT_TRUE(SUCCESS(platform_thread_join(&thread)));
+   ASSERT_EQUAL(ASYNC_STATUS_DONE, cache_get_async(&state));
+   page_handle     page;
+   platform_status owner_rc = cache_get_async_state_result(&state, &page);
+   data->io->ops            = read_saved_ops;
+   ASSERT_TRUE(waiting);
+   ASSERT_TRUE(STATUS_IS_EQ(owner_rc, STATUS_TIMEDOUT));
+   ASSERT_TRUE(STATUS_IS_EQ(waiter.rc, STATUS_TIMEDOUT));
+   ASSERT_NULL(waiter.page.data);
+   cache_assert_free(cc);
 }

@@ -488,7 +488,9 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
    btree_insert_results_deinit(&results);
    ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED));
 
-   page_handle *root = cache_get(cc, root_addr, TRUE, PAGE_TYPE_MEMTABLE);
+   page_handle root_handle =
+      test_cache_get_page(cc, root_addr, TRUE, PAGE_TYPE_MEMTABLE);
+   page_handle *root = &root_handle;
    btree_hdr   *hdr  = (btree_hdr *)root->data;
    ASSERT_EQUAL_U(1, hdr->height);
    ASSERT_EQUAL_U(1, hdr->num_entries);
@@ -529,7 +531,9 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
    // insert to hang if a claim was leaked.
    uint64 addrs[] = {root_addr, leaf_addr};
    for (uint64 i = 0; i < ARRAY_SIZE(addrs); i++) {
-      page_handle *page    = cache_get(cc, addrs[i], TRUE, PAGE_TYPE_MEMTABLE);
+      page_handle acquired_page =
+         test_cache_get_page(cc, addrs[i], TRUE, PAGE_TYPE_MEMTABLE);
+      page_handle *page    = &acquired_page;
       bool32       claimed = cache_try_claim(cc, page);
       if (claimed) {
          cache_unclaim(cc, page);
@@ -1328,31 +1332,34 @@ iterator_endpoint_fault_should_fail(uint64 addr)
    return FALSE;
 }
 
-static page_handle *
-iterator_endpoint_fault_get(cache    *cc,
-                            uint64    addr,
-                            bool32    blocking,
-                            page_type type)
+static platform_status
+iterator_endpoint_fault_get(cache       *cc,
+                            uint64       addr,
+                            bool32       blocking,
+                            page_type    type,
+                            page_handle *page)
 {
    iterator_endpoint_fault *fault = active_iterator_endpoint_fault;
    platform_assert(fault != NULL && fault->cc == cc);
    if (iterator_endpoint_fault_should_fail(addr)) {
-      return NULL;
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
    }
-   return fault->original->page_get(cc, addr, blocking, type);
+   return fault->original->page_get(cc, addr, blocking, type, page);
 }
 
-static page_handle *
-iterator_endpoint_fault_async_result(void *payload)
+static platform_status
+iterator_endpoint_fault_async_result(void *payload, page_handle *page)
 {
    iterator_endpoint_fault *fault = active_iterator_endpoint_fault;
    platform_assert(fault != NULL);
-   page_handle *page = fault->original->page_get_async_result(payload);
-   if (page != NULL && iterator_endpoint_fault_should_fail(page->disk_addr)) {
+   platform_status rc = fault->original->page_get_async_result(payload, page);
+   if (SUCCESS(rc) && iterator_endpoint_fault_should_fail(page->disk_addr)) {
       fault->original->page_unget(fault->cc, page);
-      return NULL;
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
    }
-   return page;
+   return rc;
 }
 
 static platform_status
@@ -1498,7 +1505,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
       cc->ops                        = fault.original;
       active_iterator_endpoint_fault = NULL;
 
-      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_IO_ERROR),
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT),
                   "async=%u returned %s",
                   async,
                   platform_status_to_string(rc));
@@ -1573,7 +1580,7 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
       cc->ops                        = fault.original;
       active_iterator_endpoint_fault = NULL;
 
-      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_IO_ERROR),
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT),
                   "fail_at=%lu returned %s",
                   fail_at,
                   platform_status_to_string(rc));
@@ -1763,15 +1770,19 @@ bounds_observe_get(uint64 addr)
    }
 }
 
-static page_handle *
-bounds_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
+static platform_status
+bounds_get(cache       *cc,
+           uint64       addr,
+           bool32       blocking,
+           page_type    type,
+           page_handle *p)
 {
    bounds_observe_get(addr);
-   page_handle *p =
-      bounds_observer->original->page_get(cc, addr, blocking, type);
-   if (p && p->disk_addr == bounds_observer->leaf)
+   platform_status rc =
+      bounds_observer->original->page_get(cc, addr, blocking, type, p);
+   if (SUCCESS(rc) && p->disk_addr == bounds_observer->leaf)
       bounds_observer->leaf_refs++;
-   return p;
+   return rc;
 }
 
 static void
@@ -1787,13 +1798,14 @@ bounds_async_init(void             *payload,
       payload, cc, addr, type, callback, arg);
 }
 
-static page_handle *
-bounds_async_result(void *payload)
+static platform_status
+bounds_async_result(void *payload, page_handle *p)
 {
-   page_handle *p = bounds_observer->original->page_get_async_result(payload);
-   if (p && p->disk_addr == bounds_observer->leaf)
+   platform_status rc =
+      bounds_observer->original->page_get_async_result(payload, p);
+   if (SUCCESS(rc) && p->disk_addr == bounds_observer->leaf)
       bounds_observer->leaf_refs++;
-   return p;
+   return rc;
 }
 
 static void
@@ -1813,9 +1825,10 @@ bounds_unget(cache *cc, page_handle *p)
    for (uint64 n = 1; n < 2048; n += 2) {
       bounds_insert(cc, o->cfg, o->hid, o->scratch, o->mini, o->root, n);
    }
-   p        = cache_get(cc, o->leaf, TRUE, PAGE_TYPE_MEMTABLE);
-   o->split = ((btree_hdr *)p->data)->next_addr != o->old_next;
-   cache_unget(cc, p);
+   page_handle observed =
+      test_cache_get_page(cc, o->leaf, TRUE, PAGE_TYPE_MEMTABLE);
+   o->split = ((btree_hdr *)observed.data)->next_addr != o->old_next;
+   cache_unget(cc, &observed);
    cc->ops = &o->ops;
 }
 
@@ -1882,7 +1895,7 @@ CTEST2(btree_stress, copied_iterator_split_on_release)
       cc->ops         = observer.original;
       bounds_observer = NULL;
       ASSERT_TRUE(SUCCESS(rc));
-      bool32 copy_released = itor.curr.page == NULL;
+      bool32 copy_released = itor.curr.page.data == NULL;
       uint64 seen          = 0;
       while (iterator_can_curr(&itor.super)) {
          key     k;

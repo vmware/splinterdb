@@ -119,14 +119,16 @@ typedef void (*page_get_async_state_init_fn)(void             *payload,
                                              async_callback_fn callback,
                                              void             *callback_arg);
 typedef async_status (*page_get_async_fn)(void *payload);
-typedef page_handle *(*page_get_async_state_result_fn)(void *payload);
+typedef platform_status (*page_get_async_state_result_fn)(void        *payload,
+                                                          page_handle *page);
 
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
-typedef page_handle *(*page_get_fn)(cache    *cc,
-                                    uint64    addr,
-                                    bool32    blocking,
-                                    page_type type);
+typedef platform_status (*page_get_fn)(cache       *cc,
+                                       uint64       addr,
+                                       bool32       blocking,
+                                       page_type    type,
+                                       page_handle *page);
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 
 /*
@@ -315,21 +317,31 @@ cache_extent_discard(cache *cc, uint64 addr, page_type type)
  *----------------------------------------------------------------------
  * cache_get
  *
- * Returns a pointer to the page_handle for the page with address addr.
+ * Acquires the page at addr into caller-owned storage. On success, page holds
+ * one read reference. The handle may be moved, but copying it does not acquire
+ * another reference. Release it exactly once with cache_unget().
  *
- * If blocking is set, then it blocks until the page is unlocked as well.
- * If blocking is TRUE, always returns with a read lock held.
- * If blocking is FALSE, returns non-NULL if and only if the thread now holds a
- * read lock on the page at addr.
+ * If blocking is TRUE, waits for the page to become readable. If blocking is
+ * FALSE and the page is absent or write-locked, returns STATUS_BUSY. A resident
+ * page whose read is already in flight may still wait for that read.
+ * On any failure, page is cleared and the caller owns no reference.
  *
  * addr is a byte offset from the beginning of the disk. It should be aligned
  * to cache_page_size().
  *----------------------------------------------------------------------
  */
-static inline page_handle *
-cache_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
+static inline platform_status
+cache_get(cache       *cc,
+          uint64       addr,
+          bool32       blocking,
+          page_type    type,
+          page_handle *page)
 {
-   return cc->ops->page_get(cc, addr, blocking, type);
+   platform_status rc = cc->ops->page_get(cc, addr, blocking, type, page);
+   if (!SUCCESS(rc)) {
+      *page = (page_handle){0};
+   }
+   return rc;
 }
 
 static inline void
@@ -351,10 +363,16 @@ cache_get_async(page_get_async_state_buffer *buffer)
    return buffer->cc->ops->page_get_async(&buffer->payload);
 }
 
-static inline page_handle *
-cache_get_async_state_result(page_get_async_state_buffer *buffer)
+static inline platform_status
+cache_get_async_state_result(page_get_async_state_buffer *buffer,
+                             page_handle                 *page)
 {
-   return buffer->cc->ops->page_get_async_result(&buffer->payload);
+   platform_status rc =
+      buffer->cc->ops->page_get_async_result(&buffer->payload, page);
+   if (!SUCCESS(rc)) {
+      *page = (page_handle){0};
+   }
+   return rc;
 }
 
 /*

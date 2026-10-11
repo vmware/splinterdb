@@ -177,7 +177,7 @@ blob_build(const blob_build_config *cfg,
       }
 
       debug_assert(offset + slice_length(dst) <= slice_length(data));
-      memcpy(iter.page->data + iter.fragment.offset,
+      memcpy(iter.page.data + iter.fragment.offset,
              raw_data + offset,
              slice_length(dst));
 
@@ -290,7 +290,7 @@ blob_clone(const blob_build_config *cfg,
          platform_assert(src_offset == dst_offset);
          uint64 amount_to_copy =
             MIN(slice_length(src_data), slice_length(dst_data));
-         memcpy(dst_iter.page->data + dst_iter.fragment.offset,
+         memcpy(dst_iter.page.data + dst_iter.fragment.offset,
                 slice_data(src_data),
                 amount_to_copy);
 

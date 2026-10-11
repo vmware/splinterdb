@@ -189,9 +189,9 @@ typedef struct trunk_ondisk_node_handle {
    cache       *cc;
    uint64       page_size;
    uint64       extent_size;
-   page_handle *header_page;
-   page_handle *pivot_page;
-   page_handle *inflight_bundle_page;
+   page_handle  header_page;
+   page_handle  pivot_page;
+   page_handle  inflight_bundle_page;
 } trunk_ondisk_node_handle;
 
 /********************************
@@ -373,7 +373,7 @@ DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
    // ondisk_node_bundle_at_offset
    // ondisk_node_get_first_inflight_bundle
    local, uint64,                       offset,
-   local, page_handle **,               page,
+   local, page_handle *,                page,
    local, uint64,                       pivot_num,
    local, page_get_async_state_buffer,  cache_get_state,   
    // ondisk_node_find_pivot

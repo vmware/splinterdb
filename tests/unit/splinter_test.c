@@ -70,18 +70,19 @@ typedef struct ONDISK test_log_entry {
    ondisk_tuple tuple;
 } test_log_entry;
 
-static page_handle *
+static page_handle
 test_splinter_claim_page(cache *cc, uint64 addr, page_type type)
 {
-   page_handle *page = cache_get(cc, addr, TRUE, type);
+   page_handle  acquired_page = test_cache_get_page(cc, addr, TRUE, type);
+   page_handle *page          = &acquired_page;
    platform_assert(page != NULL);
    while (!cache_try_claim(cc, page)) {
       cache_unget(cc, page);
-      page = cache_get(cc, addr, TRUE, type);
+      *page = test_cache_get_page(cc, addr, TRUE, type);
       platform_assert(page != NULL);
    }
    cache_lock(cc, page);
-   return page;
+   return *page;
 }
 
 static void
@@ -1184,14 +1185,16 @@ CTEST2(splinter, test_blob_checksums)
    uint64 corrupt_page_offset = iter.fragment.offset;
    blob_page_iterator_deinit(&iter);
 
-   page_handle *page = cache_get(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   page_handle acquired_page =
+      test_cache_get_page(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   page_handle *page = &acquired_page;
    if (page == NULL) {
       rc = STATUS_IO_ERROR;
       goto cleanup;
    }
    while (!cache_try_claim(cc, page)) {
       cache_unget(cc, page);
-      page = cache_get(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+      *page = test_cache_get_page(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
    }
    cache_lock(cc, page);
    page->data[corrupt_page_offset] ^= 0x80;
@@ -1395,8 +1398,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
 
    uint64       root_addr = spl.trunk_context.root->ref.addr;
    uint64       page_size = cache_page_size(cc);
-   page_handle *root_page =
+   page_handle  root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
+   page_handle         *root_page = &root_page_handle;
    test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
    ASSERT_TRUE(node->num_pivots >= 2);
    uint64  num_bundles = node->num_pivots - 1;
@@ -1413,8 +1417,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    for (uint64 i = 0; i < num_bundles; i++) {
       uint64 pivot_page_addr =
          root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
-      page_handle *pivot_page =
+      page_handle pivot_page_handle =
          test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      page_handle       *pivot_page = &pivot_page_handle;
       test_trunk_bundle *bundle =
          test_splinter_pivot_bundle(pivot_page, pivot_offsets[i], page_size);
       saved_num_branches[i] = bundle->num_branches;
@@ -1477,8 +1482,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    for (uint64 i = 0; i < num_bundles; i++) {
       uint64 pivot_page_addr =
          root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
-      page_handle *pivot_page =
+      page_handle pivot_page_handle =
          test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      page_handle       *pivot_page = &pivot_page_handle;
       test_trunk_bundle *bundle =
          test_splinter_pivot_bundle(pivot_page, pivot_offsets[i], page_size);
       bundle->num_branches = saved_num_branches[i];
@@ -1530,8 +1536,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_stats)
 
    uint64       root_addr = spl.trunk_context.root->ref.addr;
    uint64       page_size = cache_page_size(cc);
-   page_handle *root_page =
+   page_handle  root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
+   page_handle         *root_page = &root_page_handle;
    test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
    ASSERT_TRUE(node->num_pivots >= 2);
    uint16  num_pivots = node->num_pivots;
@@ -1548,8 +1555,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_stats)
    for (uint64 i = 0; i < num_pivots; i++) {
       uint64 pivot_page_addr =
          root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
-      page_handle *pivot_page =
+      page_handle pivot_page_handle =
          test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      page_handle      *pivot_page = &pivot_page_handle;
       test_trunk_pivot *pivot =
          test_splinter_pivot(pivot_page, pivot_offsets[i], page_size);
       saved_stats[i]            = pivot->stats;
@@ -1593,8 +1601,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_stats)
    for (uint64 i = 0; i < num_pivots; i++) {
       uint64 pivot_page_addr =
          root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
-      page_handle *pivot_page =
+      page_handle pivot_page_handle =
          test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      page_handle      *pivot_page = &pivot_page_handle;
       test_trunk_pivot *pivot =
          test_splinter_pivot(pivot_page, pivot_offsets[i], page_size);
       pivot->stats = saved_stats[i];
@@ -1647,8 +1656,9 @@ CTEST2(splinter, test_malformed_trunk_child_height)
 
    uint64       root_addr = spl.trunk_context.root->ref.addr;
    uint64       page_size = cache_page_size(cc);
-   page_handle *root_page =
+   page_handle  root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
+   page_handle         *root_page = &root_page_handle;
    test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
    ASSERT_EQUAL(0, node->height);
    ASSERT_TRUE(node->num_pivots >= 2);
@@ -1658,8 +1668,9 @@ CTEST2(splinter, test_malformed_trunk_child_height)
    test_splinter_unclaim_page(cc, root_page);
 
    uint64 pivot_page_addr = root_addr + pivot_offset - pivot_offset % page_size;
-   page_handle *pivot_page =
+   page_handle pivot_page_handle =
       test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+   page_handle      *pivot_page = &pivot_page_handle;
    test_trunk_pivot *pivot =
       test_splinter_pivot(pivot_page, pivot_offset, page_size);
    uint64 saved_child_addr = pivot->child_addr;
@@ -1720,11 +1731,11 @@ CTEST2(splinter, test_malformed_trunk_child_height)
       trunk_ondisk_node_handle_deinit(&handle);
    }
 
-   pivot_page = test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+   *pivot_page = test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
    pivot      = test_splinter_pivot(pivot_page, pivot_offset, page_size);
    pivot->child_addr = saved_child_addr;
    test_splinter_unclaim_page(cc, pivot_page);
-   root_page    = test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
+   *root_page   = test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
    node         = (test_trunk_node_hdr *)root_page->data;
    node->height = saved_height;
    test_splinter_unclaim_page(cc, root_page);
@@ -4389,6 +4400,148 @@ CTEST2(splinter, test_unmount_skips_allocator_map_that_needs_rebuild)
    core_destroy(&cleanup);
 }
 
+/* Inject a real metadata-read failure after close has published its durable
+ * root and entered destructive teardown. Keep the unreadable metadata behind
+ * the hook during reopen: recovery must never visit this unreachable root. */
+static const cache_ops *late_reclaim_saved_ops;
+static cache_ops        late_reclaim_fault_ops;
+static uint64           late_reclaim_addr;
+static uint64           late_reclaim_reads;
+static bool32           late_reclaim_pending;
+
+static platform_status
+late_reclaim_get(cache       *cc,
+                 uint64       addr,
+                 bool32       blocking,
+                 page_type    type,
+                 page_handle *page)
+{
+   if (addr == late_reclaim_addr) {
+      late_reclaim_reads++;
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
+   }
+   return late_reclaim_saved_ops->page_get(cc, addr, blocking, type, page);
+}
+
+static void
+late_reclaim_flush(cache *cc)
+{
+   late_reclaim_saved_ops->flush(cc);
+   if (late_reclaim_pending) {
+      late_reclaim_pending = FALSE;
+      ASSERT_EQUAL(0, mini_dec_ref(cc, late_reclaim_addr, PAGE_TYPE_MISC));
+   }
+}
+
+CTEST2(splinter, test_late_reclamation_failure_requires_recovery)
+{
+   allocator        *alp     = (allocator *)&data->al;
+   allocator_config *acfg    = allocator_get_config(alp);
+   allocator_root_id root_id = test_generate_allocator_root_id();
+   core_handle       created, recovered, cleanup;
+   platform_status   rc;
+
+   rc = core_mkfs(&created,
+                  &data->system_cfg->splinter_cfg,
+                  alp,
+                  (cache *)data->clock_cache,
+                  data->io,
+                  &data->tasks,
+                  root_id,
+                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(&created,
+                    key_buffer_key(&keybuf),
+                    merge_accumulator_to_message(&msg),
+                    NULL);
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   cache *cc = (cache *)data->clock_cache;
+   ASSERT_TRUE(
+      SUCCESS(allocator_alloc(alp, &late_reclaim_addr, PAGE_TYPE_MISC)));
+   mini_allocator abandoned;
+   ASSERT_TRUE(SUCCESS(mini_init(
+      &abandoned, cc, late_reclaim_addr, 0, 1, PAGE_TYPE_MISC, NULL)));
+   mini_release(&abandoned);
+   late_reclaim_saved_ops          = cc->ops;
+   late_reclaim_fault_ops          = *cc->ops;
+   late_reclaim_fault_ops.page_get = late_reclaim_get;
+   late_reclaim_fault_ops.flush    = late_reclaim_flush;
+   late_reclaim_reads              = 0;
+   late_reclaim_pending            = TRUE;
+   cc->ops                         = &late_reclaim_fault_ops;
+   rc                              = core_unmount(&created, FALSE);
+   ASSERT_FALSE(late_reclaim_pending);
+   ASSERT_EQUAL(1, late_reclaim_reads);
+   ASSERT_TRUE(
+      STATUS_IS_EQ(allocator_reclamation_status(alp), STATUS_TIMEDOUT));
+   ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_context sb;
+   rc = superblock_context_init(&sb, data->io, acfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+   ASSERT_FALSE(superblock_allocation_state_valid(&sb));
+   superblock_context_deinit(&sb);
+
+   rc = core_mount(&recovered,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_FALSE(recovered.allocator_map_needs_rebuild);
+   ASSERT_EQUAL(1, late_reclaim_reads);
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(alp, late_reclaim_addr));
+   ASSERT_TRUE(SUCCESS(allocator_reclamation_status(alp)));
+   cc->ops = late_reclaim_saved_ops;
+
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, recovered.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   rc = core_lookup(&recovered, key_buffer_key(&keybuf), &qdata);
+   ASSERT_TRUE(SUCCESS(rc));
+   verify_tuple(&recovered,
+                &data->gen,
+                1,
+                key_buffer_key(&keybuf),
+                merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+                TRUE);
+   lookup_result_deinit(&qdata);
+
+   rc = core_unmount(&recovered, FALSE);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = superblock_context_init(&sb, data->io, acfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+   ASSERT_TRUE(superblock_allocation_state_valid(&sb));
+   superblock_context_deinit(&sb);
+
+   rc = core_mount(&cleanup,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   core_destroy(&cleanup);
+}
+
+
 /*
  * The second checkpoint slot is a torn-write fallback, not permission for a
  * normal mount to silently roll back past a newer, valid active record.  A
@@ -5116,4 +5269,142 @@ test_lookup_by_range(void         *datap,
                   num_ranges);
 
    return rc;
+}
+
+static const cache_ops *core_read_saved_ops;
+static cache_ops        core_read_fault_ops;
+static page_type        core_read_failed_type;
+static bool32           core_read_fail_async;
+
+static platform_status
+core_read_fail_get(cache       *cc,
+                   uint64       addr,
+                   bool32       blocking,
+                   page_type    type,
+                   page_handle *page)
+{
+   if (type == core_read_failed_type) {
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
+   }
+   return core_read_saved_ops->page_get(cc, addr, blocking, type, page);
+}
+
+static cache *core_read_cache;
+
+static platform_status
+core_read_fail_async_result(void *payload, page_handle *page)
+{
+   platform_status rc =
+      core_read_saved_ops->page_get_async_result(payload, page);
+   if (SUCCESS(rc) && core_read_fail_async) {
+      core_read_saved_ops->page_unget(core_read_cache, page);
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
+   }
+   return rc;
+}
+
+static void
+core_read_ready(void *arg)
+{
+   *(bool32 *)arg = TRUE;
+}
+
+CTEST2(splinter, test_cache_read_errors_reach_core_operations)
+{
+   allocator      *al = (allocator *)&data->al;
+   cache          *cc = (cache *)data->clock_cache;
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  al,
+                                  cc,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   generate_test_message(&data->gen, 1, &msg);
+
+   core_read_cache                           = cc;
+   core_read_saved_ops                       = cc->ops;
+   core_read_fault_ops                       = *cc->ops;
+   core_read_fault_ops.page_get              = core_read_fail_get;
+   core_read_fault_ops.page_get_async_result = core_read_fail_async_result;
+   core_read_failed_type                     = PAGE_TYPE_MEMTABLE;
+   core_read_fail_async                      = FALSE;
+   cc->ops                                   = &core_read_fault_ops;
+   rc                                        = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   cc->ops = core_read_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+   ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                   key_buffer_key(&keybuf),
+                                   merge_accumulator_to_message(&msg),
+                                   NULL)));
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(core_checkpoint(&spl, 0)));
+
+   /* Read through each foreground layer with a non-generic error. */
+   page_type failed_types[] = {
+      PAGE_TYPE_MEMTABLE, PAGE_TYPE_TRUNK, PAGE_TYPE_BRANCH};
+   for (unsigned i = 0; i < ARRAY_SIZE(failed_types); i++) {
+      core_read_failed_type = failed_types[i];
+      lookup_result result;
+      lookup_result_init(
+         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      cc->ops = &core_read_fault_ops;
+      rc      = core_lookup(&spl, key_buffer_key(&keybuf), &result);
+      cc->ops = core_read_saved_ops;
+      lookup_result_deinit(&result);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT),
+                  "page type %d: %s",
+                  failed_types[i],
+                  platform_status_to_string(rc));
+   }
+   /* Async cache result failures also reach a public lookup and the range
+    * initializer, which starts branch iterators asynchronously. */
+   core_read_failed_type = PAGE_TYPE_INVALID;
+   core_read_fail_async  = TRUE;
+   lookup_result result;
+   lookup_result_init(
+      &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   core_lookup_async_state state;
+   bool32                  ready = FALSE;
+   core_lookup_async_state_init(
+      &state, &spl, key_buffer_key(&keybuf), &result, core_read_ready, &ready);
+   cc->ops = &core_read_fault_ops;
+   while (core_lookup_async(&state) != ASYNC_STATUS_DONE) {
+      cache_cleanup(cc);
+   }
+   rc      = async_result(&state);
+   cc->ops = core_read_saved_ops;
+   lookup_result_deinit(&result);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+
+   core_range_iterator itor;
+   cc->ops = &core_read_fault_ops;
+   rc      = core_range_iterator_init(&spl,
+                                 &itor,
+                                 greater_than_or_equal,
+                                 NEGATIVE_INFINITY_KEY,
+                                 less_than,
+                                 POSITIVE_INFINITY_KEY,
+                                 greater_than_or_equal,
+                                 NEGATIVE_INFINITY_KEY);
+   cc->ops = core_read_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+   core_read_fail_async = FALSE;
+
+   lookup_result_init(
+      &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_TRUE(SUCCESS(core_lookup(&spl, key_buffer_key(&keybuf), &result)));
+   ASSERT_TRUE(lookup_result_found(&result));
+   lookup_result_deinit(&result);
+   core_destroy(&spl);
 }

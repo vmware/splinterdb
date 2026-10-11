@@ -231,7 +231,7 @@ blob_page_iterator_init(cache                  *cc,
    iter->extent_size = cache_extent_size(cc);
    iter->page_size   = cache_page_size(cc);
    iter->offset      = offset;
-   iter->page        = NULL;
+   iter->page        = (page_handle){0};
 
    platform_status rc = blob_parse_descriptor(cc, sblobby, &iter->pblob);
    if (!SUCCESS(rc)) {
@@ -280,13 +280,13 @@ should_alloc(blob_page_iterator *iter)
 static void
 blob_page_iterator_release_page(blob_page_iterator *iter)
 {
-   if (iter->page) {
+   if (iter->page.data != NULL) {
       if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
-         cache_unlock(iter->cc, iter->page);
-         cache_unclaim(iter->cc, iter->page);
+         cache_unlock(iter->cc, &iter->page);
+         cache_unclaim(iter->cc, &iter->page);
       }
-      cache_unget(iter->cc, iter->page);
-      iter->page = NULL;
+      cache_unget(iter->cc, &iter->page);
+      iter->page = (page_handle){0};
    }
 }
 
@@ -301,30 +301,39 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
                             uint64             *offset,
                             slice              *result)
 {
-   if (iter->page == NULL) {
+   if (iter->page.data == NULL) {
       if (should_alloc(iter)) {
          iter->page =
-            cache_alloc(iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB);
+            *cache_alloc(iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB);
       } else {
-         iter->page =
-            cache_get(iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
+         platform_status rc = cache_get(
+            iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB, &iter->page);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
             uint64 wait = 1;
-            while (!cache_try_claim(iter->cc, iter->page)) {
-               cache_unget(iter->cc, iter->page);
+            while (!cache_try_claim(iter->cc, &iter->page)) {
+               cache_unget(iter->cc, &iter->page);
                platform_sleep_ns(wait);
                wait       = MIN(2 * wait, 2048);
-               iter->page = cache_get(
-                  iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
+               rc         = cache_get(iter->cc,
+                              iter->fragment.addr,
+                              TRUE,
+                              PAGE_TYPE_BLOB,
+                              &iter->page);
+               if (!SUCCESS(rc)) {
+                  return rc;
+               }
             }
-            cache_lock(iter->cc, iter->page);
+            cache_lock(iter->cc, &iter->page);
          }
       }
    }
 
    *offset = iter->offset;
    *result = slice_create(iter->fragment.length,
-                          iter->page->data + iter->fragment.offset);
+                          iter->page.data + iter->fragment.offset);
    return STATUS_OK;
 }
 
@@ -583,9 +592,11 @@ blob_writeback(cache *cc, slice sblob, writeback_set *set)
          uint64 page_addr     = byte_addr - page_offset;
          uint64 bytes_on_page = MIN(remaining, page_size - page_offset);
 
-         page_handle *page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_BLOB);
-         if (page == NULL) {
-            return STATUS_IO_ERROR;
+         page_handle  page_storage;
+         page_handle *page = &page_storage;
+         rc = cache_get(cc, page_addr, TRUE, PAGE_TYPE_BLOB, page);
+         if (!SUCCESS(rc)) {
+            return rc;
          }
 
          if (set != NULL) {

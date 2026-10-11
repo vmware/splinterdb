@@ -55,15 +55,16 @@ test_rc_allocator_bounded_scan(rc_allocator *al)
 }
 
 platform_status
-test_cache_page_pin(cache *cc, page_handle **page_arr, uint64 page_capacity)
+test_cache_page_pin(cache *cc, page_handle *page_arr, uint64 page_capacity)
 {
    platform_status rc = STATUS_OK;
 
    platform_assert(cache_count_dirty(cc) == 0);
 
    for (uint64 curr_page = 0; curr_page < page_capacity; curr_page++) {
-      page_handle *page =
-         cache_get(cc, page_arr[curr_page]->disk_addr, TRUE, PAGE_TYPE_MISC);
+      page_handle acquired_page = test_cache_get_page(
+         cc, page_arr[curr_page].disk_addr, TRUE, PAGE_TYPE_MISC);
+      page_handle *page = &acquired_page;
       cache_try_claim(cc, page);
       cache_lock(cc, page);
       cache_pin(cc, page);
@@ -75,7 +76,7 @@ test_cache_page_pin(cache *cc, page_handle **page_arr, uint64 page_capacity)
    cache_evict(cc, TRUE /* ignore pinned pages */);
 
    for (uint64 curr_page = 0; curr_page < page_capacity; curr_page++) {
-      page_handle *page = page_arr[curr_page];
+      page_handle *page = &page_arr[curr_page];
       if (!cache_present(cc, page)) {
          platform_error_log("Pinned Entry Evicted\n");
          rc = STATUS_TEST_FAILED;
@@ -85,7 +86,7 @@ test_cache_page_pin(cache *cc, page_handle **page_arr, uint64 page_capacity)
 
 out:
    for (uint64 curr_page = 0; curr_page < page_capacity; curr_page++) {
-      page_handle *page = page_arr[curr_page];
+      page_handle *page = &page_arr[curr_page];
       cache_unpin(cc, page);
    }
 
@@ -130,7 +131,9 @@ cache_test_alloc_extents(cache             *cc,
 static platform_status
 cache_test_fill_page(cache *cc, uint64 addr, uint64 page_size, uint8 value)
 {
-   page_handle *page = cache_get(cc, addr, TRUE, PAGE_TYPE_MISC);
+   page_handle acquired_page =
+      test_cache_get_page(cc, addr, TRUE, PAGE_TYPE_MISC);
+   page_handle *page = &acquired_page;
    if (!cache_try_claim(cc, page)) {
       cache_unget(cc, page);
       return STATUS_BUSY;
@@ -485,7 +488,8 @@ cleanup:
  * on-disk metadata alone -- including the ordering property this whole
  * mechanism exists for, since a rebuilding allocator considers all of these
  * extents unallocated until mini_recover_allocations() itself establishes
- * their references, ahead of the cache_get() calls it issues to read them.
+ * their references, ahead of the test_cache_get_page() calls it issues to read
+ * them.
  */
 static platform_status
 test_mini_recover_allocations(allocator_config  *allocator_cfg,
@@ -589,8 +593,8 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
    /*
     * Every extent below is still AL_FREE from recovery's point of view: this
     * call must establish each one's reference itself, before its own
-    * cache_get() calls, or those cache_get()s would trip the cache's debug
-    * allocation check.
+    * test_cache_get_page() calls, or those test_cache_get_page()s would trip
+    * the cache's debug allocation check.
     */
    rc =
       mini_recover_references((cache *)&recovery_cc, meta_head, PAGE_TYPE_MISC);
@@ -681,8 +685,10 @@ test_cache_writeback_fence(cache             *cc,
    platform_status rc            = STATUS_OK;
    uint64       pages_per_extent = cache_config_pages_per_extent(&cfg->super);
    uint64      *addr_arr         = NULL;
-   page_handle *old_page         = NULL;
-   page_handle *new_page         = NULL;
+   page_handle     old_page_storage;
+   page_handle    *old_page = NULL;
+   page_handle     new_page_storage;
+   page_handle    *new_page    = NULL;
    bool32       new_claimed = FALSE, new_locked = FALSE;
    bool32       fence_thread_started = FALSE;
    const uint8  old_baseline = 0x11, old_value = 0x22;
@@ -722,7 +728,8 @@ test_cache_writeback_fence(cache             *cc,
    cache_flush(cc);
 
    /* Dirty old_page and leave it unlocked: the fence must flush it. */
-   old_page = cache_get(cc, addr_arr[0], TRUE, PAGE_TYPE_MISC);
+   old_page  = &old_page_storage;
+   *old_page = test_cache_get_page(cc, addr_arr[0], TRUE, PAGE_TYPE_MISC);
    if (!cache_try_claim(cc, old_page)) {
       rc = STATUS_TEST_FAILED;
       goto cleanup;
@@ -735,7 +742,9 @@ test_cache_writeback_fence(cache             *cc,
    old_page = NULL;
 
    /* Hold new_page write-locked: the fence must skip it and still complete. */
-   new_page = cache_get(cc, addr_arr[pages_per_extent], TRUE, PAGE_TYPE_MISC);
+   new_page = &new_page_storage;
+   *new_page =
+      test_cache_get_page(cc, addr_arr[pages_per_extent], TRUE, PAGE_TYPE_MISC);
    if (!cache_try_claim(cc, new_page)) {
       rc = STATUS_TEST_FAILED;
       goto cleanup;
@@ -851,7 +860,8 @@ test_cache_writeback_fence_claimed_page(cache             *cc,
    platform_status rc            = STATUS_OK;
    uint64       pages_per_extent = cache_config_pages_per_extent(&cfg->super);
    uint64      *addr_arr         = NULL;
-   page_handle *page             = NULL;
+   page_handle     page_storage;
+   page_handle    *page    = NULL;
    bool32       claimed = FALSE, locked = FALSE;
    bool32       fence_thread_started = FALSE;
    const uint8  baseline = 0x55, final_value = 0x66;
@@ -879,7 +889,8 @@ test_cache_writeback_fence_claimed_page(cache             *cc,
    cache_flush(cc);
 
    /* Dirty the page, then keep only a claim (release the write lock). */
-   page = cache_get(cc, addr_arr[0], TRUE, PAGE_TYPE_MISC);
+   page  = &page_storage;
+   *page = test_cache_get_page(cc, addr_arr[0], TRUE, PAGE_TYPE_MISC);
    if (!cache_try_claim(cc, page)) {
       rc = STATUS_TEST_FAILED;
       goto cleanup;
@@ -1012,7 +1023,9 @@ cache_test_hammer_thread(void *arg)
    uint64                i    = 0;
    while (!__atomic_load_n(&ctxt->stop, __ATOMIC_ACQUIRE)) {
       uint64       addr = ctxt->addrs[i % ctxt->num_addrs];
-      page_handle *page = cache_get(ctxt->cc, addr, TRUE, PAGE_TYPE_MISC);
+      page_handle  acquired_page =
+         test_cache_get_page(ctxt->cc, addr, TRUE, PAGE_TYPE_MISC);
+      page_handle *page = &acquired_page;
       if (cache_try_claim(ctxt->cc, page)) {
          cache_lock(ctxt->cc, page);
          memset(page->data, (uint8)i, ctxt->page_size);
@@ -1164,7 +1177,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
 {
    platform_default_log("cache_test: basic test started\n");
    platform_status rc       = STATUS_OK;
-   page_handle   **page_arr = NULL;
+   page_handle    *page_arr = NULL;
    uint64         *addr_arr = NULL;
 
    rc = test_cache_writeback_fence(cc, cfg, hid);
@@ -1217,8 +1230,9 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
       uint32 i;
       for (i = 0; i < cfg->page_capacity; i++) {
          uint64 page_idx = j + i;
-         page_arr[i] = cache_get(cc, addr_arr[page_idx], TRUE, PAGE_TYPE_MISC);
-         uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
+         page_arr[i] =
+            test_cache_get_page(cc, addr_arr[page_idx], TRUE, PAGE_TYPE_MISC);
+         uint32 refcount = cache_get_read_ref(cc, &page_arr[i]);
          if (refcount != 1) {
             platform_error_log("Expected one reference, but found %u\n",
                                refcount);
@@ -1227,8 +1241,8 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
          }
       }
       for (i = 0; i < cfg->page_capacity; i++) {
-         cache_unget(cc, page_arr[i]);
-         uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
+         cache_unget(cc, &page_arr[i]);
+         uint32 refcount = cache_get_read_ref(cc, &page_arr[i]);
          if (refcount != 0) {
             platform_error_log("Expected zero references, but found %u\n",
                                refcount);
@@ -1256,14 +1270,15 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
    for (uint32 j = 0; j < pages_allocated && SUCCESS(rc);) {
       uint32 i;
       for (i = 0; i < cfg->page_capacity; i++) {
-         page_arr[i] = cache_get(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
-         bool32 claim_obtained = cache_try_claim(cc, page_arr[i]);
+         page_arr[i] =
+            test_cache_get_page(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
+         bool32 claim_obtained = cache_try_claim(cc, &page_arr[i]);
          if (!claim_obtained) {
             platform_error_log("Expected uncontested claim, but failed\n");
             rc = STATUS_TEST_FAILED;
          }
-         cache_lock(cc, page_arr[i]);
-         uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
+         cache_lock(cc, &page_arr[i]);
+         uint32 refcount = cache_get_read_ref(cc, &page_arr[i]);
          if (refcount != 1) {
             platform_error_log("Expected one reference, but found %u\n",
                                refcount);
@@ -1271,10 +1286,10 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
          }
       }
       for (i = 0; i < cfg->page_capacity; i++) {
-         cache_unlock(cc, page_arr[i]);
-         cache_unclaim(cc, page_arr[i]);
-         cache_unget(cc, page_arr[i]);
-         uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
+         cache_unlock(cc, &page_arr[i]);
+         cache_unclaim(cc, &page_arr[i]);
+         cache_unget(cc, &page_arr[i]);
+         uint32 refcount = cache_get_read_ref(cc, &page_arr[i]);
          if (refcount != 0) {
             platform_error_log("Expected zero references, but found %u\n",
                                refcount);
@@ -1301,14 +1316,15 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
    for (uint32 j = 0; j < pages_allocated && SUCCESS(rc);) {
       uint32 i;
       for (i = 0; i < cfg->page_capacity; i++) {
-         page_arr[i] = cache_get(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
-         bool32 claim_obtained = cache_try_claim(cc, page_arr[i]);
+         page_arr[i] =
+            test_cache_get_page(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
+         bool32 claim_obtained = cache_try_claim(cc, &page_arr[i]);
          if (!claim_obtained) {
             platform_error_log("Expected uncontested claim, but failed\n");
             rc = STATUS_TEST_FAILED;
          }
-         cache_lock(cc, page_arr[i]);
-         uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
+         cache_lock(cc, &page_arr[i]);
+         uint32 refcount = cache_get_read_ref(cc, &page_arr[i]);
          if (refcount != 1) {
             platform_error_log("Expected one reference, but found %u\n",
                                refcount);
@@ -1316,10 +1332,10 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
          }
       }
       for (i = 0; i < cfg->page_capacity; i++) {
-         cache_unlock(cc, page_arr[i]);
-         cache_unclaim(cc, page_arr[i]);
-         cache_unget(cc, page_arr[i]);
-         uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
+         cache_unlock(cc, &page_arr[i]);
+         cache_unclaim(cc, &page_arr[i]);
+         cache_unget(cc, &page_arr[i]);
+         uint32 refcount = cache_get_read_ref(cc, &page_arr[i]);
          if (refcount != 0) {
             platform_error_log("Expected zero references, but found %u\n",
                                refcount);
@@ -1488,7 +1504,9 @@ cache_test_dirty_flush(cache                 *cc,
     */
    for (uint32 i = 0; i < cfg->page_capacity; i++) {
       const uint32 idx = cache_test_index_itor_get(itor);
-      page_handle *ph  = cache_get(cc, addr_arr[idx], TRUE, PAGE_TYPE_MISC);
+      page_handle  ph_handle =
+         test_cache_get_page(cc, addr_arr[idx], TRUE, PAGE_TYPE_MISC);
+      page_handle *ph             = &ph_handle;
       bool32       claim_obtained = cache_try_claim(cc, ph);
       if (!claim_obtained) {
          platform_error_log("Expected uncontested claim, but failed\n");
@@ -1666,7 +1684,7 @@ typedef struct {
    uint64                num_pages;               // IN #of pages to get
    uint64                num_pages_ws;            // IN #of pages in working set
    uint32                sync_probability;        // IN probability of sync get
-   page_handle         **handle_arr;              // page handles
+   page_handle          *handle_arr;              // page handles
    cache_test_async_ctxt ctxt[READER_BATCH_SIZE]; // async_get() contexts
 } test_params;
 
@@ -1700,12 +1718,12 @@ test_wait_inflight(test_params *params,
             }
          }
 
-         platform_assert(params->handle_arr[batch_start + j] == NULL);
+         platform_assert(params->handle_arr[batch_start + j].data == NULL);
          params->handle_arr[batch_start + j] =
-            cache_get_async_state_result(&ctxt->buffer);
+            test_cache_get_async_page(&ctxt->buffer);
       }
 
-      platform_assert(params->handle_arr[batch_start + j]->disk_addr
+      platform_assert(params->handle_arr[batch_start + j].disk_addr
                       == params->addr_arr[batch_start + j]);
    }
 }
@@ -1714,7 +1732,7 @@ test_wait_inflight(test_params *params,
 static bool32
 test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
 {
-   page_handle **handle_arr = &params->handle_arr[batch_start];
+   page_handle  *handle_arr = &params->handle_arr[batch_start];
    const uint64 *addr_arr   = &params->addr_arr[batch_start];
    const bool32  mt_reader  = params->mt_reader;
    cache        *cc         = params->cc;
@@ -1728,8 +1746,9 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
       if (mt_reader && params->sync_probability != 0
           && (tid + batch_start + j) % params->sync_probability == 0)
       {
-         handle_arr[j] = cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
-         platform_assert(handle_arr[j] != NULL);
+         handle_arr[j] =
+            test_cache_get_page(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
+         platform_assert(handle_arr[j].data != NULL);
          ctxt->status = done;
       } else {
          cache_get_async_state_init(&ctxt->buffer,
@@ -1742,9 +1761,9 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
          res          = cache_get_async(&ctxt->buffer);
          switch (res) {
             case ASYNC_STATUS_DONE:
-               platform_assert(handle_arr[j] == NULL);
-               handle_arr[j] = cache_get_async_state_result(&ctxt->buffer);
-               platform_assert(handle_arr[j] != NULL);
+               platform_assert(handle_arr[j].data == NULL);
+               handle_arr[j] = test_cache_get_async_page(&ctxt->buffer);
+               platform_assert(handle_arr[j].data != NULL);
                ctxt->status = done;
                break;
             case ASYNC_STATUS_RUNNING:
@@ -1765,7 +1784,7 @@ void
 test_reader_thread(void *arg)
 {
    test_params   *params     = (test_params *)arg;
-   page_handle  **handle_arr = params->handle_arr;
+   page_handle   *handle_arr = params->handle_arr;
    cache         *cc         = params->cc;
    uint64         i, j, k;
    const uint64   num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
@@ -1782,8 +1801,8 @@ test_reader_thread(void *arg)
       // Maintain working set by doing ungets on old pages
       if (i >= k + params->num_pages_ws) {
          for (j = 0; j < READER_BATCH_SIZE; j++) {
-            cache_unget(cc, handle_arr[k + j]);
-            handle_arr[k + j] = NULL;
+            cache_unget(cc, &handle_arr[k + j]);
+            handle_arr[k + j] = (page_handle){0};
          }
          k += READER_BATCH_SIZE;
       }
@@ -1798,9 +1817,9 @@ test_reader_thread(void *arg)
 
    for (; k < num_pages; k += j) {
       for (j = 0; j < READER_BATCH_SIZE; j++) {
-         platform_assert(handle_arr[k + j] != NULL);
-         cache_unget(cc, handle_arr[k + j]);
-         handle_arr[k + j] = NULL;
+         platform_assert(handle_arr[k + j].data != NULL);
+         cache_unget(cc, &handle_arr[k + j]);
+         handle_arr[k + j] = (page_handle){0};
       }
    }
 }
@@ -1810,7 +1829,7 @@ test_writer_thread(void *arg)
 {
    test_params  *params     = (test_params *)arg;
    const uint64 *addr_arr   = params->addr_arr;
-   page_handle **handle_arr = params->handle_arr;
+   page_handle  *handle_arr = params->handle_arr;
    cache        *cc         = params->cc;
    uint64        i, k;
    const uint64  num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
@@ -1819,29 +1838,30 @@ test_writer_thread(void *arg)
       // Maintain working set by doing ungets on old pages
       if (i >= k + params->num_pages_ws) {
          for (; k < i - params->num_pages_ws; k++) {
-            platform_assert(handle_arr[k] != NULL);
-            cache_unlock(cc, handle_arr[k]);
-            cache_unclaim(cc, handle_arr[k]);
-            cache_unget(cc, handle_arr[k]);
-            handle_arr[k] = NULL;
+            platform_assert(handle_arr[k].data != NULL);
+            cache_unlock(cc, &handle_arr[k]);
+            cache_unclaim(cc, &handle_arr[k]);
+            cache_unget(cc, &handle_arr[k]);
+            handle_arr[k] = (page_handle){0};
          }
       }
       do {
-         handle_arr[i] = cache_get(cc, addr_arr[i], TRUE, PAGE_TYPE_MISC);
-         if (cache_try_claim(cc, handle_arr[i])) {
+         handle_arr[i] =
+            test_cache_get_page(cc, addr_arr[i], TRUE, PAGE_TYPE_MISC);
+         if (cache_try_claim(cc, &handle_arr[i])) {
             break;
          }
-         cache_unget(cc, handle_arr[i]);
-         handle_arr[i] = NULL;
+         cache_unget(cc, &handle_arr[i]);
+         handle_arr[i] = (page_handle){0};
       } while (1);
-      cache_lock(cc, handle_arr[i]);
+      cache_lock(cc, &handle_arr[i]);
    }
    for (; k < num_pages; k++) {
-      platform_assert(handle_arr[k] != NULL);
-      cache_unlock(cc, handle_arr[k]);
-      cache_unclaim(cc, handle_arr[k]);
-      cache_unget(cc, handle_arr[k]);
-      handle_arr[k] = NULL;
+      platform_assert(handle_arr[k].data != NULL);
+      cache_unlock(cc, &handle_arr[k]);
+      cache_unclaim(cc, &handle_arr[k]);
+      cache_unget(cc, &handle_arr[k]);
+      handle_arr[k] = (page_handle){0};
    }
 }
 
@@ -2102,7 +2122,8 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
    for (uint32 i = 0; i < ARRAY_SIZE(waiters); i++) {
       platform_assert(waiters[i].callbacks == 3);
       platform_assert(waiters[i].status == ASYNC_STATUS_DONE);
-      page_handle *page = cache_get_async_state_result(&waiters[i].buffer);
+      page_handle acquired_page = test_cache_get_async_page(&waiters[i].buffer);
+      page_handle *page         = &acquired_page;
       platform_assert(page->disk_addr == addr);
       platform_assert(
          memcmp(page->data, platform_buffer_getaddr(&buffer), page_size) == 0);
@@ -2120,7 +2141,8 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
                               &waiters[0]);
    platform_assert(cache_get_async(&waiters[0].buffer) == ASYNC_STATUS_DONE);
    platform_assert(waiters[0].callbacks == 0);
-   cache_unget(cc, cache_get_async_state_result(&waiters[0].buffer));
+   page_handle hit_page = test_cache_get_async_page(&waiters[0].buffer);
+   cache_unget(cc, &hit_page);
    platform_assert(cache_get_read_ref(cc, &entry->page) == 0);
 
    platform_assert(allocator_dec_ref(al, addr, PAGE_TYPE_MISC) == AL_NO_REFS);

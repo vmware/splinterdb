@@ -110,8 +110,12 @@ gc_dec_ref(allocator *al, uint64 addr, page_type type)
    return --test_al->refs[index];
 }
 
-static page_handle *
-gc_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
+static platform_status
+gc_get(cache       *cc,
+       uint64       addr,
+       bool32       blocking,
+       page_type    type,
+       page_handle *page)
 {
    gc_cache *test_cc = (gc_cache *)cc;
    uint64    index   = node_index(addr);
@@ -120,7 +124,8 @@ gc_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
    platform_assert(test_cc->context->pending_gcs_lock == 0);
    platform_assert(type == PAGE_TYPE_TRUNK && !test_cc->discarded[index]);
    test_cc->readers[index]++;
-   return &test_cc->pages[index];
+   *page = test_cc->pages[index];
+   return STATUS_OK;
 }
 
 static void

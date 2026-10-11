@@ -2234,7 +2234,12 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
          }
 
          uint64       page_addr = extent_addr + i * page_size;
-         page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         page_handle  page_storage;
+         page_handle *page = &page_storage;
+         rc = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG, page);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          bool32       ends_stream = FALSE;
          if (shard_log_valid(cfg, page, head.nonce)) {
             rc = shard_log_validate_page_records(cc, cfg, page);
@@ -2555,7 +2560,16 @@ shard_log_print(shard_log *log)
       uint64 next_extent_addr = 0;
       for (uint64 i = 0; i < pages_per_extent; i++) {
          uint64       page_addr = extent_addr + i * shard_log_page_size(cfg);
-         page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         page_handle     page_storage;
+         page_handle    *page = &page_storage;
+         platform_status get_rc =
+            cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG, page);
+         if (!SUCCESS(get_rc)) {
+            platform_error_log("cannot read log page %lu: %s\n",
+                               page_addr,
+                               platform_status_to_string(get_rc));
+            return;
+         }
          if (shard_log_valid(cfg, page, nonce)) {
             next_extent_addr   = shard_log_next_extent_addr(cfg, page);
             platform_status rc = shard_log_validate_page_records(cc, cfg, page);
@@ -2667,7 +2681,8 @@ shard_log_iterator_init(cache              *cc,
                         uint64              first_needed_generation,
                         shard_log_iterator *itor)
 {
-   page_handle    *page;
+   page_handle     page_storage;
+   page_handle    *page = &page_storage;
    uint64          i;
    uint64          pages_per_extent = shard_log_pages_per_extent(cfg);
    uint64          page_addr;
@@ -2747,7 +2762,10 @@ shard_log_iterator_init(cache              *cc,
          if (!readable_pages[i]) {
             continue;
          }
-         page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         rc = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG, page);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          if (!shard_log_valid(cfg, page, nonce)) {
             /*
              * A page that was never written, or whose write was lost.  Keep
@@ -2932,7 +2950,14 @@ shard_log_iterator_init(cache              *cc,
          if (!readable_pages[i]) {
             continue;
          }
-         page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         rc = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG, page);
+         if (!SUCCESS(rc)) {
+            platform_free(hid, itor->entries);
+            platform_free(hid, itor->contents);
+            itor->entries  = NULL;
+            itor->contents = NULL;
+            return rc;
+         }
          if (!shard_log_valid(cfg, page, nonce)) {
             cache_unget(cc, page);
             continue;

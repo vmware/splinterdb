@@ -74,6 +74,9 @@ struct clockcache_entry {
    page_handle page;
    // Accessed atomically; see clockcache_get_status() and the flag helpers.
    volatile entry_status status;
+   /* Published before CC_LOADING is cleared; protected by the read reference.
+    */
+   platform_status read_status;
    // Generation in which this page's current dirty interval began; 0 when the
    // page is clean or free. A writeback_dirty() drains every entry whose
    // generation is at or below the cut it took (see

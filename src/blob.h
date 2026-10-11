@@ -60,7 +60,7 @@ typedef struct blob_page_iterator {
 
    uint64        offset;
    page_fragment fragment;
-   page_handle  *page;
+   page_handle   page;
 } blob_page_iterator;
 
 bool

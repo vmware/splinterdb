@@ -459,7 +459,9 @@ clockcache_lookup_entry(const clockcache *cc, uint64 addr)
 static inline clockcache_entry *
 clockcache_page_to_entry(const clockcache *cc, page_handle *page)
 {
-   return (clockcache_entry *)((char *)page - offsetof(clockcache_entry, page));
+   uint32 entry_number =
+      clockcache_divide_by_page_size(cc, page->data - cc->data);
+   return &cc->entry[entry_number];
 }
 
 static inline uint32
@@ -1993,6 +1995,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
                                               TRUE,  // refcount
                                               TRUE); // blocking
    clockcache_entry *entry    = &cc->entry[entry_no];
+   entry->read_status         = STATUS_OK;
    entry->page.disk_addr      = addr;
    entry->type                = type;
    uint64 lookup_no = clockcache_lookup_number(cc, entry->page.disk_addr);
@@ -2138,12 +2141,13 @@ clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type)
  * Get addr if addr is at entry_number.  Returns TRUE if successful.
  */
 static bool32
-clockcache_get_in_cache(clockcache   *cc,           // IN
-                        uint64        addr,         // IN
-                        bool32        blocking,     // IN
-                        page_type     type,         // IN
-                        uint32        entry_number, // IN
-                        page_handle **page)         // OUT
+clockcache_get_in_cache(clockcache      *cc,           // IN
+                        uint64           addr,         // IN
+                        bool32           blocking,     // IN
+                        page_type        type,         // IN
+                        uint32           entry_number, // IN
+                        page_handle    **page,         // OUT
+                        platform_status *rc)           // OUT
 {
    threadid tid = platform_get_tid();
 
@@ -2170,7 +2174,7 @@ clockcache_get_in_cache(clockcache   *cc,           // IN
                            "get (locked -- non-blocking): entry %u addr %lu\n",
                            entry_number,
                            addr);
-            *page = NULL;
+            *rc = STATUS_BUSY;
             return FALSE;
          case GET_RC_EVICTED:
             clockcache_log(addr,
@@ -2196,6 +2200,11 @@ clockcache_get_in_cache(clockcache   *cc,           // IN
       clockcache_wait(cc);
    }
    clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+   if (!SUCCESS(entry->read_status)) {
+      *rc = entry->read_status;
+      clockcache_dec_ref(cc, entry_number, tid);
+      return FALSE;
+   }
 
    platform_assert(entry->type == type,
                    "entry %u type %d != %d",
@@ -2265,15 +2274,29 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
    }
 
    /* Set up the page */
+   entry->read_status    = STATUS_OK;
    entry->page.disk_addr = addr;
    return entry_number;
 }
 
 static void
-clockcache_finish_load(clockcache *cc,      // IN
-                       uint64      addr,    // IN
-                       uint32      entry_number) // OUT
+clockcache_finish_load(clockcache     *cc,   // IN
+                       uint64          addr, // IN
+                       uint32          entry_number,
+                       platform_status rc)
 {
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
+   entry->read_status      = rc;
+   if (!SUCCESS(rc)) {
+      /* A failed load has no readable bytes. Remove its mapping before waking
+       * waiters, so a subsequent get can retry with a new cache entry. Existing
+       * readers protect this entry until they observe the published failure. */
+      uint64 lookup_no = clockcache_lookup_number(cc, addr);
+      bool32 removed   = __sync_bool_compare_and_swap(
+         &cc->lookup[lookup_no], entry_number, CC_UNMAPPED_ENTRY);
+      platform_assert(removed);
+      entry->page.disk_addr = CC_UNMAPPED_ADDR;
+   }
    clockcache_log(addr,
                   entry_number,
                   "finish_load): entry %u addr %lu\n",
@@ -2285,15 +2308,15 @@ clockcache_finish_load(clockcache *cc,      // IN
       clockcache_clear_flag(cc, entry_number, CC_LOADING);
    debug_assert(was_loading);
 
-   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    async_wait_queue_release_all(&entry->waiters);
 }
 
 static bool32
-clockcache_get_from_disk(clockcache   *cc,   // IN
-                         uint64        addr, // IN
-                         page_type     type, // IN
-                         page_handle **page) // OUT
+clockcache_get_from_disk(clockcache      *cc,   // IN
+                         uint64           addr, // IN
+                         page_type        type, // IN
+                         page_handle    **page, // OUT
+                         platform_status *rc)   // OUT
 {
    threadid tid       = platform_get_tid();
    uint64   page_size = clockcache_page_size(cc);
@@ -2317,7 +2340,7 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
                          type,
                          platform_status_to_string(status));
    }
-   platform_assert_status_ok(status);
+   *rc = status;
 
    if (cc->cfg->use_stats) {
       elapsed = platform_timestamp_elapsed(start);
@@ -2326,7 +2349,11 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
       cc->stats[tid].cache_miss_time_ns[type] += elapsed;
    }
 
-   clockcache_finish_load(cc, addr, entry_number);
+   clockcache_finish_load(cc, addr, entry_number, status);
+   if (!SUCCESS(status)) {
+      clockcache_dec_ref(cc, entry_number, tid);
+      return FALSE;
+   }
 
    *page = &entry->page;
 
@@ -2349,11 +2376,12 @@ clockcache_get_from_disk(clockcache   *cc,   // IN
  *----------------------------------------------------------------------
  */
 static bool32
-clockcache_get_internal(clockcache   *cc,       // IN
-                        uint64        addr,     // IN
-                        bool32        blocking, // IN
-                        page_type     type,     // IN
-                        page_handle **page)     // OUT
+clockcache_get_internal(clockcache      *cc,       // IN
+                        uint64           addr,     // IN
+                        bool32           blocking, // IN
+                        page_type        type,     // IN
+                        page_handle    **page,     // OUT
+                        platform_status *rc)       // OUT
 {
    clockcache_assert_page_type_valid(addr, type);
 
@@ -2363,10 +2391,11 @@ clockcache_get_internal(clockcache   *cc,       // IN
 
    if (entry_number != CC_UNMAPPED_ENTRY) {
       return clockcache_get_in_cache(
-         cc, addr, blocking, type, entry_number, page);
+         cc, addr, blocking, type, entry_number, page, rc);
    } else if (blocking) {
-      return clockcache_get_from_disk(cc, addr, type, page);
+      return clockcache_get_from_disk(cc, addr, type, page, rc);
    } else {
+      *rc = STATUS_BUSY;
       return FALSE;
    }
 }
@@ -2384,18 +2413,26 @@ clockcache_get_internal(clockcache   *cc,       // IN
  *      Returns with a read lock held.
  *----------------------------------------------------------------------
  */
-page_handle *
-clockcache_get(clockcache *cc, uint64 addr, bool32 blocking, page_type type)
+platform_status
+clockcache_get(clockcache  *cc,
+               uint64       addr,
+               bool32       blocking,
+               page_type    type,
+               page_handle *page)
 {
    bool32       retry;
    page_handle *handle = NULL;
+   platform_status rc     = STATUS_OK;
 
    debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
                 || type == PAGE_TYPE_MEMTABLE);
    while (1) {
-      retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
+      retry = clockcache_get_internal(cc, addr, blocking, type, &handle, &rc);
       if (!retry) {
-         return handle;
+         if (SUCCESS(rc)) {
+            *page = *handle;
+         }
+         return rc;
       }
    }
 }
@@ -2412,6 +2449,7 @@ DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
    param, async_callback_fn, callback,
    param, void *, callback_arg,
    local, page_handle *, __async_result,
+   local, platform_status, result_status,
    local, bool32, succeeded,
    local, threadid, tid,
    local, uint64, entry_number,
@@ -2485,6 +2523,13 @@ clockcache_get_in_cache_async(clockcache_get_async_state *state, uint64 depth)
       async_return(state);
    }
 
+   if (!SUCCESS(state->entry->read_status)) {
+      state->result_status = state->entry->read_status;
+      clockcache_dec_ref(state->cc, state->entry_number, state->tid);
+      state->succeeded = TRUE;
+      async_return(state);
+   }
+
    if (state->cc->cfg->use_stats) {
       state->cc->stats[state->tid].cache_hits[state->type]++;
    }
@@ -2518,9 +2563,7 @@ clockcache_get_from_disk_async_callback(void *arg)
                          state->entry_number,
                          platform_status_to_string(rc));
    }
-   platform_assert_status_ok(rc);
-
-   clockcache_finish_load(state->cc, state->addr, state->entry_number);
+   clockcache_finish_load(state->cc, state->addr, state->entry_number, rc);
    state->callback(state->callback_arg);
 }
 
@@ -2546,31 +2589,26 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
                                    state->addr,
                                    clockcache_get_from_disk_async_callback,
                                    state);
-   // FIXME: I'm not sure if the cache state machine allows us to bail out once
-   // we've acquired an entry, because other threads could now be waiting on the
-   // load to finish, and there is no way for them to handle our failure to load
-   // the page.
    if (!SUCCESS(state->rc)) {
-      platform_error_log("clockcache_get_from_disk_async: "
-                         "io_async_state_init failed for addr %lu, entry %lu: "
-                         "%s\n",
-                         state->addr,
-                         state->entry_number,
-                         platform_status_to_string(state->rc));
+      clockcache_finish_load(
+         state->cc, state->addr, state->entry_number, state->rc);
+      state->result_status = state->rc;
+      clockcache_dec_ref(state->cc, state->entry_number, state->tid);
+      state->succeeded = TRUE;
+      async_return(state);
    }
-   platform_assert_status_ok(state->rc);
 
    state->rc =
       io_async_state_append_page(state->iostate, state->entry->page.data);
    if (!SUCCESS(state->rc)) {
-      platform_error_log("clockcache_get_from_disk_async: "
-                         "io_async_state_append_page failed for addr %lu, "
-                         "entry %lu: %s\n",
-                         state->addr,
-                         state->entry_number,
-                         platform_status_to_string(state->rc));
+      io_async_state_deinit(state->iostate);
+      clockcache_finish_load(
+         state->cc, state->addr, state->entry_number, state->rc);
+      state->result_status = state->rc;
+      clockcache_dec_ref(state->cc, state->entry_number, state->tid);
+      state->succeeded = TRUE;
+      async_return(state);
    }
-   platform_assert_status_ok(state->rc);
 
    if (state->cc->cfg->use_stats) {
       state->io_start_time = platform_get_timestamp();
@@ -2578,6 +2616,13 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
 
    async_await(state, io_async_run(state->iostate) == ASYNC_STATUS_DONE);
    state->rc = io_async_state_get_result(state->iostate);
+   /* Hard submission failures complete synchronously without invoking the
+    * callback. On a callback-driven completion, the wrapper already published
+    * readiness before notifying our caller. */
+   if (clockcache_test_flag(state->cc, state->entry_number, CC_LOADING)) {
+      clockcache_finish_load(
+         state->cc, state->addr, state->entry_number, state->rc);
+   }
    if (!SUCCESS(state->rc)) {
       platform_error_log("clockcache_get_from_disk_async: async read failed "
                          "for addr %lu, entry %lu: %s\n",
@@ -2585,8 +2630,13 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
                          state->entry_number,
                          platform_status_to_string(state->rc));
    }
-   platform_assert_status_ok(state->rc);
    io_async_state_deinit(state->iostate);
+   if (!SUCCESS(state->rc)) {
+      state->result_status = state->rc;
+      clockcache_dec_ref(state->cc, state->entry_number, state->tid);
+      state->succeeded = TRUE;
+      async_return(state);
+   }
 
    if (state->cc->cfg->use_stats) {
       uint64 elapsed = platform_timestamp_elapsed(state->io_start_time);
@@ -2630,6 +2680,8 @@ clockcache_get_async(clockcache_get_async_state *state)
                 || state->type == PAGE_TYPE_MEMTABLE);
 
    state->succeeded = FALSE;
+   state->result_status  = STATUS_OK;
+   state->__async_result = NULL;
    while (!state->succeeded) {
       async_await_subroutine(state, clockcache_get_internal_async);
    }
@@ -3246,8 +3298,6 @@ clockcache_prefetch_callback(void *pfs)
                          "%s\n",
                          platform_status_to_string(rc));
    }
-   platform_assert_status_ok(rc);
-
    const struct iovec *iovec;
    uint64              count;
    iovec = io_async_state_get_iovec(state->iostate, &count);
@@ -3277,7 +3327,7 @@ clockcache_prefetch_callback(void *pfs)
       debug_code(last_addr = addr);
       debug_assert(entry_no == clockcache_lookup(cc, addr));
 
-      clockcache_finish_load(cc, addr, entry_no);
+      clockcache_finish_load(cc, addr, entry_no, rc);
    }
 
    io_async_state_deinit(state->iostate);
@@ -3463,8 +3513,15 @@ clockcache_prefetch_pages(clockcache *cc,
                                      num_pages,
                                      type,
                                      platform_status_to_string(rc));
+                  clockcache_finish_load(cc, addr, free_entry_no, rc);
+                  if (state_num_pages > 0) {
+                     clockcache_prefetch_issue(
+                        cc, &state, &state_num_pages, type);
+                  } else {
+                     clockcache_prefetch_discard_empty(&state);
+                  }
+                  return;
                }
-               platform_assert_status_ok(rc);
                state_num_pages++;
                clockcache_log(addr,
                               free_entry_no,
@@ -3850,11 +3907,15 @@ clockcache_extent_discard_virtual(cache *c, uint64 addr, page_type type)
    return clockcache_extent_discard(cc, addr, type);
 }
 
-page_handle *
-clockcache_get_virtual(cache *c, uint64 addr, bool32 blocking, page_type type)
+platform_status
+clockcache_get_virtual(cache       *c,
+                       uint64       addr,
+                       bool32       blocking,
+                       page_type    type,
+                       page_handle *page)
 {
    clockcache *cc = (clockcache *)c;
-   return clockcache_get(cc, addr, blocking, type);
+   return clockcache_get(cc, addr, blocking, type, page);
 }
 
 void
@@ -3944,11 +4005,14 @@ clockcache_get_async_virtual(void *payload)
    return clockcache_get_async((clockcache_get_async_state *)payload);
 }
 
-static page_handle *
-clockcache_get_async_state_result_virtual(void *payload)
+static platform_status
+clockcache_get_async_state_result_virtual(void *payload, page_handle *page)
 {
    clockcache_get_async_state *state = (clockcache_get_async_state *)payload;
-   return state->__async_result;
+   if (SUCCESS(state->result_status)) {
+      *page = *state->__async_result;
+   }
+   return state->result_status;
 }
 
 platform_status
