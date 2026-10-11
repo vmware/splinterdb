@@ -5899,21 +5899,6 @@ btree_read_index_entry_for_type(cache              *cc,
    return STATUS_OK;
 }
 
-static inline platform_status
-btree_read_leaf_entry_for_type(cache              *cc,
-                               const btree_config *cfg,
-                               const btree_hdr    *hdr,
-                               page_type           type,
-                               table_index         idx,
-                               const leaf_entry  **entry)
-{
-   if (type == PAGE_TYPE_BRANCH) {
-      return btree_read_leaf_entry(cc, cfg, hdr, idx, entry);
-   }
-   *entry = btree_get_leaf_entry(cfg, hdr, idx);
-   return STATUS_OK;
-}
-
 static void
 btree_print_subtree_at_height(platform_log_handle *log_handle,
                               cache               *cc,
