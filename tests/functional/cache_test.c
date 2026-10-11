@@ -117,7 +117,8 @@ cache_test_alloc_extents(cache             *cc,
 
       for (uint32 i = 0; i < pages_per_extent; i++) {
          uint64       addr = base_addr + i * page_size;
-         page_handle *page = cache_alloc(cc, addr, PAGE_TYPE_MISC);
+         page_handle  storage;
+         page_handle *page = cache_alloc(cc, addr, PAGE_TYPE_MISC, &storage);
          addr_arr[j * pages_per_extent + i] = addr;
          cache_unlock(cc, page);
          cache_unclaim(cc, page);
@@ -2080,6 +2081,7 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
    platform_assert(entry_number < clock->cfg->page_capacity);
    clockcache_entry *entry = &clock->entry[entry_number];
    // Simulate stale bytes left by the prior occupant of this cache entry.
+   page_handle observed_page = {.data = entry->page.data};
    memset(entry->page.data, 'A', page_size);
 
    prefetch_waiter waiters[2] = {0};
@@ -2093,7 +2095,8 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
       waiters[i].status = cache_get_async(&waiters[i].buffer);
       platform_assert(waiters[i].status == ASYNC_STATUS_RUNNING);
    }
-   platform_assert(cache_get_read_ref(cc, &entry->page) == ARRAY_SIZE(waiters));
+   platform_assert(cache_get_read_ref(cc, &observed_page)
+                   == ARRAY_SIZE(waiters));
 
    // A prior prefetch can clear LOADING, get evicted, and only then release
    // this entry's wait queue. Model that late release while B is still loading.
@@ -2104,7 +2107,7 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
          platform_assert(waiters[i].callbacks == wakeup);
          platform_assert(waiters[i].status == ASYNC_STATUS_RUNNING);
       }
-      platform_assert(cache_get_read_ref(cc, &entry->page)
+      platform_assert(cache_get_read_ref(cc, &observed_page)
                       == ARRAY_SIZE(waiters));
    }
 
@@ -2129,7 +2132,7 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
          memcmp(page->data, platform_buffer_getaddr(&buffer), page_size) == 0);
       cache_unget(cc, page);
    }
-   platform_assert(cache_get_read_ref(cc, &entry->page) == 0);
+   platform_assert(cache_get_read_ref(cc, &observed_page) == 0);
 
    // A ready cache hit should still return immediately, without a callback.
    waiters[0].callbacks = 0;
@@ -2143,7 +2146,7 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
    platform_assert(waiters[0].callbacks == 0);
    page_handle hit_page = test_cache_get_async_page(&waiters[0].buffer);
    cache_unget(cc, &hit_page);
-   platform_assert(cache_get_read_ref(cc, &entry->page) == 0);
+   platform_assert(cache_get_read_ref(cc, &observed_page) == 0);
 
    platform_assert(allocator_dec_ref(al, addr, PAGE_TYPE_MISC) == AL_NO_REFS);
    cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
@@ -2156,7 +2159,7 @@ typedef struct {
    cache           *cc;
    uint64           idle_addr;
    uint64          *addrs;
-   page_handle    **pages;
+   page_handle     *pages;
    uint32           page_capacity;
    platform_condvar cv;
    bool32           park;
@@ -2179,7 +2182,9 @@ cache_batch_test_discard(cache *cc, uint64 addr)
 static void
 cache_batch_test_alloc_discard(cache_batch_test *test)
 {
-   page_handle *page = cache_alloc(test->cc, test->idle_addr, PAGE_TYPE_MISC);
+   page_handle  storage;
+   page_handle *page =
+      cache_alloc(test->cc, test->idle_addr, PAGE_TYPE_MISC, &storage);
    memset(page->data, 0xa5, cache_page_size(test->cc));
    cache_unlock(test->cc, page);
    cache_unclaim(test->cc, page);
@@ -2219,34 +2224,34 @@ cache_batch_fill_thread(void *arg)
    }
    platform_assert_status_ok(platform_condvar_unlock(&test->cv));
    for (uint32 i = 0; i < test->page_capacity; i++) {
-      test->pages[i] = cache_alloc(test->cc, test->addrs[i], PAGE_TYPE_MISC);
-      memset(test->pages[i]->data, (uint8)i, page_size);
+      cache_alloc(test->cc, test->addrs[i], PAGE_TYPE_MISC, &test->pages[i]);
+      memset(test->pages[i].data, (uint8)i, page_size);
    }
    // Recycle the first extent twice while keeping every other slot locked.
    // Both refills must recover the freed slots. No eviction can supply
    // replacement slots elsewhere.
    for (uint32 round = 0; round < 2; round++) {
       for (uint32 i = 0; i < pages_per_extent; i++) {
-         cache_unlock(test->cc, test->pages[i]);
-         cache_unclaim(test->cc, test->pages[i]);
-         cache_unget(test->cc, test->pages[i]);
+         cache_unlock(test->cc, &test->pages[i]);
+         cache_unclaim(test->cc, &test->pages[i]);
+         cache_unget(test->cc, &test->pages[i]);
       }
       cache_batch_test_discard(test->cc, test->addrs[0]);
       for (uint32 i = 0; i < pages_per_extent; i++) {
-         test->pages[i] = cache_alloc(test->cc, test->addrs[i], PAGE_TYPE_MISC);
-         memset(test->pages[i]->data, (uint8)i, page_size);
+         cache_alloc(test->cc, test->addrs[i], PAGE_TYPE_MISC, &test->pages[i]);
+         memset(test->pages[i].data, (uint8)i, page_size);
       }
    }
    // All slots are held simultaneously. Even one abandoned batch would
    // prevent this thread from reaching here.
    for (uint32 i = 0; i < test->page_capacity; i++) {
-      platform_assert(test->pages[i]->disk_addr == test->addrs[i]);
+      platform_assert(test->pages[i].disk_addr == test->addrs[i]);
       for (uint64 j = 0; j < page_size; j++) {
-         platform_assert((uint8)test->pages[i]->data[j] == (uint8)i);
+         platform_assert((uint8)test->pages[i].data[j] == (uint8)i);
       }
-      cache_unlock(test->cc, test->pages[i]);
-      cache_unclaim(test->cc, test->pages[i]);
-      cache_unget(test->cc, test->pages[i]);
+      cache_unlock(test->cc, &test->pages[i]);
+      cache_unclaim(test->cc, &test->pages[i]);
+      cache_unget(test->cc, &test->pages[i]);
    }
    for (uint32 i = 0; i < test->page_capacity; i += pages_per_extent) {
       cache_batch_test_discard(test->cc, test->addrs[i]);
@@ -2291,7 +2296,7 @@ test_cache_idle_batches(clockcache *main_cc, platform_heap_id hid)
                                              hid,
                                              platform_get_module_id()));
    uint64       *addrs = TYPED_ARRAY_MALLOC(hid, addrs, cfg.page_capacity);
-   page_handle **pages = TYPED_ARRAY_MALLOC(hid, pages, cfg.page_capacity);
+   page_handle  *pages = TYPED_ARRAY_MALLOC(hid, pages, cfg.page_capacity);
    platform_assert(addrs != NULL && pages != NULL);
    cache_batch_test test = {.cc            = (cache *)&cc,
                             .addrs         = addrs,

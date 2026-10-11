@@ -2599,6 +2599,7 @@ trunk_node_serialize_maybe_setup_next_page(cache        *cc,
                                            uint64        required_space,
                                            page_handle  *header_page,
                                            page_handle **current_page,
+                                           page_handle  *current_storage,
                                            uint64       *page_offset)
 {
    uint64 page_size   = cache_page_size(cc);
@@ -2623,7 +2624,7 @@ trunk_node_serialize_maybe_setup_next_page(cache        *cc,
          cache_unclaim(cc, *current_page);
          cache_unget(cc, *current_page);
       }
-      *current_page = cache_alloc(cc, addr, PAGE_TYPE_TRUNK);
+      *current_page = cache_alloc(cc, addr, PAGE_TYPE_TRUNK, current_storage);
       if (*current_page == NULL) {
          platform_error_log(
             "%s():%d: cache_alloc() failed", __func__, __LINE__);
@@ -2701,6 +2702,7 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
 {
    platform_status        rc;
    uint64                 header_addr  = 0;
+   page_handle            header_storage, current_storage;
    page_handle           *header_page  = NULL;
    page_handle           *current_page = NULL;
    trunk_ondisk_node_ref *result       = NULL;
@@ -2755,7 +2757,8 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
       goto cleanup;
    }
 
-   header_page = cache_alloc(context->cc, header_addr, PAGE_TYPE_TRUNK);
+   header_page =
+      cache_alloc(context->cc, header_addr, PAGE_TYPE_TRUNK, &header_storage);
    if (header_page == NULL) {
       platform_error_log("%s():%d: cache_alloc() failed", __func__, __LINE__);
       rc = STATUS_NO_MEMORY;
@@ -2796,8 +2799,12 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
          }
       }
 
-      rc = trunk_node_serialize_maybe_setup_next_page(
-         context->cc, required_space, header_page, &current_page, &page_offset);
+      rc = trunk_node_serialize_maybe_setup_next_page(context->cc,
+                                                      required_space,
+                                                      header_page,
+                                                      &current_page,
+                                                      &current_storage,
+                                                      &page_offset);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "%s():%d: node_serialize_maybe_setup_next_page() failed: %s",
@@ -2831,8 +2838,12 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
       bundle *bndl        = vector_get_ptr(&node->inflight_bundles, i);
       uint64  bundle_size = bundle_ondisk_size(bndl);
 
-      rc = trunk_node_serialize_maybe_setup_next_page(
-         context->cc, bundle_size, header_page, &current_page, &page_offset);
+      rc = trunk_node_serialize_maybe_setup_next_page(context->cc,
+                                                      bundle_size,
+                                                      header_page,
+                                                      &current_page,
+                                                      &current_storage,
+                                                      &page_offset);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "%s():%d: node_serialize_maybe_setup_next_page() failed: %s",

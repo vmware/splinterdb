@@ -125,7 +125,8 @@ alloc_and_dirty_extent(clockcache *cc, rc_allocator *al)
 
    for (uint64 i = 0; i < pages_per_extent; i++) {
       uint64       addr = base_addr + i * page_size;
-      page_handle *page = cache_alloc(ccp, addr, PAGE_TYPE_MISC);
+      page_handle  storage;
+      page_handle *page = cache_alloc(ccp, addr, PAGE_TYPE_MISC, &storage);
       ASSERT_NOT_NULL(page);
       // cache_alloc hands back a dirty, write-locked page.
       memset(page->data, (int)(i & 0xff), page_size);
@@ -731,7 +732,7 @@ CTEST2(writeback_set, test_failed_load_releases_synchronous_waiter)
    /* The async owner holds this entry stable. Wait until the synchronous
     * reader owns its reference before publishing the failed completion. */
    uint32           entry   = data->cc.lookup[addr / cache_page_size(cc)];
-   page_handle      loading = data->cc.entry[entry].page;
+   page_handle      loading = {.data = data->cc.entry[entry].page.data};
    sync_read_waiter waiter  = {.cc = cc, .addr = addr};
    platform_thread  thread;
    ASSERT_TRUE(SUCCESS(platform_thread_create(
@@ -754,5 +755,142 @@ CTEST2(writeback_set, test_failed_load_releases_synchronous_waiter)
    ASSERT_TRUE(STATUS_IS_EQ(owner_rc, STATUS_TIMEDOUT));
    ASSERT_TRUE(STATUS_IS_EQ(waiter.rc, STATUS_TIMEDOUT));
    ASSERT_NULL(waiter.page.data);
+   cache_assert_free(cc);
+}
+
+typedef struct page_handoff {
+   cache                       *cc;
+   page_handle                 *page;
+   threadid                     source_tid;
+   threadid                     receiver_tid;
+   bool32                       allocated;
+   page_get_async_state_buffer *async_result;
+   platform_status              rc;
+} page_handoff;
+
+static void
+page_handoff_receive(void *arg)
+{
+   page_handoff *handoff = arg;
+   cache        *cc      = handoff->cc;
+   handoff->receiver_tid = platform_get_tid();
+   if (handoff->async_result != NULL) {
+      handoff->rc =
+         cache_get_async_state_result(handoff->async_result, handoff->page);
+      platform_assert_status_ok(handoff->rc);
+   }
+   if (handoff->allocated) {
+      cache_unlock(cc, handoff->page);
+      cache_unclaim(cc, handoff->page);
+   }
+   /* A second acquisition must not overwrite the first handle's receipt,
+    * including when the first handle came directly from cache_alloc(). */
+   page_handle second;
+   handoff->rc =
+      cache_get(cc, handoff->page->disk_addr, TRUE, PAGE_TYPE_MISC, &second);
+   if (!SUCCESS(handoff->rc)) {
+      cache_unget(cc, handoff->page);
+      return;
+   }
+   platform_assert(second.read_ref_tid == handoff->receiver_tid);
+   platform_assert(handoff->page->read_ref_tid == handoff->source_tid);
+   cache_unget(cc, &second);
+   platform_assert(cache_try_claim(cc, handoff->page));
+   cache_lock(cc, handoff->page);
+   handoff->page->data[0] = 42;
+   cache_unlock(cc, handoff->page);
+   cache_unclaim(cc, handoff->page);
+   cache_unget(cc, handoff->page);
+}
+
+CTEST2(writeback_set, test_page_handle_thread_handoff)
+{
+   cache *cc   = (cache *)&data->cc;
+   uint64 addr = alloc_and_dirty_extent(&data->cc, &data->al);
+   for (unsigned mode = 0; mode < 3; mode++) {
+      page_handle                 owned;
+      page_get_async_state_buffer state;
+      page_handle                *page = &owned;
+      if (mode == 0) {
+         ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, page)));
+      } else if (mode == 1) {
+         cache_flush(cc);
+         ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+         bool32 ready = FALSE;
+         cache_get_async_state_init(
+            &state, cc, addr, PAGE_TYPE_MISC, read_ready, &ready);
+         while (cache_get_async(&state) != ASYNC_STATUS_DONE) {
+            cache_cleanup(cc);
+         }
+         /* Extract the completed result on the receiving thread, below. */
+      } else {
+         uint64 allocated_addr;
+         ASSERT_TRUE(SUCCESS(allocator_alloc(
+            (allocator *)&data->al, &allocated_addr, PAGE_TYPE_MISC)));
+         page = cache_alloc(cc, allocated_addr, PAGE_TYPE_MISC, &owned);
+         memset(page->data, 0, cache_page_size(cc));
+      }
+      uint64          page_addr = mode == 1 ? addr : page->disk_addr;
+      page_handoff    handoff   = {.cc           = cc,
+                                   .page         = page,
+                                   .source_tid   = platform_get_tid(),
+                                   .allocated    = mode == 2,
+                                   .async_result = mode == 1 ? &state : NULL};
+      platform_thread thread;
+      ASSERT_TRUE(SUCCESS(platform_thread_create(
+         &thread, FALSE, page_handoff_receive, &handoff, data->hid)));
+      ASSERT_TRUE(SUCCESS(platform_thread_join(&thread)));
+      ASSERT_TRUE(SUCCESS(handoff.rc));
+      ASSERT_NOT_EQUAL(handoff.source_tid % CC_RC_WIDTH,
+                       handoff.receiver_tid % CC_RC_WIDTH);
+      cache_assert_free(cc);
+      ASSERT_TRUE(
+         SUCCESS(cache_get(cc, page_addr, TRUE, PAGE_TYPE_MISC, &owned)));
+      ASSERT_EQUAL(42, owned.data[0]);
+      cache_unget(cc, &owned);
+   }
+}
+
+typedef struct exited_handoff {
+   cache          *cc;
+   uint64          addr;
+   page_handle     page;
+   platform_status rc;
+} exited_handoff;
+
+static void
+page_handoff_acquire_and_exit(void *arg)
+{
+   exited_handoff *handoff = arg;
+   handoff->rc             = cache_get(
+      handoff->cc, handoff->addr, TRUE, PAGE_TYPE_MISC, &handoff->page);
+}
+
+CTEST2(writeback_set, test_page_handle_outlives_acquiring_thread)
+{
+   cache          *cc      = (cache *)&data->cc;
+   uint64          addr    = alloc_and_dirty_extent(&data->cc, &data->al);
+   exited_handoff  handoff = {.cc = cc, .addr = addr};
+   platform_thread source;
+   ASSERT_TRUE(SUCCESS(platform_thread_create(
+      &source, FALSE, page_handoff_acquire_and_exit, &handoff, data->hid)));
+   ASSERT_TRUE(SUCCESS(platform_thread_join(&source)));
+   ASSERT_TRUE(SUCCESS(handoff.rc));
+   ASSERT_NOT_EQUAL(platform_get_tid() % CC_RC_WIDTH,
+                    handoff.page.read_ref_tid % CC_RC_WIDTH);
+   /* A new thread can reuse the registration while the old reference exists. */
+   exited_handoff reused = {.cc = cc, .addr = addr};
+   ASSERT_TRUE(SUCCESS(platform_thread_create(
+      &source, FALSE, page_handoff_acquire_and_exit, &reused, data->hid)));
+   ASSERT_TRUE(SUCCESS(platform_thread_join(&source)));
+   ASSERT_TRUE(SUCCESS(reused.rc));
+   ASSERT_EQUAL(handoff.page.read_ref_tid, reused.page.read_ref_tid);
+   ASSERT_EQUAL(2, cache_get_read_ref(cc, &handoff.page));
+   cache_unget(cc, &reused.page);
+   ASSERT_TRUE(cache_try_claim(cc, &handoff.page));
+   cache_lock(cc, &handoff.page);
+   cache_unlock(cc, &handoff.page);
+   cache_unclaim(cc, &handoff.page);
+   cache_unget(cc, &handoff.page);
    cache_assert_free(cc);
 }

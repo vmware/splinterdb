@@ -2555,7 +2555,10 @@ typedef struct shard_log_page_alloc_fault {
 static shard_log_page_alloc_fault *active_shard_log_page_alloc_fault;
 
 static page_handle *
-shard_log_test_page_alloc(cache *cc, uint64 addr, page_type type)
+shard_log_test_page_alloc(cache       *cc,
+                          uint64       addr,
+                          page_type    type,
+                          page_handle *page)
 {
    shard_log_page_alloc_fault *fault =
       __atomic_load_n(&active_shard_log_page_alloc_fault, __ATOMIC_ACQUIRE);
@@ -2568,7 +2571,7 @@ shard_log_test_page_alloc(cache *cc, uint64 addr, page_type type)
       __atomic_fetch_add(&fault->failures, 1, __ATOMIC_RELAXED);
       return NULL;
    }
-   return fault->saved_ops->page_alloc(cc, addr, type);
+   return fault->saved_ops->page_alloc(cc, addr, type, page);
 }
 
 static void
@@ -2611,7 +2614,10 @@ typedef struct checkpoint_trunk_alloc_fault {
 static checkpoint_trunk_alloc_fault *active_checkpoint_trunk_alloc_fault;
 
 static page_handle *
-checkpoint_test_trunk_page_alloc(cache *cc, uint64 addr, page_type type)
+checkpoint_test_trunk_page_alloc(cache       *cc,
+                                 uint64       addr,
+                                 page_type    type,
+                                 page_handle *page)
 {
    checkpoint_trunk_alloc_fault *fault =
       __atomic_load_n(&active_checkpoint_trunk_alloc_fault, __ATOMIC_ACQUIRE);
@@ -2624,7 +2630,7 @@ checkpoint_test_trunk_page_alloc(cache *cc, uint64 addr, page_type type)
       __atomic_fetch_add(&fault->failures, 1, __ATOMIC_RELAXED);
       return NULL;
    }
-   return fault->saved_ops->page_alloc(cc, addr, type);
+   return fault->saved_ops->page_alloc(cc, addr, type, page);
 }
 
 static void
@@ -2703,11 +2709,12 @@ CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
          writeback_requests +=
             writeback_set_num_requests(&group->thread_data[tid].wbset);
       }
-      group_is_retryable =
-         group->state == SHARD_LOG_GROUP_TERMINATING
-         && final->state == SHARD_LOG_BUFFER_OPEN
-         && final->offset > sizeof(shard_log_hdr) && final->incache_page == NULL
-         && group->next_page_no == 0 && writeback_requests == 0;
+      group_is_retryable = group->state == SHARD_LOG_GROUP_TERMINATING
+                           && final->state == SHARD_LOG_BUFFER_OPEN
+                           && final->offset > sizeof(shard_log_hdr)
+                           && final->incache_page.data == NULL
+                           && group->next_page_no == 0
+                           && writeback_requests == 0;
    }
    platform_mutex_unlock(&slog->graduate_lock);
    ASSERT_TRUE(group_is_retryable,

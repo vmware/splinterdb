@@ -968,9 +968,8 @@ clockcache_writeback_page_sync(clockcache *cc, uint32 entry_number)
  *----------------------------------------------------------------------
  */
 static void
-clockcache_get_write(clockcache *cc, uint32 entry_number)
+clockcache_get_write(clockcache *cc, uint32 entry_number, threadid tid)
 {
-   const threadid tid       = platform_get_tid();
    const uint64   rc_number = clockcache_get_ref_internal(cc, entry_number);
 
    debug_assert(clockcache_test_flag(cc, entry_number, CC_CLAIMED));
@@ -980,15 +979,9 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
    debug_assert(!clockcache_test_flag(cc, entry_number, CC_LOADING));
 
    /*
-    * If the thread that wants a write lock holds > 1 refs, it means
-    * it has some async lookups which have yielded after taking refs.
-    * This is currently not allowed; because such a thread would
-    * easily be able to upgrade to write lock and modify the page
-    * under it's own yielded lookup.
-    *
-    * If threads do async lookups, they must leave the
-    * compaction+incorporation (that needs write locking) to
-    * background threads.
+    * The handle owns one reference in its acquisition thread's stripe. The
+    * thread upgrading it may differ. Wait for every other reference, including
+    * those acquired by a thread that reused the original registration id.
     */
    debug_assert(clockcache_get_ref_by_number(cc, rc_number, tid) >= 1);
    /*
@@ -2000,7 +1993,7 @@ clockcache_evict_all(clockcache *cc, bool32 ignore_pinned_pages)
  *----------------------------------------------------------------------
  */
 page_handle *
-clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
+clockcache_alloc(clockcache *cc, uint64 addr, page_type type, page_handle *page)
 {
    clockcache_assert_page_access_valid(cc, addr, type);
 
@@ -2029,7 +2022,10 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
                   "alloc: entry %u addr %lu\n",
                   entry_no,
                   clockcache_entry_addr(entry));
-   return &entry->page;
+   page->data         = entry->page.data;
+   page->disk_addr    = addr;
+   page->read_ref_tid = platform_get_tid();
+   return page;
 }
 
 /*
@@ -2102,7 +2098,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
                      addr);
 
       /* 4. write lock */
-      clockcache_get_write(cc, entry_number);
+      clockcache_get_write(cc, entry_number, tid);
 
       /* 5. clear lookup and disk addr; set status to CC_FREE_STATUS */
       uint64 lookup_no = clockcache_lookup_number(cc, addr);
@@ -2157,13 +2153,13 @@ clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type)
  * Get addr if addr is at entry_number.  Returns TRUE if successful.
  */
 static bool32
-clockcache_get_in_cache(clockcache      *cc,           // IN
-                        uint64           addr,         // IN
-                        bool32           blocking,     // IN
-                        page_type        type,         // IN
-                        uint32           entry_number, // IN
-                        page_handle    **page,         // OUT
-                        platform_status *rc)           // OUT
+clockcache_get_in_cache(clockcache       *cc,           // IN
+                        uint64            addr,         // IN
+                        bool32            blocking,     // IN
+                        page_type         type,         // IN
+                        uint32            entry_number, // IN
+                        clockcache_page **page,         // OUT
+                        platform_status  *rc)            // OUT
 {
    threadid tid = platform_get_tid();
 
@@ -2330,11 +2326,11 @@ clockcache_finish_load(clockcache     *cc,   // IN
 }
 
 static bool32
-clockcache_get_from_disk(clockcache      *cc,   // IN
-                         uint64           addr, // IN
-                         page_type        type, // IN
-                         page_handle    **page, // OUT
-                         platform_status *rc)   // OUT
+clockcache_get_from_disk(clockcache       *cc,   // IN
+                         uint64            addr, // IN
+                         page_type         type, // IN
+                         clockcache_page **page, // OUT
+                         platform_status  *rc)    // OUT
 {
    threadid tid       = platform_get_tid();
    uint64   page_size = clockcache_page_size(cc);
@@ -2394,12 +2390,12 @@ clockcache_get_from_disk(clockcache      *cc,   // IN
  *----------------------------------------------------------------------
  */
 static bool32
-clockcache_get_internal(clockcache      *cc,       // IN
-                        uint64           addr,     // IN
-                        bool32           blocking, // IN
-                        page_type        type,     // IN
-                        page_handle    **page,     // OUT
-                        platform_status *rc)       // OUT
+clockcache_get_internal(clockcache       *cc,       // IN
+                        uint64            addr,     // IN
+                        bool32            blocking, // IN
+                        page_type         type,     // IN
+                        clockcache_page **page,     // OUT
+                        platform_status  *rc)        // OUT
 {
    clockcache_assert_page_type_valid(addr, type);
 
@@ -2439,7 +2435,7 @@ clockcache_get(clockcache  *cc,
                page_handle *page)
 {
    bool32       retry;
-   page_handle *handle = NULL;
+   clockcache_page *handle = NULL;
    platform_status rc     = STATUS_OK;
 
    debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
@@ -2448,7 +2444,9 @@ clockcache_get(clockcache  *cc,
       retry = clockcache_get_internal(cc, addr, blocking, type, &handle, &rc);
       if (!retry) {
          if (SUCCESS(rc)) {
-            *page = *handle;
+            page->data         = handle->data;
+            page->disk_addr    = addr;
+            page->read_ref_tid = platform_get_tid();
          }
          return rc;
       }
@@ -2466,7 +2464,7 @@ DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
    param, page_type, type,
    param, async_callback_fn, callback,
    param, void *, callback_arg,
-   local, page_handle *, __async_result,
+   local, clockcache_page *, __async_result,
    local, platform_status, result_status,
    local, bool32, succeeded,
    local, threadid, tid,
@@ -2710,7 +2708,7 @@ void
 clockcache_unget(clockcache *cc, page_handle *page)
 {
    uint32         entry_number = clockcache_page_to_entry_number(cc, page);
-   const threadid tid          = platform_get_tid();
+   const threadid tid          = page->read_ref_tid;
 
    clockcache_record_backtrace(cc, entry_number);
 
@@ -2797,7 +2795,7 @@ clockcache_lock(clockcache *cc, page_handle *page)
                   "lock: entry %u addr %lu\n",
                   entry_number,
                   page->disk_addr);
-   clockcache_get_write(cc, entry_number);
+   clockcache_get_write(cc, entry_number, page->read_ref_tid);
    // A write lock marks the page dirty (and stamps its dirty generation). The
    // CC_WRITEBACK exclusion in clockcache_get_write guarantees this cannot race
    // a writeback completion.
@@ -3912,10 +3910,13 @@ cache_config_ops clockcache_config_ops = {
 };
 
 page_handle *
-clockcache_alloc_virtual(cache *c, uint64 addr, page_type type)
+clockcache_alloc_virtual(cache       *c,
+                         uint64       addr,
+                         page_type    type,
+                         page_handle *page)
 {
    clockcache *cc = (clockcache *)c;
-   return clockcache_alloc(cc, addr, type);
+   return clockcache_alloc(cc, addr, type, page);
 }
 
 void
@@ -4028,7 +4029,9 @@ clockcache_get_async_state_result_virtual(void *payload, page_handle *page)
 {
    clockcache_get_async_state *state = (clockcache_get_async_state *)payload;
    if (SUCCESS(state->result_status)) {
-      *page = *state->__async_result;
+      page->data         = state->__async_result->data;
+      page->disk_addr    = state->addr;
+      page->read_ref_tid = state->tid;
    }
    return state->result_status;
 }

@@ -1207,7 +1207,7 @@ btree_alloc(cache          *cc,
       node->hdr  = NULL;
       return rc;
    }
-   node->page = *cache_alloc(cc, node->addr, type);
+   cache_alloc(cc, node->addr, type, &node->page);
 
    // If this btree is for a memtable then pin all pages belonging to it
    if (type == PAGE_TYPE_MEMTABLE) {
@@ -1635,7 +1635,8 @@ btree_create(cache              *cc,
    if (!SUCCESS(rc)) {
       return rc;
    }
-   page_handle *root_page = cache_alloc(cc, base_addr, type);
+   page_handle  root_storage;
+   page_handle *root_page = cache_alloc(cc, base_addr, type, &root_storage);
    bool32       pinned    = (type == PAGE_TYPE_MEMTABLE);
 
    // set up the root

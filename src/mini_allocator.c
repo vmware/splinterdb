@@ -333,11 +333,12 @@ mini_init_with_types(mini_allocator  *mini,
    mini->pinned      = (meta_type == PAGE_TYPE_MEMTABLE);
    memcpy(mini->types, types, num_batches * sizeof(*types));
 
+   page_handle  meta_storage;
    page_handle *meta_page = NULL;
    if (meta_tail == 0) {
       // new mini allocator
       mini->meta_tail = meta_head;
-      meta_page       = cache_alloc(cc, mini->meta_head, meta_type);
+      meta_page = cache_alloc(cc, mini->meta_head, meta_type, &meta_storage);
       mini_init_meta_page(mini, meta_page, 0);
 
       // meta_page gets an extra ref
@@ -559,13 +560,15 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
 
       mini_set_next_meta_addr(mini, meta_page, new_meta_tail);
 
-      page_handle   *last_meta_page = meta_page;
+      page_handle    last_meta_storage = *meta_page;
+      page_handle   *last_meta_page    = &last_meta_storage;
       uint64         last_meta_addr = old_meta_tail;
       mini_meta_hdr *last_meta_hdr  = (mini_meta_hdr *)meta_page->data;
       platform_assert(last_meta_hdr->meta_page_no != UINT64_MAX,
                       "mini allocator metadata page number overflow");
       uint64 new_meta_page_no = last_meta_hdr->meta_page_no + 1;
-      meta_page = cache_alloc(mini->cc, new_meta_tail, mini->meta_type);
+      meta_page =
+         cache_alloc(mini->cc, new_meta_tail, mini->meta_type, &meta_storage);
       __atomic_store_n(&mini->meta_tail, new_meta_tail, __ATOMIC_RELEASE);
       mini_full_unlock_meta_page(mini, last_meta_page);
       mini_init_meta_page(mini, meta_page, new_meta_page_no);

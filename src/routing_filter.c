@@ -677,6 +677,8 @@ routing_filter_add(cache                *cc,
    mini_allocator mini;
    page_handle   *index_page[MAX_PAGES_PER_EXTENT] = {0};
    uint64         num_index_pages                  = 0;
+   page_handle    index_storage[MAX_PAGES_PER_EXTENT];
+   page_handle    filter_storage;
    page_handle   *filter_page                      = NULL;
    page_handle    old_filter_node                  = {0};
    rc = allocator_alloc(al, &meta_head, PAGE_TYPE_FILTER);
@@ -705,7 +707,8 @@ routing_filter_add(cache                *cc,
       goto cleanup;
    }
    platform_assert(index_addr % extent_size == 0);
-   index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
+   index_page[0] =
+      cache_alloc(cc, index_addr, PAGE_TYPE_FILTER, &index_storage[0]);
    if (index_page[0] == NULL) {
       rc = STATUS_NO_MEMORY;
       goto cleanup;
@@ -718,7 +721,8 @@ routing_filter_add(cache                *cc,
          goto cleanup;
       }
       platform_assert(next_index_addr == index_addr + i * page_size);
-      index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
+      index_page[i] =
+         cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER, &index_storage[i]);
       if (index_page[i] == NULL) {
          rc = STATUS_NO_MEMORY;
          goto cleanup;
@@ -733,7 +737,7 @@ routing_filter_add(cache                *cc,
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
-   filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
+   filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER, &filter_storage);
    if (filter_page == NULL) {
       rc = STATUS_NO_MEMORY;
       goto cleanup;
@@ -936,7 +940,8 @@ routing_filter_add(cache                *cc,
             if (!SUCCESS(rc)) {
                goto cleanup;
             }
-            filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
+            filter_page =
+               cache_alloc(cc, addr, PAGE_TYPE_FILTER, &filter_storage);
             if (filter_page == NULL) {
                rc = STATUS_NO_MEMORY;
                goto cleanup;

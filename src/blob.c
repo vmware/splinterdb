@@ -303,8 +303,8 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
 {
    if (iter->page.data == NULL) {
       if (should_alloc(iter)) {
-         iter->page =
-            *cache_alloc(iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB);
+         cache_alloc(
+            iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB, &iter->page);
       } else {
          platform_status rc = cache_get(
             iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB, &iter->page);

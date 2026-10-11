@@ -64,7 +64,7 @@ typedef struct shard_log_thread_data {
    uint64                 offset; // append cursor within buf
    shard_log_buffer_state state;
    /* Held from cache_alloc() until writeback-set enrollment succeeds. */
-   page_handle *incache_page;
+   page_handle incache_page;
    /* Privately owned while this thread has a reservation for the group. */
    writeback_set wbset;
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;

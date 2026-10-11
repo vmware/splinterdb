@@ -387,8 +387,9 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
 
+   page_handle  second_meta_storage;
    page_handle *second_meta_page =
-      cache_alloc(cc, second_meta_addr, PAGE_TYPE_FILTER);
+      cache_alloc(cc, second_meta_addr, PAGE_TYPE_FILTER, &second_meta_storage);
    memset(second_meta_page->data, 0, page_size);
    test_mini_meta_hdr *second_meta_hdr =
       (test_mini_meta_hdr *)second_meta_page->data;

@@ -256,7 +256,8 @@ static page_handle *
 shard_log_alloc(shard_log       *log,
                 shard_log_group *group,
                 uint64          *next_extent,
-                uint32          *page_no)
+                uint32          *page_no,
+                page_handle     *storage)
 {
    uint64          addrs[2] = {0};
    platform_status rc       = mini_alloc_bytes(&log->mini,
@@ -279,7 +280,7 @@ shard_log_alloc(shard_log       *log,
     * physical hole, and the retry must still receive the next valid page
     * number. Blob batches remain independently concurrent.
     */
-   page_handle *page = cache_alloc(log->cc, addrs[0], PAGE_TYPE_LOG);
+   page_handle *page = cache_alloc(log->cc, addrs[0], PAGE_TYPE_LOG, storage);
    if (page != NULL) {
       platform_assert(group->next_page_no < SHARD_LOG_PAGES_IN_GROUP_MASK,
                       "group %lu is too large to terminate",
@@ -561,7 +562,7 @@ shard_log_measure_page_records(cache            *cc,
 static void
 shard_log_reset_buffer(shard_log *log, shard_log_thread_data *thread_data)
 {
-   platform_assert(thread_data->incache_page == NULL);
+   platform_assert(thread_data->incache_page.data == NULL);
    shard_log_hdr *hdr = (shard_log_hdr *)thread_data->buf;
    hdr->nonce         = log->nonce;
    hdr->num_entries   = 0;
@@ -802,7 +803,7 @@ shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(group, thr_i);
-      platform_assert(thread_data->incache_page == NULL);
+      platform_assert(thread_data->incache_page.data == NULL);
       thread_data->buf = group->thread_buffers + thr_i * page_size;
       writeback_set_reset(&thread_data->wbset);
       shard_log_reset_buffer(log, thread_data);
@@ -857,9 +858,9 @@ shard_log_group_free(shard_log *log, shard_log_group *group)
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(group, thr_i);
-      if (thread_data->incache_page != NULL) {
-         cache_unget(log->cc, thread_data->incache_page);
-         thread_data->incache_page = NULL;
+      if (thread_data->incache_page.data != NULL) {
+         cache_unget(log->cc, &thread_data->incache_page);
+         ZERO_CONTENTS(&thread_data->incache_page);
       }
       writeback_set_deinit(&thread_data->wbset);
    }
@@ -915,7 +916,7 @@ shard_log_group_malloc(shard_log *log, bool32 emergency)
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(group, thr_i);
       thread_data->buf          = group->thread_buffers + thr_i * page_size;
-      thread_data->incache_page = NULL;
+      ZERO_CONTENTS(&thread_data->incache_page);
       writeback_set_init(&thread_data->wbset, log->cc, log->heap_id);
    }
    shard_log_group_reset(log, group, 0);
@@ -1045,7 +1046,9 @@ shard_log_graduate_buffer_internal(shard_log             *log,
 
       uint64       next_extent;
       uint32       page_no;
-      page_handle *page = shard_log_alloc(log, group, &next_extent, &page_no);
+      page_handle  storage;
+      page_handle *page =
+         shard_log_alloc(log, group, &next_extent, &page_no, &storage);
       if (page == NULL) {
          platform_error_log("shard_log_graduate_buffer: out of log space\n");
          return STATUS_NO_SPACE;
@@ -1082,19 +1085,19 @@ shard_log_graduate_buffer_internal(shard_log             *log,
 
       cache_unlock(log->cc, page);
       cache_unclaim(log->cc, page);
-      thread_data->incache_page = page; // retain our cache reference for retry
+      thread_data->incache_page = *page; // retain our cache reference for retry
       thread_data->state        = SHARD_LOG_BUFFER_INCACHE;
    }
 
    platform_assert(thread_data->state == SHARD_LOG_BUFFER_INCACHE);
    platform_status rc = writeback_set_add_page(
-      &thread_data->wbset, thread_data->incache_page, PAGE_TYPE_LOG);
+      &thread_data->wbset, &thread_data->incache_page, PAGE_TYPE_LOG);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   cache_unget(log->cc, thread_data->incache_page);
-   thread_data->incache_page = NULL;
+   cache_unget(log->cc, &thread_data->incache_page);
+   ZERO_CONTENTS(&thread_data->incache_page);
    shard_log_reset_buffer(log, thread_data);
    return STATUS_OK;
 }

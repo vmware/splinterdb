@@ -70,8 +70,15 @@ typedef uint32 entry_status; // Saved in clockcache_entry->status
  *     page_handle together with some flags.
  *-----------------------------------------------------------------------------
  */
+/* Shared slot identity excludes the read-reference receipt: that belongs to
+ * each caller-owned handle, not to the cached page. */
+typedef struct {
+   char  *data;
+   uint64 disk_addr;
+} clockcache_page;
+
 struct clockcache_entry {
-   page_handle page;
+   clockcache_page page;
    // Accessed atomically; see clockcache_get_status() and the flag helpers.
    volatile entry_status status;
    /* Published before CC_LOADING is cleared; protected by the read reference.
@@ -90,6 +97,11 @@ struct clockcache_entry {
    history_record history[NUM_HISTORY_RECORDS];
 #endif
 };
+
+#ifndef RECORD_ACQUISITION_STACKS
+_Static_assert(sizeof(clockcache_entry) == PLATFORM_CACHELINE_SIZE,
+               "cache entry must fit in one cache line");
+#endif
 
 // Allocators acquire and release this flag for every slot allocation. Keep
 // flags for independent batches on separate cache lines.

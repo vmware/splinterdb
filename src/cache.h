@@ -15,6 +15,9 @@
 typedef struct page_handle {
    char  *data;
    uint64 disk_addr;
+   /* Receipt for the cache read reference, independent of the thread that
+    * later owns this handle. Not an extra reference and not a thread pin. */
+   threadid read_ref_tid;
 } page_handle;
 
 typedef struct cache_config cache_config;
@@ -122,7 +125,10 @@ typedef async_status (*page_get_async_fn)(void *payload);
 typedef platform_status (*page_get_async_state_result_fn)(void        *payload,
                                                           page_handle *page);
 
-typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
+typedef page_handle *(*page_alloc_fn)(cache       *cc,
+                                      uint64       addr,
+                                      page_type    type,
+                                      page_handle *page);
 typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
 typedef platform_status (*page_get_fn)(cache       *cc,
                                        uint64       addr,
@@ -281,14 +287,19 @@ struct cache {
  * `type` marks the page as being used for the given purpose for debugging
  * and statistical accounting purposes.
  *
- * Returns a pointer to the page_handle for the page with address addr,
- * with thread holding the write lock on the page.
+ * Fills the caller-owned handle and returns it with the write lock held.
+ * On failure returns NULL and clears the handle. The handle can be moved to
+ * another thread with ordinary synchronization, just like cache_get().
  *----------------------------------------------------------------------
  */
 static inline page_handle *
-cache_alloc(cache *cc, uint64 addr, page_type type)
+cache_alloc(cache *cc, uint64 addr, page_type type, page_handle *page)
 {
-   return cc->ops->page_alloc(cc, addr, type);
+   page_handle *result = cc->ops->page_alloc(cc, addr, type, page);
+   if (result == NULL) {
+      ZERO_CONTENTS(page);
+   }
+   return result;
 }
 
 /*
@@ -319,7 +330,10 @@ cache_extent_discard(cache *cc, uint64 addr, page_type type)
  *
  * Acquires the page at addr into caller-owned storage. On success, page holds
  * one read reference. The handle may be moved, but copying it does not acquire
- * another reference. Release it exactly once with cache_unget().
+ * another reference. Release it exactly once with cache_unget(). Ownership
+ * may move to another registered thread using ordinary synchronization; the
+ * acquiring thread may deregister after handing off the handle. Concurrent
+ * use of the same handle still requires the caller's synchronization.
  *
  * If blocking is TRUE, waits for the page to become readable. If blocking is
  * FALSE and the page is absent or write-locked, returns STATUS_BUSY. A resident
@@ -380,8 +394,8 @@ cache_get_async_state_result(page_get_async_state_buffer *buffer,
  * cache_unget
  *
  * Drop a reference to a page.
- * The page must be read-locked by the calling thread (and not claimed or
- * write-locked) before making this call.
+ * The caller must own the handle's read reference, which may have been
+ * acquired on another thread. It must not be claimed or write-locked.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -444,7 +458,8 @@ cache_unclaim(cache *cc, page_handle *page)
  * The handle must hold a claim when making this call.
  * The handle is changed to the write-locked state.
  *
- * Blocks until outstanding read locks are released by other threads.
+ * Blocks until every read reference other than this handle is released,
+ * including references acquired by the same thread.
  *
  * Acquiring the write lock marks the page dirty.
  *----------------------------------------------------------------------

@@ -76,7 +76,9 @@ allocate_leftover_entries(const blob_build_config *cfg,
       platform_assert(alloced_pages[1] == 0);
 
       if (alloced_pages[0] % page_size == 0) {
-         page_handle *page = cache_alloc(cc, alloced_pages[0], PAGE_TYPE_BLOB);
+         page_handle  storage;
+         page_handle *page =
+            cache_alloc(cc, alloced_pages[0], PAGE_TYPE_BLOB, &storage);
          cache_unlock(cc, page);
          cache_unclaim(cc, page);
          cache_unget(cc, page);
@@ -85,7 +87,9 @@ allocate_leftover_entries(const blob_build_config *cfg,
       {
          uint64 next_page_addr =
             (alloced_pages[0] + remainder - 1) / page_size * page_size;
-         page_handle *page = cache_alloc(cc, next_page_addr, PAGE_TYPE_BLOB);
+         page_handle  storage;
+         page_handle *page =
+            cache_alloc(cc, next_page_addr, PAGE_TYPE_BLOB, &storage);
          cache_unlock(cc, page);
          cache_unclaim(cc, page);
          cache_unget(cc, page);
