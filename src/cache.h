@@ -12,10 +12,45 @@
 #include "allocator.h"
 #include "async.h"
 
-typedef struct page_handle {
+/* Shared page identity, immutable while a successful handle owns a reference.
+ * Cache implementations keep this object alive until the reference is released.
+ * Callers access it through page_handle_data()/page_handle_addr(). */
+typedef struct cache_page {
    char  *data;
    uint64 disk_addr;
+} cache_page;
+
+/* Caller-owned receipt for one cache reference. Copying it transfers ownership;
+ * it does not acquire another reference. cache_unget() clears this receipt. */
+typedef struct page_handle {
+   cache_page *page;
 } page_handle;
+
+static inline bool32
+page_handle_is_null(const page_handle *page)
+{
+   return page->page == NULL;
+}
+
+static inline bool32
+page_handle_same_page(const page_handle *a, const page_handle *b)
+{
+   return a->page == b->page;
+}
+
+/* These accessors require a live, successful handle. Neither the identity
+ * pointer nor the returned data pointer may be retained after cache_unget(). */
+static inline char *
+page_handle_data(const page_handle *page)
+{
+   return page->page->data;
+}
+
+static inline uint64
+page_handle_addr(const page_handle *page)
+{
+   return page->page->disk_addr;
+}
 
 typedef struct cache_config cache_config;
 typedef struct cache        cache;
@@ -122,7 +157,10 @@ typedef async_status (*page_get_async_fn)(void *payload);
 typedef platform_status (*page_get_async_state_result_fn)(void        *payload,
                                                           page_handle *page);
 
-typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
+typedef page_handle *(*page_alloc_fn)(cache       *cc,
+                                      uint64       addr,
+                                      page_type    type,
+                                      page_handle *page);
 typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
 typedef platform_status (*page_get_fn)(cache       *cc,
                                        uint64       addr,
@@ -281,14 +319,18 @@ struct cache {
  * `type` marks the page as being used for the given purpose for debugging
  * and statistical accounting purposes.
  *
- * Returns a pointer to the page_handle for the page with address addr,
- * with thread holding the write lock on the page.
+ * Fills the caller-owned handle and returns it with the write lock held.
+ * On failure returns NULL and clears the handle.
  *----------------------------------------------------------------------
  */
 static inline page_handle *
-cache_alloc(cache *cc, uint64 addr, page_type type)
+cache_alloc(cache *cc, uint64 addr, page_type type, page_handle *page)
 {
-   return cc->ops->page_alloc(cc, addr, type);
+   page_handle *result = cc->ops->page_alloc(cc, addr, type, page);
+   if (result == NULL) {
+      ZERO_CONTENTS(page);
+   }
+   return result;
 }
 
 /*
@@ -387,7 +429,8 @@ cache_get_async_state_result(page_get_async_state_buffer *buffer,
 static inline void
 cache_unget(cache *cc, page_handle *page)
 {
-   return cc->ops->page_unget(cc, page);
+   cc->ops->page_unget(cc, page);
+   ZERO_CONTENTS(page);
 }
 
 /*

@@ -1207,13 +1207,13 @@ btree_alloc(cache          *cc,
       node->hdr  = NULL;
       return rc;
    }
-   node->page = *cache_alloc(cc, node->addr, type);
+   cache_alloc(cc, node->addr, type, &node->page);
 
    // If this btree is for a memtable then pin all pages belonging to it
    if (type == PAGE_TYPE_MEMTABLE) {
       cache_pin(cc, &node->page);
    }
-   node->hdr = (btree_hdr *)(node->page.data);
+   node->hdr = (btree_hdr *)(page_handle_data(&node->page));
    return STATUS_OK;
 }
 
@@ -1233,7 +1233,7 @@ btree_node_get(cache              *cc,
    debug_assert(node->addr != 0);
 
    platform_status rc = cache_get(cc, node->addr, TRUE, type, &node->page);
-   node->hdr          = SUCCESS(rc) ? (btree_hdr *)node->page.data : NULL;
+   node->hdr = SUCCESS(rc) ? (btree_hdr *)page_handle_data(&node->page) : NULL;
    return rc;
 }
 
@@ -1282,10 +1282,11 @@ btree_node_read_header(cache              *cc,
                        const btree_node   *node,
                        page_type           type)
 {
-   if (node == NULL || node->page.data == NULL || node->hdr == NULL) {
+   if (node == NULL || page_handle_is_null(&node->page) || node->hdr == NULL) {
       return STATUS_IO_ERROR;
    }
-   if (type == PAGE_TYPE_BRANCH && node->page.disk_addr != node->addr) {
+   if (type == PAGE_TYPE_BRANCH && page_handle_addr(&node->page) != node->addr)
+   {
       return STATUS_INVALID_STATE;
    }
    return btree_read_branch_header(cfg, node->hdr, type);
@@ -1507,7 +1508,7 @@ btree_node_get_checked(cache              *cc,
       return rc;
    }
    rc = btree_node_read_header(cc, cfg, node, type);
-   if (!SUCCESS(rc) && node->page.data != NULL) {
+   if (!SUCCESS(rc) && !page_handle_is_null(&node->page)) {
       btree_node_unget(cc, cfg, node);
    }
    return rc;
@@ -1635,14 +1636,15 @@ btree_create(cache              *cc,
    if (!SUCCESS(rc)) {
       return rc;
    }
-   page_handle *root_page = cache_alloc(cc, base_addr, type);
+   page_handle  root_storage;
+   page_handle *root_page = cache_alloc(cc, base_addr, type, &root_storage);
    bool32       pinned    = (type == PAGE_TYPE_MEMTABLE);
 
    // set up the root
    btree_node root;
    root.page = *root_page;
    root.addr = base_addr;
-   root.hdr  = (btree_hdr *)root_page->data;
+   root.hdr  = (btree_hdr *)page_handle_data(root_page);
 
    btree_init_hdr(cfg, root.hdr);
 
@@ -2747,7 +2749,7 @@ btree_lookup_node_internal(cache              *cc,             // IN
          btree_node_unget(cc, cfg, &node);
          return rc;
       }
-      debug_assert(child_node.page.disk_addr == child_node.addr);
+      debug_assert(page_handle_addr(&child_node.page) == child_node.addr);
       btree_node_unget(cc, cfg, &node);
       node = child_node;
    }
@@ -2831,7 +2833,7 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
          async_return(state, rc);
       }
    }
-   state->node.hdr = (btree_hdr *)state->node.page.data;
+   state->node.hdr = (btree_hdr *)page_handle_data(&state->node.page);
    platform_status rc =
       btree_node_read_header(state->cc, state->cfg, &state->node, state->type);
    if (!SUCCESS(rc)) {
@@ -2922,7 +2924,8 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
          btree_node_unget(state->cc, state->cfg, &state->node);
          async_return(state, get_rc);
       }
-      state->child_node.hdr = (btree_hdr *)state->child_node.page.data;
+      state->child_node.hdr =
+         (btree_hdr *)page_handle_data(&state->child_node.page);
 
       rc = btree_node_read_header(
          state->cc, state->cfg, &state->child_node, state->type);
@@ -2939,7 +2942,8 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
          async_return(state, rc);
       }
 
-      debug_assert(state->child_node.page.disk_addr == state->child_node.addr);
+      debug_assert(page_handle_addr(&state->child_node.page)
+                   == state->child_node.addr);
       btree_node_unget(state->cc, state->cfg, &state->node);
       state->node = state->child_node;
    }
@@ -3358,7 +3362,7 @@ btree_iterator_set_copy_bounds(btree_iterator *itor)
 static inline platform_status
 btree_iterator_copy_curr_if_needed(btree_iterator *itor)
 {
-   if (!itor->copy_nodes || itor->curr.page.data == NULL) {
+   if (!itor->copy_nodes || page_handle_is_null(&itor->curr.page)) {
       return STATUS_OK;
    }
 
@@ -3372,7 +3376,7 @@ btree_iterator_copy_curr_if_needed(btree_iterator *itor)
 static inline void
 btree_iterator_release_curr(btree_iterator *itor)
 {
-   if (itor->curr.page.data != NULL) {
+   if (!page_handle_is_null(&itor->curr.page)) {
       btree_node_unget(itor->cc, itor->cfg, &itor->curr);
    } else {
       itor->curr.hdr = NULL;
@@ -3641,9 +3645,10 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
    */
    debug_assert(iterator_can_curr(base_itor));
    debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
-   if (itor->curr.page.data != NULL) {
-      debug_assert(itor->curr.page.disk_addr == itor->curr.addr);
-      debug_assert((char *)itor->curr.hdr == itor->curr.page.data);
+   if (!page_handle_is_null(&itor->curr.page)) {
+      debug_assert(page_handle_addr(&itor->curr.page) == itor->curr.addr);
+      debug_assert((char *)itor->curr.hdr
+                   == page_handle_data(&itor->curr.page));
       cache_validate_page(itor->cc, &itor->curr.page, itor->curr.addr);
    } else {
       debug_assert(btree_iterator_curr_is_copy(itor));
@@ -3923,7 +3928,8 @@ btree_prefetch_cursor_start(btree_iterator *itor, bool32 going_forward)
    pf->prefetch_blobs   = (itor->height == 0);
 
    if (!btree_iterator_prefetch_enabled(itor) || pf->lookahead <= 1
-       || itor->page_type != PAGE_TYPE_BRANCH || itor->curr.page.data == NULL)
+       || itor->page_type != PAGE_TYPE_BRANCH
+       || page_handle_is_null(&itor->curr.page))
    {
       return;
    }
@@ -4134,7 +4140,8 @@ btree_iterator_next_leaf_async(btree_iterator_async_state *state, uint64 depth)
    if (!SUCCESS(state->itor->validation_status)) {
       async_return(state, state->itor->validation_status);
    }
-   state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page.data;
+   state->itor->curr.hdr =
+      (btree_hdr *)page_handle_data(&state->itor->curr.page);
    platform_status rc    = btree_node_read_header(state->itor->cc,
                                                state->itor->cfg,
                                                &state->itor->curr,
@@ -4300,7 +4307,8 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
       if (!SUCCESS(state->itor->validation_status)) {
          async_return(state, state->itor->validation_status);
       }
-      state->live_curr.hdr = (btree_hdr *)state->live_curr.page.data;
+      state->live_curr.hdr =
+         (btree_hdr *)page_handle_data(&state->live_curr.page);
       platform_status rc   = btree_node_read_header(state->itor->cc,
                                                   state->itor->cfg,
                                                   &state->live_curr,
@@ -4347,7 +4355,8 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    if (!SUCCESS(state->itor->validation_status)) {
       async_return(state, state->itor->validation_status);
    }
-   state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page.data;
+   state->itor->curr.hdr =
+      (btree_hdr *)page_handle_data(&state->itor->curr.page);
    platform_status rc    = btree_node_read_header(state->itor->cc,
                                                state->itor->cfg,
                                                &state->itor->curr,
@@ -4416,7 +4425,8 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
       if (!SUCCESS(state->itor->validation_status)) {
          async_return(state, state->itor->validation_status);
       }
-      state->itor->curr.hdr = (btree_hdr *)state->itor->curr.page.data;
+      state->itor->curr.hdr =
+         (btree_hdr *)page_handle_data(&state->itor->curr.page);
       rc                    = btree_node_read_header(state->itor->cc,
                                   state->itor->cfg,
                                   &state->itor->curr,
@@ -5438,7 +5448,7 @@ btree_pack_abort(btree_pack_req *req)
    platform_assert(req->height < BTREE_MAX_HEIGHT);
    for (uint16 i = 0; i <= req->height; i++) {
       for (uint16 j = 0; j < req->num_edges[i]; j++) {
-         if (req->edge[i][j].page.data != NULL) {
+         if (!page_handle_is_null(&req->edge[i][j].page)) {
             btree_node_full_unlock(req->cc, req->cfg, &req->edge[i][j]);
          }
       }

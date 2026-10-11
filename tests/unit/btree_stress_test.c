@@ -415,7 +415,7 @@ static bool32
 retry_leaf_claim_once(cache *cc, page_handle *page)
 {
    retry_leaf_claim_ops *ops = (retry_leaf_claim_ops *)cc->ops;
-   if (page->disk_addr == ops->leaf_addr && ops->rejections == 0) {
+   if (page_handle_addr(page) == ops->leaf_addr && ops->rejections == 0) {
       ops->rejections++;
       return FALSE;
    }
@@ -491,7 +491,7 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
    page_handle root_handle =
       test_cache_get_page(cc, root_addr, TRUE, PAGE_TYPE_MEMTABLE);
    page_handle *root = &root_handle;
-   btree_hdr   *hdr  = (btree_hdr *)root->data;
+   btree_hdr   *hdr  = (btree_hdr *)page_handle_data(root);
    ASSERT_EQUAL_U(1, hdr->height);
    ASSERT_EQUAL_U(1, hdr->num_entries);
    uint64 leaf_addr = btree_get_child_addr(cfg, hdr, 0);
@@ -1354,7 +1354,9 @@ iterator_endpoint_fault_async_result(void *payload, page_handle *page)
    iterator_endpoint_fault *fault = active_iterator_endpoint_fault;
    platform_assert(fault != NULL);
    platform_status rc = fault->original->page_get_async_result(payload, page);
-   if (SUCCESS(rc) && iterator_endpoint_fault_should_fail(page->disk_addr)) {
+   if (SUCCESS(rc)
+       && iterator_endpoint_fault_should_fail(page_handle_addr(page)))
+   {
       fault->original->page_unget(fault->cc, page);
       *page = (page_handle){0};
       return STATUS_TIMEDOUT;
@@ -1780,7 +1782,7 @@ bounds_get(cache       *cc,
    bounds_observe_get(addr);
    platform_status rc =
       bounds_observer->original->page_get(cc, addr, blocking, type, p);
-   if (SUCCESS(rc) && p->disk_addr == bounds_observer->leaf)
+   if (SUCCESS(rc) && page_handle_addr(p) == bounds_observer->leaf)
       bounds_observer->leaf_refs++;
    return rc;
 }
@@ -1803,7 +1805,7 @@ bounds_async_result(void *payload, page_handle *p)
 {
    platform_status rc =
       bounds_observer->original->page_get_async_result(payload, p);
-   if (SUCCESS(rc) && p->disk_addr == bounds_observer->leaf)
+   if (SUCCESS(rc) && page_handle_addr(p) == bounds_observer->leaf)
       bounds_observer->leaf_refs++;
    return rc;
 }
@@ -1812,7 +1814,7 @@ static void
 bounds_unget(cache *cc, page_handle *p)
 {
    bounds_cache_observer *o       = bounds_observer;
-   bool32                 is_leaf = p->disk_addr == o->leaf;
+   bool32                 is_leaf = page_handle_addr(p) == o->leaf;
    o->original->page_unget(cc, p);
    if (!is_leaf)
       return;
@@ -1827,7 +1829,8 @@ bounds_unget(cache *cc, page_handle *p)
    }
    page_handle observed =
       test_cache_get_page(cc, o->leaf, TRUE, PAGE_TYPE_MEMTABLE);
-   o->split = ((btree_hdr *)observed.data)->next_addr != o->old_next;
+   o->split =
+      ((btree_hdr *)page_handle_data(&observed))->next_addr != o->old_next;
    cache_unget(cc, &observed);
    cc->ops = &o->ops;
 }
@@ -1895,7 +1898,7 @@ CTEST2(btree_stress, copied_iterator_split_on_release)
       cc->ops         = observer.original;
       bounds_observer = NULL;
       ASSERT_TRUE(SUCCESS(rc));
-      bool32 copy_released = itor.curr.page.data == NULL;
+      bool32 copy_released = page_handle_is_null(&itor.curr.page);
       uint64 seen          = 0;
       while (iterator_can_curr(&itor.super)) {
          key     k;

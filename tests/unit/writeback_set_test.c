@@ -125,10 +125,11 @@ alloc_and_dirty_extent(clockcache *cc, rc_allocator *al)
 
    for (uint64 i = 0; i < pages_per_extent; i++) {
       uint64       addr = base_addr + i * page_size;
-      page_handle *page = cache_alloc(ccp, addr, PAGE_TYPE_MISC);
+      page_handle  storage;
+      page_handle *page = cache_alloc(ccp, addr, PAGE_TYPE_MISC, &storage);
       ASSERT_NOT_NULL(page);
       // cache_alloc hands back a dirty, write-locked page.
-      memset(page->data, (int)(i & 0xff), page_size);
+      memset(page_handle_data(page), (int)(i & 0xff), page_size);
       cache_unlock(ccp, page);
       cache_unclaim(ccp, page);
       cache_unget(ccp, page);
@@ -416,7 +417,7 @@ CTEST2(writeback_set, test_repeated_rounds)
                *page = test_cache_get_page(ccp, addr, TRUE, PAGE_TYPE_MISC);
             }
             cache_lock(ccp, page);
-            memset(page->data, (int)(round & 0xff), page_size);
+            memset(page_handle_data(page), (int)(round & 0xff), page_size);
             cache_unlock(ccp, page);
             cache_unclaim(ccp, page);
             cache_unget(ccp, page);
@@ -524,20 +525,19 @@ CTEST2(writeback_set, test_cache_sync_read_error_and_retry)
    uint64 addr = alloc_and_dirty_extent(&data->cc, &data->al);
    cache_flush(cc);
    ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
-   page_handle page = {.data = (char *)1, .disk_addr = UINT64_MAX};
+   page_handle page = {.page = (cache_page *)1};
    ASSERT_TRUE(STATUS_IS_EQ(cache_get(cc, addr, FALSE, PAGE_TYPE_MISC, &page),
                             STATUS_BUSY));
-   ASSERT_NULL(page.data);
+   ASSERT_TRUE(page_handle_is_null(&page));
    read_fault_install(data->io);
    platform_status rc = cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page);
    data->io->ops      = read_saved_ops;
    ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
-   ASSERT_NULL(page.data);
-   ASSERT_EQUAL(0, page.disk_addr);
+   ASSERT_TRUE(page_handle_is_null(&page));
    cache_assert_free(cc);
    ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page)));
-   ASSERT_EQUAL(addr, page.disk_addr);
-   ASSERT_EQUAL(0, (unsigned char)page.data[0]);
+   ASSERT_EQUAL(addr, page_handle_addr(&page));
+   ASSERT_EQUAL(0, (unsigned char)page_handle_data(&page)[0]);
    cache_unget(cc, &page);
 }
 
@@ -562,7 +562,7 @@ CTEST2(writeback_set, test_cache_async_read_setup_failures)
       data->io->ops      = read_saved_ops;
       ASSERT_TRUE(
          STATUS_IS_EQ(rc, fail_step == 2 ? STATUS_TIMEDOUT : STATUS_NO_MEMORY));
-      ASSERT_NULL(page.data);
+      ASSERT_TRUE(page_handle_is_null(&page));
       cache_assert_free(cc);
    }
    page_handle page;
@@ -597,12 +597,12 @@ CTEST2(writeback_set, test_cache_failed_load_wakes_waiters)
       platform_status rc = cache_get_async_state_result(&states[i], &page);
       if (i == 0) {
          ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
-         ASSERT_NULL(page.data);
+         ASSERT_TRUE(page_handle_is_null(&page));
       } else {
          /* Queued readers retry identity/readiness after a wakeup. */
          ASSERT_TRUE(SUCCESS(rc));
-         ASSERT_EQUAL(addr, page.disk_addr);
-         ASSERT_EQUAL(0, (unsigned char)page.data[0]);
+         ASSERT_EQUAL(addr, page_handle_addr(&page));
+         ASSERT_EQUAL(0, (unsigned char)page_handle_data(&page)[0]);
          cache_unget(cc, &page);
       }
    }
@@ -692,7 +692,7 @@ CTEST2(writeback_set, test_failed_prefetch_leaves_demand_read_retryable)
       cache_assert_free(cc);
       page_handle page;
       ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page)));
-      ASSERT_EQUAL(0, (unsigned char)page.data[0]);
+      ASSERT_EQUAL(0, (unsigned char)page_handle_data(&page)[0]);
       cache_unget(cc, &page);
       ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
    }
@@ -731,7 +731,7 @@ CTEST2(writeback_set, test_failed_load_releases_synchronous_waiter)
    /* The async owner holds this entry stable. Wait until the synchronous
     * reader owns its reference before publishing the failed completion. */
    uint32           entry   = data->cc.lookup[addr / cache_page_size(cc)];
-   page_handle      loading = data->cc.entry[entry].page;
+   page_handle      loading = {.page = &data->cc.entry[entry].page};
    sync_read_waiter waiter  = {.cc = cc, .addr = addr};
    platform_thread  thread;
    ASSERT_TRUE(SUCCESS(platform_thread_create(
@@ -753,6 +753,6 @@ CTEST2(writeback_set, test_failed_load_releases_synchronous_waiter)
    ASSERT_TRUE(waiting);
    ASSERT_TRUE(STATUS_IS_EQ(owner_rc, STATUS_TIMEDOUT));
    ASSERT_TRUE(STATUS_IS_EQ(waiter.rc, STATUS_TIMEDOUT));
-   ASSERT_NULL(waiter.page.data);
+   ASSERT_TRUE(page_handle_is_null(&waiter.page));
    cache_assert_free(cc);
 }

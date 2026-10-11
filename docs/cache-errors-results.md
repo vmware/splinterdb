@@ -6,6 +6,14 @@ one read reference. Moving its value transfers that reference; copying the value
 does not acquire another one. Cross-thread ownership transfer is a separate,
 stacked experiment.
 
+The receipt is now pointer-sized: it names a shared `cache_page` whose identity
+is stable while the reference is held. `page_handle_data()` and
+`page_handle_addr()` require a live handle; `cache_unget()` clears the receipt.
+This avoids reconstructing the cache slot from the data-buffer address and
+keeps btree/iterator handle fields at their original pointer size. Cache entries
+remain 64 bytes. `cache_alloc()` also fills caller-owned storage; retained log
+allocations and mini-allocator rollover preserve their receipt lifetimes.
+
 Demand-read errors propagate through btrees, blobs, routing filters, log recovery,
 trunk traversal, insertion, point lookups, and range initialization. A failed read
 clears the output handle and releases its reference. The cache removes failed

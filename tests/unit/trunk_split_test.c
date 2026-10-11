@@ -168,7 +168,7 @@ static uint64           split_test_fail_get_addr;
 static uint64           split_test_failures;
 
 static page_handle *
-split_test_page_alloc(cache *cc, uint64 addr, page_type type)
+split_test_page_alloc(cache *cc, uint64 addr, page_type type, page_handle *page)
 {
    if (type == PAGE_TYPE_TRUNK
        && ++split_test_alloc_calls == split_test_fail_alloc_at)
@@ -176,7 +176,7 @@ split_test_page_alloc(cache *cc, uint64 addr, page_type type)
       split_test_failures++;
       return NULL;
    }
-   return split_test_real_ops->page_alloc(cc, addr, type);
+   return split_test_real_ops->page_alloc(cc, addr, type, page);
 }
 
 static platform_status

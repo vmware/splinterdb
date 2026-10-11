@@ -280,7 +280,7 @@ should_alloc(blob_page_iterator *iter)
 static void
 blob_page_iterator_release_page(blob_page_iterator *iter)
 {
-   if (iter->page.data != NULL) {
+   if (!page_handle_is_null(&iter->page)) {
       if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
          cache_unlock(iter->cc, &iter->page);
          cache_unclaim(iter->cc, &iter->page);
@@ -301,10 +301,10 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
                             uint64             *offset,
                             slice              *result)
 {
-   if (iter->page.data == NULL) {
+   if (page_handle_is_null(&iter->page)) {
       if (should_alloc(iter)) {
-         iter->page =
-            *cache_alloc(iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB);
+         cache_alloc(
+            iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB, &iter->page);
       } else {
          platform_status rc = cache_get(
             iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB, &iter->page);
@@ -332,8 +332,9 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
    }
 
    *offset = iter->offset;
-   *result = slice_create(iter->fragment.length,
-                          iter->page.data + iter->fragment.offset);
+   *result =
+      slice_create(iter->fragment.length,
+                   page_handle_data(&iter->page) + iter->fragment.offset);
    return STATUS_OK;
 }
 
