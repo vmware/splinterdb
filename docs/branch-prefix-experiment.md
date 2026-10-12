@@ -53,10 +53,72 @@ allocation statistics and filesystem allocation after close. Report load plus
 drain, point throughput, short/long range throughput and space together: saved
 leaf bytes can trade off against rebuilding and key reconstruction.
 
-Initial ABBA common-prefix resident measurements reduced allocated file bytes
-by 30.2% and mounted live extents by 25.1%. Point throughput changed by +1.2%
-with one reader and -6.1% with eight; short ranges improved 4.3–8.6%. Disk and
-nonlexical controls showed severe isolated device-latency outliers. Fixed-image
-comparisons of the final reconstruction path and those controls are pending.
-This implementation milestone is experimental and does not claim performance
-neutrality.
+# Measurements
+
+All runs used O_DIRECT files on ext4, CPU affinity 0–11, 64-byte keys,
+100-byte values and WAL disabled. Loading used one thread and zero background
+workers for reproducible construction within each format. Baseline and candidate
+formats require separate images. The random workload's 16-byte/key harness
+array is identical for both variants. Resident runs used 200,000 keys and a
+128 MiB cache; disk runs used 2 million keys and a 64 MiB cache.
+
+| Common-prefix space | Resident | Disk |
+| --- | ---: | ---: |
+| Mean allocated file bytes, baseline | 37,408,768 | 833,912,832 |
+| Mean allocated file bytes, candidate | 26,128,384 | 545,222,656 |
+| File allocation reduction | 30.2% | 34.6% |
+| Mounted live extents, baseline → candidate | 342 → 256 | 3,414 → 2,585 |
+| Live extent reduction | 25.1% | 24.3% |
+
+Filesystem allocation includes written pages that were subsequently freed;
+live extents measure current allocator ownership and include constant empty
+memtable allocations. Per-page-type allocation counters are not persisted and
+are not used to interpret reopened images. Random and nonlexical inputs showed
+no live-extent reduction.
+
+The final common-prefix measurements use copies of fixed per-format images.
+Resident order was baseline / previous candidate / final candidate / final
+candidate / previous candidate / baseline. Both candidate binaries read the
+same candidate image. Disk order was ABBA. Read phases lasted seven seconds.
+Positive changes below mean more throughput than baseline.
+
+| Final common-prefix reader | Resident | Disk |
+| --- | ---: | ---: |
+| Point, 1 reader | +0.9% | +11.0% |
+| Point, 8 readers | +1.0% | +14.0% |
+| Length-1 range, 1 reader | +4.7% | +17.0% |
+| Length-1 range, 8 readers | +1.9% | +9.8% |
+| Length-10,000 range, 1 reader | +0.8% | +24.2% |
+| Length-10,000 range, 8 readers | -2.9% | +19.7% |
+
+The final reconstruction path improved the resident eight-reader long scan by
+10.1% relative to the previous candidate on identical images. Disk I/O per query
+fell about 9% for points, 23% for length-1 ranges and 29% for long ranges. The
+initial disk common-prefix matrix had one severely slow candidate repetition;
+the fixed-image repeat above did not reproduce it.
+
+The earlier five-second ABBA controls used the previous reconstruction path.
+Random inputs changed resident point throughput by +0.3–0.5%, while long-range
+throughput ranged from -5.9% to +1.5%. Disk random-input point throughput was
+4.3–5.7% lower and ranges were 1.2–7.6% lower. Nonlexical resident point throughput
+was 1.6–3.0% lower, and its eight-reader long range was 10.8% lower. Disabling
+compression on common-prefix input left space unchanged and point throughput
+within 1.1%, but eight-reader long ranges were 7.1% lower. These controls do not
+establish a universally neutral overhead, and they are not final-reader results.
+
+The final nonlexical disk control repeated fixed per-format images in ABBA
+order. Point throughput changed by -0.0% / -1.4%, length-1 ranges by -1.4% /
+-2.6%, and long ranges by +0.4% / -1.2% (one/eight readers). I/O per operation
+remained comparable. This did not reproduce the earlier isolated 8-reader
+collapse, but the small negative differences remain part of the measured cost.
+
+All completed samples report zero correctness violations and errors. Loads were
+short (subsecond resident, a few seconds on disk), so their throughput is not a
+strong write-performance conclusion. The experiment is promising for large
+shared prefixes, with a demonstrated space/read-I/O tradeoff; broader adoption
+still requires resolving workloads with little prefix benefit and the remaining
+resident long-scan cost.
+
+Compact CSVs, manifests, build hashes and campaign runners are retained in
+`benchmarks/results-20261011/`. Full original artifacts and images remain in
+`.cache/projects-20261011/benchmarks/branch-prefix/` in the main checkout.
