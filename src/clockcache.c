@@ -133,7 +133,7 @@ clockcache_print(platform_log_handle *log_handle, clockcache *cc);
  * clockcache_entry --
  *
  *     The meta data entry in the cache. Each entry has the underlying
- *     page_handle together with some flags.
+ *     shared cache_page identity together with some flags.
  *-----------------------------------------------------------------------------
  */
 
@@ -2374,10 +2374,9 @@ clockcache_get_from_disk(clockcache      *cc,   // IN
  *----------------------------------------------------------------------
  * clockcache_get_internal --
  *
- *      Attempts to get a pointer to the page_handle for the page with
- *      address addr. If successful returns FALSE indicating no retries
- *      are needed, else TRUE indicating the caller needs to retry.
- *      Updates the "page" argument to the page_handle on success.
+ *      Attempts to acquire the shared page identity for address addr. Returns
+ *      TRUE if the caller must retry; otherwise rc reports success or the read
+ *      error. On success, page owns one read reference.
  *
  *      Will ask the caller to retry if we race with the eviction or if
  *      we have to evict an entry and race with someone else loading the
@@ -2414,13 +2413,13 @@ clockcache_get_internal(clockcache      *cc,       // IN
  *----------------------------------------------------------------------
  * clockcache_get --
  *
- *      Returns a pointer to the page_handle for the page with address addr.
- *      Calls clockcachge_get_int till a retry is needed.
+ *      Acquires address addr into the caller-owned receipt and returns status.
+ *      Retries cache admission races until the read succeeds or fails.
  *
  *      If blocking is set, then it blocks until the page is unlocked as
  *well.
  *
- *      Returns with a read lock held.
+ *      Returns with a read lock held on success.
  *----------------------------------------------------------------------
  */
 platform_status

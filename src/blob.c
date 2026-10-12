@@ -395,9 +395,9 @@ blob_validate(cache *cc, slice sblob)
    /*
     * Recovery can encounter a descriptor whose log page reached disk while
     * one of the blob pages did not.  Do not prefetch ahead of the readability
-    * check below: cache_get() is deliberately strict and a short read is a
-    * cache invariant violation, whereas an incomplete blob is ordinary crash
-    * truncation that validation must report to the log iterator.
+    * check below: an incomplete blob is ordinary crash truncation. Report it
+    * to the log iterator without issuing speculative reads past the file's
+    * readable range.
     */
    rc = blob_page_iterator_init(
       cc, &iter, sblob, 0, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH);
