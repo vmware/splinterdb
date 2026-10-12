@@ -1088,6 +1088,27 @@ splinterdb_durable_barrier(splinterdb *kvs)
    return platform_status_to_int(status);
 }
 
+int
+splinterdb_durable_barrier_async(splinterdb              *kvs,
+                                 splinterdb_notification *notification)
+{
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+   platform_assert(kvs != NULL);
+   splinterdb_stats_read_lock(kvs);
+   platform_status status = core_durable_barrier_async(&kvs->spl, notification);
+   splinterdb_stats_read_unlock(kvs);
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
+   if (splinterdb_notification_is_blocking(notification)) {
+      return splinterdb_notification_wait(kvs, notification);
+   }
+   return 0;
+}
+
 struct splinterdb_iterator {
    core_range_iterator sri;
    platform_status     last_rc;

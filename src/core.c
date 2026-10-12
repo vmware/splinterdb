@@ -4025,11 +4025,11 @@ core_checkpoint_target_status(core_handle *spl,
    return rc;
 }
 
-platform_status
-core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
+static platform_status
+core_checkpoint_from_generation(core_handle *spl,
+                                uint64       target,
+                                uint64       rotation_timeout_ns)
 {
-   uint64 target = memtable_generation(&spl->mt_ctxt);
-
    core_checkpoint_result request;
    platform_status        rc = core_checkpoint_request(
       spl, CORE_CHECKPOINT_REQUEST_REQUIRED, 0, &request);
@@ -4147,17 +4147,36 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 }
 
 platform_status
-core_durable_barrier(core_handle *spl)
+core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
+   return core_checkpoint_from_generation(
+      spl, memtable_generation(&spl->mt_ctxt), rotation_timeout_ns);
+}
+
+typedef struct core_durable_barrier_state {
+   task                     work;
+   core_handle             *spl;
+   splinterdb_notification *notification;
+   log_handle              *live;
+   log_durable_ticket       log_ticket;
+   uint64                   publication_target;
+   uint64                   checkpoint_target;
+} core_durable_barrier_state;
+
+/* Capture the cut while the caller still owns the core's operation lifetime.
+ * No page graduation, device I/O, or task dispatch happens on this path. */
+static platform_status
+core_durable_barrier_begin(core_durable_barrier_state *state,
+                           bool32                      retain_insert_epoch)
+{
+   core_handle *spl = state->spl;
    /* Without a WAL, the COW root is the only available durability route. */
    if (!spl->cfg.use_log) {
-      return core_checkpoint(spl, 0);
+      state->checkpoint_target = memtable_generation(&spl->mt_ctxt);
+      return STATUS_OK;
    }
 
-   log_handle        *live               = NULL;
-   log_durable_ticket log_ticket         = 0;
-   uint64             publication_target = 0;
-   platform_status    rc;
+   platform_status rc;
 
    /*
     * Pin the live-log pointer against memtable rotation while taking the cut.
@@ -4170,33 +4189,117 @@ core_durable_barrier(core_handle *spl)
       rc = STATUS_INVALID_STATE;
       goto end_insert_epoch;
    }
-   live = spl->log;
+   state->live = spl->log;
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING
        || spl->checkpoint.phase == CORE_CHECKPOINT_PUBLISHING)
    {
-      publication_target = spl->checkpoint.publications + 1;
-      platform_assert(publication_target != 0);
+      state->publication_target = spl->checkpoint.publications + 1;
+      platform_assert(state->publication_target != 0);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
-   rc = log_make_durable_begin(live, &log_ticket);
+   rc = log_make_durable_begin(state->live, &state->log_ticket);
 
 end_insert_epoch:
-   memtable_end_insert(&spl->mt_ctxt);
-   if (!SUCCESS(rc)) {
-      return rc;
+   if (!retain_insert_epoch || !SUCCESS(rc)) {
+      memtable_end_insert(&spl->mt_ctxt);
    }
+   return rc;
+}
 
+static platform_status
+core_durable_barrier_finish(core_durable_barrier_state *state)
+{
+   core_handle *spl = state->spl;
+   if (!spl->cfg.use_log) {
+      return core_checkpoint_from_generation(spl, state->checkpoint_target, 0);
+   }
    /* wait consumes the ticket and its pin on every return path. */
-   rc = log_make_durable_wait(live, log_ticket);
+   platform_status rc = log_make_durable_wait(state->live, state->log_ticket);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   if (publication_target != 0) {
-      rc = core_checkpoint_wait_for_publication(spl, publication_target);
+   if (state->publication_target != 0) {
+      rc = core_checkpoint_wait_for_publication(spl, state->publication_target);
+   }
+   return rc;
+}
+
+platform_status
+core_durable_barrier(core_handle *spl)
+{
+   core_durable_barrier_state state = {.spl = spl};
+   platform_status            rc    = core_durable_barrier_begin(&state, FALSE);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   return core_durable_barrier_finish(&state);
+}
+
+/* A checkpoint/publication wait may pump the normal queue. Defer another
+ * barrier reached by that pump instead of building a chain of blocking waits
+ * on this thread's stack. Independent workers may still finish concurrently. */
+static void
+core_durable_barrier_task(task *work)
+{
+   core_durable_barrier_state *state = (core_durable_barrier_state *)work;
+   platform_status             rc;
+   if (!task_try_begin_blocking_wait(state->spl->ts)) {
+      rc = task_enqueue(state->spl->ts,
+                        TASK_TYPE_NORMAL,
+                        work,
+                        core_durable_barrier_task,
+                        FALSE);
+      if (SUCCESS(rc)) {
+         /* A worker may already have consumed/freed state. Neither this
+          * callback nor task_group_run_task accesses it after publication. */
+         return;
+      }
+      if (state->spl->cfg.use_log) {
+         log_make_durable_release(state->live, state->log_ticket);
+      }
+   } else {
+      rc = core_durable_barrier_finish(state);
+      task_end_blocking_wait(state->spl->ts);
+   }
+   splinterdb_notification_complete(state->notification, rc);
+   platform_free(state->spl->heap_id, state);
+}
+
+platform_status
+core_durable_barrier_async(core_handle             *spl,
+                           splinterdb_notification *notification)
+{
+   core_durable_barrier_state *state = TYPED_ZALLOC(spl->heap_id, state);
+   if (state == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+   state->spl          = spl;
+   state->notification = notification;
+   /* Retain the insert epoch until publication. On enqueue failure, the
+    * live log still owns a reference, so dropping our pin cannot destroy a
+    * retired log (which could need to read allocation metadata). */
+   platform_status rc = core_durable_barrier_begin(state, TRUE);
+   if (!SUCCESS(rc)) {
+      platform_free(spl->heap_id, state);
+      return rc;
+   }
+   rc = task_enqueue(spl->ts,
+                     TASK_TYPE_NORMAL,
+                     &state->work,
+                     core_durable_barrier_task,
+                     FALSE);
+   if (!SUCCESS(rc)) {
+      if (spl->cfg.use_log) {
+         log_make_durable_release(state->live, state->log_ticket);
+      }
+      platform_free(spl->heap_id, state);
+   }
+   if (spl->cfg.use_log) {
+      memtable_end_insert(&spl->mt_ctxt);
    }
    return rc;
 }

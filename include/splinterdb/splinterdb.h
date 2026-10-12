@@ -462,6 +462,26 @@ splinterdb_optimize(splinterdb              *kvs,
 int
 splinterdb_durable_barrier(splinterdb *kvs);
 
+// Start a durability barrier covering updates that linearized before this
+// call. The durability guarantee above holds once notification completes
+// successfully. A polling notification returns before waiting for I/O;
+// a blocking notification waits before this call returns. NULL starts a
+// fire-and-forget barrier, without a way to observe its result.
+//
+// Launch allocates memory and takes internal locks, but does no device
+// I/O. Completion runs in the normal task queue. With no normal background
+// workers, callers must drive tasks through splinterdb_notification_wait()
+// or other operations that perform task work; polling alone does not progress
+// the barrier. Close drains accepted barriers before releasing the database.
+//
+// For polling or NULL notifications, a nonzero return means no work was
+// accepted and the notification remains idle. Blocking notifications return
+// the launch or wait status; after a wait error, poll to check completion.
+// Keep accepted notification storage alive until completion.
+int
+splinterdb_durable_barrier_async(splinterdb              *kvs,
+                                 splinterdb_notification *notification);
+
 /*
 Iterator API (range query)
 

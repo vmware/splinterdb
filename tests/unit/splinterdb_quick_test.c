@@ -306,6 +306,75 @@ CTEST2(splinterdb_quick, test_durable_barrier)
    ASSERT_EQUAL(0, rc);
 }
 
+CTEST2(splinterdb_quick, test_async_durable_barrier_notifications)
+{
+   for (uint64 logging = 0; logging < 2; logging++) {
+      for (uint64 workers = 0; workers < 2; workers++) {
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+         data->cfg.use_log                 = logging;
+         data->cfg.num_normal_bg_threads   = workers;
+         data->cfg.num_memtable_bg_threads = 0;
+         ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+         ASSERT_EQUAL(0, insert_some_keys(512, data->kvsb));
+
+         /* Several checkpoint waits can nest on one task worker. In
+          * particular, the non-WAL path must not wait for its own task to
+          * become quiescent. The zero-worker variant pumps progress in wait. */
+         splinterdb_notification notes[8];
+         for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
+            splinterdb_notification_init_polling(&notes[i], &notes[i]);
+            ASSERT_EQUAL(
+               0, splinterdb_durable_barrier_async(data->kvsb, &notes[i]));
+            if (workers == 0) {
+               ASSERT_FALSE(splinterdb_notification_poll(&notes[i], NULL));
+            }
+         }
+         for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
+            ASSERT_EQUAL(0,
+                         splinterdb_notification_wait(data->kvsb, &notes[i]));
+            int status = -1;
+            ASSERT_TRUE(splinterdb_notification_poll(&notes[i], &status));
+            ASSERT_EQUAL(0, status);
+            ASSERT_TRUE(splinterdb_notification_user_data(&notes[i])
+                        == &notes[i]);
+            splinterdb_notification_deinit(&notes[i]);
+         }
+
+         splinterdb_notification blocking;
+         splinterdb_notification_init_blocking(&blocking);
+         ASSERT_EQUAL(0,
+                      splinterdb_durable_barrier_async(data->kvsb, &blocking));
+         ASSERT_TRUE(splinterdb_notification_poll(&blocking, NULL));
+         splinterdb_notification_deinit(&blocking);
+
+         /* Close drains accepted work even when no thread is waiting on it. */
+         splinterdb_notification closing;
+         splinterdb_notification_init_polling(&closing, NULL);
+         ASSERT_EQUAL(0,
+                      splinterdb_durable_barrier_async(data->kvsb, &closing));
+         ASSERT_EQUAL(0, splinterdb_durable_barrier_async(data->kvsb, NULL));
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+         int status = -1;
+         ASSERT_TRUE(splinterdb_notification_poll(&closing, &status));
+         ASSERT_EQUAL(0, status);
+         splinterdb_notification_deinit(&closing);
+         ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+         splinterdb_iterator *it;
+         ASSERT_EQUAL(0,
+                      splinterdb_iterator_init(
+                         data->kvsb, &it, greater_than_or_equal, NULL_SLICE));
+         for (uint64 i = 0; i < 512; i++) {
+            ASSERT_TRUE(splinterdb_iterator_valid(it));
+            ASSERT_EQUAL(0, check_current_tuple(it, i));
+            splinterdb_iterator_next(it);
+         }
+         ASSERT_FALSE(splinterdb_iterator_valid(it));
+         ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+         splinterdb_iterator_deinit(it);
+      }
+   }
+}
+
 CTEST2(splinterdb_quick,
        test_logged_oversized_value_failure_preserves_old_value)
 {
