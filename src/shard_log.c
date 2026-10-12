@@ -1813,12 +1813,11 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
    return result;
 }
 
-/* Install a fresh accepting group and return the closed group's ticket. */
+/* Cut or join at most max_target, returning one pinned durability ticket. */
 static platform_status
 shard_log_make_durable_begin_through(log_handle         *logh,
                                      log_durable_ticket *ticket_out,
-                                     log_durable_ticket  max_target,
-                                     bool32              acquire_pin)
+                                     log_durable_ticket  max_target)
 {
    platform_assert(ticket_out != NULL);
    *ticket_out    = 0;
@@ -1833,9 +1832,7 @@ shard_log_make_durable_begin_through(log_handle         *logh,
       platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
       target = MIN(install_state & SHARD_LOG_INSTALL_ID_MASK, max_target);
       platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
-      if (acquire_pin) {
-         shard_log_handle_ref_acquire(log);
-      }
+      shard_log_handle_ref_acquire(log);
 
       *ticket_out = target;
       return STATUS_OK;
@@ -1844,9 +1841,7 @@ shard_log_make_durable_begin_through(log_handle         *logh,
    if (target > max_target) {
       // A competing cutter already installed the requested successor. Join
       // the original target even if its successor has accepted newer records.
-      if (acquire_pin) {
-         shard_log_handle_ref_acquire(log);
-      }
+      shard_log_handle_ref_acquire(log);
       shard_log_reservation_slot_clear(log, tid);
       *ticket_out = max_target;
       return STATUS_OK;
@@ -1855,9 +1850,7 @@ shard_log_make_durable_begin_through(log_handle         *logh,
    if (!shard_log_atomic_bool_load(&current->ever_used)) {
       platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
       target--;
-      if (acquire_pin) {
-         shard_log_handle_ref_acquire(log);
-      }
+      shard_log_handle_ref_acquire(log);
 
       shard_log_reservation_slot_clear(log, tid);
       *ticket_out = target;
@@ -1923,9 +1916,7 @@ shard_log_make_durable_begin_through(log_handle         *logh,
             candidate->id = target + 1;
             current->next = candidate;
 
-            if (acquire_pin) {
-               shard_log_handle_ref_acquire(log);
-            }
+            shard_log_handle_ref_acquire(log);
 
             /* Pointer first, ticket last: see shard_log_publish_reservation().
              */
@@ -1945,9 +1936,7 @@ shard_log_make_durable_begin_through(log_handle         *logh,
 
    /* Another installer or seal owns this target; never chase its successor. */
    platform_assert((install_state & SHARD_LOG_INSTALL_ID_MASK) >= target);
-   if (acquire_pin) {
-      shard_log_handle_ref_acquire(log);
-   }
+   shard_log_handle_ref_acquire(log);
 
    shard_log_put_unused_group(log, candidate);
    *ticket_out = target;
@@ -1957,8 +1946,20 @@ shard_log_make_durable_begin_through(log_handle         *logh,
 static platform_status
 shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
 {
-   return shard_log_make_durable_begin_through(
-      logh, ticket_out, UINT64_MAX, TRUE);
+   return shard_log_make_durable_begin_through(logh, ticket_out, UINT64_MAX);
+}
+
+/* A failed owner relinquishes only its own latest claim. A newer owner has
+ * already accepted responsibility for this prefix and must retain its claim. */
+static void
+shard_log_release_failed_automatic_claim(shard_log *log, uint64 target)
+{
+   __atomic_compare_exchange_n(&log->automatic_claimed,
+                               &target,
+                               0,
+                               FALSE,
+                               __ATOMIC_SEQ_CST,
+                               __ATOMIC_RELAXED);
 }
 
 static platform_status
@@ -1969,40 +1970,36 @@ shard_log_make_durable_if_needed_begin(log_handle         *logh,
    shard_log *log = (shard_log *)logh;
    *started       = FALSE;
    *ticket        = 0;
-   if (log->cfg->group_size_pages == UINT64_MAX
-       || __atomic_load_n(&log->automatic_active, __ATOMIC_SEQ_CST))
-   {
+   if (log->cfg->group_size_pages == UINT64_MAX) {
       return STATUS_OK;
    }
-   uint64 target = __atomic_load_n(&log->automatic_target, __ATOMIC_SEQ_CST);
-   if (target <= shard_log_durable_ticket_load(log)) {
+   uint64 target  = __atomic_load_n(&log->automatic_target, __ATOMIC_SEQ_CST);
+   uint64 claimed = __atomic_load_n(&log->automatic_claimed, __ATOMIC_SEQ_CST);
+   if (target <= claimed || target <= shard_log_durable_ticket_load(log)) {
       return STATUS_OK;
    }
-   bool32 inactive = FALSE;
-   if (!__atomic_compare_exchange_n(&log->automatic_active,
-                                    &inactive,
-                                    TRUE,
-                                    FALSE,
-                                    __ATOMIC_SEQ_CST,
-                                    __ATOMIC_SEQ_CST))
-   {
-      return STATUS_OK;
+   while (claimed < target) {
+      if (__atomic_compare_exchange_n(&log->automatic_claimed,
+                                      &claimed,
+                                      target,
+                                      FALSE,
+                                      __ATOMIC_SEQ_CST,
+                                      __ATOMIC_RELAXED))
+      {
+         // Exactly this target belongs to this driver. A successor crossing
+         // can acquire its own claim while our fixed-ticket wait is pending.
+         platform_status rc =
+            shard_log_make_durable_begin_through(logh, ticket, target);
+         if (SUCCESS(rc)) {
+            platform_assert(*ticket == target);
+            *started = TRUE;
+         } else {
+            shard_log_release_failed_automatic_claim(log, target);
+         }
+         return rc;
+      }
    }
-   // A prior cutter may already own this group. Join its ticket without
-   // cutting a partially filled successor merely because its I/O is pending.
-   if (target < __atomic_load_n(&log->accepting.id, __ATOMIC_ACQUIRE)) {
-      shard_log_handle_ref_acquire(log);
-      *ticket  = target;
-      *started = TRUE;
-      return STATUS_OK;
-   }
-   platform_status rc =
-      shard_log_make_durable_begin_through(logh, ticket, target, TRUE);
-   *started = SUCCESS(rc);
-   if (!SUCCESS(rc)) {
-      __atomic_store_n(&log->automatic_active, FALSE, __ATOMIC_SEQ_CST);
-   }
-   return rc;
+   return STATUS_OK;
 }
 
 static platform_status
@@ -2010,40 +2007,11 @@ shard_log_make_durable_if_needed_wait(log_handle        *logh,
                                       log_durable_ticket ticket)
 {
    shard_log      *log = (shard_log *)logh;
-   platform_status rc;
-   /* Keep the original ticket's handle pin for the complete drain, including
-    * after rotation retires the log. Peers may finish their inserts while this
-    * driver waits, so it must drain their threshold crossings even if no more
-    * insert calls follow. */
-   while (TRUE) {
-      rc = shard_log_wait_for_ticket_to_be_durable(log, ticket);
-      __atomic_store_n(&log->automatic_active, FALSE, __ATOMIC_SEQ_CST);
-      if (!SUCCESS(rc)) {
-         break;
-      }
-      /* SC ordering with target publication and writers' active checks closes
-       * the lost-wakeup window: a writer either sees inactive and takes over,
-       * or its target is visible to this post-release check. */
-      uint64 target = __atomic_load_n(&log->automatic_target, __ATOMIC_SEQ_CST);
-      if (target <= shard_log_durable_ticket_load(log)) {
-         break;
-      }
-      bool32 inactive = FALSE;
-      if (!__atomic_compare_exchange_n(&log->automatic_active,
-                                       &inactive,
-                                       TRUE,
-                                       FALSE,
-                                       __ATOMIC_SEQ_CST,
-                                       __ATOMIC_SEQ_CST))
-      {
-         break;
-      }
-      rc = shard_log_make_durable_begin_through(logh, &ticket, target, FALSE);
-      if (!SUCCESS(rc)) {
-         __atomic_store_n(&log->automatic_active, FALSE, __ATOMIC_SEQ_CST);
-         break;
-      }
-      // The original pin protects the cut even after the owner retires it.
+   platform_status rc  = shard_log_wait_for_ticket_to_be_durable(log, ticket);
+   if (!SUCCESS(rc)) {
+      // Keep the handle pin until failure bookkeeping is complete; the log
+      // owner may have retired while this wait was pending.
+      shard_log_release_failed_automatic_claim(log, ticket);
    }
    shard_log_handle_ref_release(log);
    return rc;
@@ -2136,14 +2104,6 @@ shard_log_seal(log_handle *logh)
 static void
 shard_log_destroy(shard_log *log)
 {
-   /* Automatic ticket holders can publish a late conservative reservation
-    * after the owner's seal has drained its groups. The pin keeps that
-    * publication safe across owner retirement; only the last pin's release
-    * establishes that no operation can still own a reservation. */
-   for (threadid tid = 0; tid < MAX_THREADS; tid++) {
-      platform_assert(shard_log_reservation_slot_load(log, tid) == 0,
-                      "log destruction with an unconsumed operation");
-   }
    mini_release(&log->mini);
 
    shard_log_group *group = log->groups_head;
@@ -2186,6 +2146,10 @@ shard_log_deinit(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
 
+   for (threadid tid = 0; tid < MAX_THREADS; tid++) {
+      platform_assert(shard_log_reservation_slot_load(log, tid) == 0,
+                      "log_deinit with an unconsumed operation");
+   }
    debug_assert(
       !__atomic_exchange_n(&log->owner_released, TRUE, __ATOMIC_ACQ_REL),
       "log owner reference consumed more than once");

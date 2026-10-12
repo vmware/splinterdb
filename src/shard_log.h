@@ -198,7 +198,8 @@ typedef struct shard_log {
    uint64 handle_refs;
    // Highest group to cross the automatic durability threshold.
    uint64 automatic_target;
-   bool32 automatic_active;
+   // Highest threshold with a responsible driver (reset on its failure).
+   uint64 automatic_claimed;
    /* Atomic diagnostic: the owner has consumed its handle reference. */
 #if SPLINTER_DEBUG
    bool32 owner_released;

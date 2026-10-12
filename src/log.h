@@ -238,7 +238,7 @@ log_write_finish(log_write_token *token,
 
 /* Complete automatic durability outside the caller's update locks. A true
  * started result owns a ticket, consumed by log_make_durable_if_needed_wait().
- * One caller drives pending automatic cuts while concurrent writers proceed.
+ * Each caller owns one fixed target; later crossings get their own drivers.
  * Call after finish while the log handle is still externally protected
  * against deinit. */
 static inline platform_status

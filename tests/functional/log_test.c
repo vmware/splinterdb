@@ -2696,126 +2696,197 @@ test_log_automatic_cut_does_not_chase(cache            *cc,
    log_durable_ticket first;
    platform_assert_status_ok(log_make_durable_begin(logh, &first));
    platform_assert(first == 1);
-   // A peer crosses the successor's threshold and returns even while the
-   // first automatic driver is paused. No later write will trigger a retry.
+   // A peer owns and completes the successor threshold while the first
+   // automatic driver is paused. No later write is needed to drain it.
    platform_assert(log_write(logh, k, msg, 0, 1) == 0);
    __atomic_store_n(&racer.release, TRUE, __ATOMIC_RELEASE);
    platform_thread_join(&racer.thread);
    platform_assert_status_ok(racer.status);
    platform_assert(racer.started && racer.ticket == 1);
-   platform_assert(log->accepting.id == 2);
+   platform_assert(log->accepting.id == 3);
    log->test_hook     = NULL;
    log->test_hook_arg = NULL;
-   // Both tickets pin the handle after retirement. Automatic completion must
-   // still cut and drain the pending successor without reacquiring an owner.
+   // Both old tickets pin the handle after retirement. Their bounded waits
+   // consume the pins without cutting another successor.
    log_deinit(logh);
    platform_assert_status_ok(
       log_make_durable_if_needed_wait(logh, racer.ticket));
    platform_assert(log->durable_ticket >= 2);
-   platform_assert(!log->automatic_active);
    platform_assert_status_ok(log_make_durable_wait(logh, first));
    shard_log_dec_ref(cc, &head);
    cfg->group_size_pages = saved;
 }
 
-/* A ticket-owning automatic driver may publish a conservative reservation
- * after a sealer's authoritative drain scan. That reservation is harmless:
- * the accepting pointer is now NULL, and the driver still pins the handle. */
 typedef struct {
    log_handle        *log;
    log_durable_ticket ticket;
    platform_thread    thread;
-   threadid           tid;
-   bool32             id_loaded;
-   bool32             publish_lower;
-   bool32             lower_published;
-   bool32             finish;
+   volatile bool32    ready;
+   volatile bool32    done;
+   const bool32      *start;
    platform_status    status;
-} test_log_automatic_retire_racer;
+} test_log_automatic_waiter;
 
 static void
-test_log_automatic_retire_hook(void                     *arg,
-                               shard_log_test_hook_event event,
-                               uint64                    group_id)
+test_log_automatic_waiter_run(void *arg)
 {
-   test_log_automatic_retire_racer *racer = arg;
-   if (group_id != 2
-       || platform_get_tid() != __atomic_load_n(&racer->tid, __ATOMIC_ACQUIRE))
+   test_log_automatic_waiter *waiter = arg;
+   __atomic_store_n(&waiter->ready, TRUE, __ATOMIC_RELEASE);
+   while (waiter->start != NULL
+          && !__atomic_load_n(waiter->start, __ATOMIC_ACQUIRE))
    {
-      return;
+      platform_sleep_ns(USEC_TO_NSEC(50));
    }
-   if (event == SHARD_LOG_TEST_RESERVATION_ID_LOADED) {
-      __atomic_store_n(&racer->id_loaded, TRUE, __ATOMIC_RELEASE);
-      while (!__atomic_load_n(&racer->publish_lower, __ATOMIC_ACQUIRE)) {
-         platform_sleep_ns(1000);
-      }
-   } else if (event == SHARD_LOG_TEST_RESERVATION_LOWER_PUBLISHED) {
-      __atomic_store_n(&racer->lower_published, TRUE, __ATOMIC_RELEASE);
-      while (!__atomic_load_n(&racer->finish, __ATOMIC_ACQUIRE)) {
-         platform_sleep_ns(1000);
-      }
-   }
+   waiter->status =
+      log_make_durable_if_needed_wait(waiter->log, waiter->ticket);
+   __atomic_store_n(&waiter->done, TRUE, __ATOMIC_RELEASE);
 }
 
 static void
-test_log_automatic_retire_run(void *arg)
+test_log_stage_automatic_record(log_handle *log, uint64 generation)
 {
-   test_log_automatic_retire_racer *racer = arg;
-   __atomic_store_n(&racer->tid, platform_get_tid(), __ATOMIC_RELEASE);
-   racer->status = log_make_durable_if_needed_wait(racer->log, racer->ticket);
-}
-
-static void
-test_log_automatic_retire_with_late_reservation(cache            *cc,
-                                                shard_log_config *cfg,
-                                                platform_heap_id  hid)
-{
-   uint64 saved          = cfg->group_size_pages;
-   cfg->group_size_pages = 1;
-   log_handle *logh;
-   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &logh));
-   log_head   head = log_get_head(logh);
-   shard_log *log  = (shard_log *)logh;
-   key        k    = key_create(FALSE, 1, "k");
-   message    msg =
+   key     k = key_create(FALSE, 1, "k");
+   message msg =
       message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
    log_write_prepared prepared;
    log_write_token    token;
-   platform_assert_status_ok(log_write_prepare(logh, k, msg, FALSE, &prepared));
+   platform_assert_status_ok(log_write_prepare(log, k, msg, FALSE, &prepared));
    platform_assert_status_ok(log_write_reserve(&prepared, &token));
-   log_write_finish(&token, 0, 0);
+   log_write_finish(&token, 0, generation);
+}
 
-   test_log_automatic_retire_racer racer = {.log = logh, .tid = INVALID_TID};
-   bool32                          started;
+typedef struct {
+   log_handle     *log;
+   platform_thread thread;
+   volatile bool32 reserved;
+   volatile bool32 release;
+} test_log_automatic_blocker;
+
+static void
+test_log_automatic_blocker_run(void *arg)
+{
+   test_log_automatic_blocker *blocker = arg;
+   key                         k       = key_create(FALSE, 1, "b");
+   message                     msg =
+      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
+   log_write_prepared prepared;
+   log_write_token    token;
    platform_assert_status_ok(
-      log_make_durable_if_needed_begin(logh, &racer.ticket, &started));
-   platform_assert(started && racer.ticket == 1);
-   // A peer leaves the successor's threshold for this automatic driver.
-   platform_assert(log_write(logh, k, msg, 0, 1) == 0);
-   log->test_hook     = test_log_automatic_retire_hook;
-   log->test_hook_arg = &racer;
+      log_write_prepare(blocker->log, k, msg, FALSE, &prepared));
+   platform_assert_status_ok(log_write_reserve(&prepared, &token));
+   __atomic_store_n(&blocker->reserved, TRUE, __ATOMIC_RELEASE);
+   while (!__atomic_load_n(&blocker->release, __ATOMIC_ACQUIRE)) {
+      platform_sleep_ns(USEC_TO_NSEC(50));
+   }
+   log_write_finish(&token, 0, 2);
+}
+
+/* Finishing group 1 must not wait for a peer's still-reserved group 2.
+ * A driver that repeatedly drains newly crossed thresholds blocks here until
+ * the reservation is released, even though its original ticket is durable. */
+static void
+test_log_automatic_wait_is_bounded(cache            *cc,
+                                   shard_log_config *cfg,
+                                   platform_heap_id  hid)
+{
+   uint64 saved          = cfg->group_size_pages;
+   cfg->group_size_pages = 1;
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &log));
+   log_head head = log_get_head(log);
+   test_log_stage_automatic_record(log, 0);
+   test_log_automatic_waiter first = {.log = log};
+   bool32                    first_started;
+   platform_assert_status_ok(
+      log_make_durable_if_needed_begin(log, &first.ticket, &first_started));
+   platform_assert(first_started && first.ticket == 1);
+
+   test_log_automatic_blocker blocker = {.log = log};
    platform_assert_status_ok(platform_thread_create(
-      &racer.thread, FALSE, test_log_automatic_retire_run, &racer, hid));
-   platform_assert(test_log_wait_for_flag(&racer.id_loaded));
+      &blocker.thread, FALSE, test_log_automatic_blocker_run, &blocker, hid));
+   platform_assert(test_log_wait_for_flag(&blocker.reserved));
+   test_log_stage_automatic_record(log, 1);
+   log_durable_ticket second;
+   bool32             second_started;
+   platform_assert_status_ok(
+      log_make_durable_if_needed_begin(log, &second, &second_started));
 
-   // Seal and graduate group 2 before the driver publishes its lower bound.
-   platform_assert_status_ok(log_seal(logh));
-   platform_assert(log->durable_ticket >= 2);
-   __atomic_store_n(&racer.publish_lower, TRUE, __ATOMIC_RELEASE);
-   platform_assert(test_log_wait_for_flag(&racer.lower_published));
-
-   // The late reservation is live, but the driver's original ticket pins it.
-   // Checking all reservation slots here used to abort. Final destruction,
-   // after the driver clears its slot and drops the final pin, may check them.
-   log_deinit(logh);
-   log->test_hook     = NULL;
-   log->test_hook_arg = NULL;
-   __atomic_store_n(&racer.finish, TRUE, __ATOMIC_RELEASE);
-   platform_thread_join(&racer.thread);
-   platform_assert_status_ok(racer.status);
+   platform_assert_status_ok(platform_thread_create(
+      &first.thread, FALSE, test_log_automatic_waiter_run, &first, hid));
+   bool32 bounded = test_log_wait_for_flag(&first.done);
+   // Release the blocked reservation even on failure so the old implementation
+   // terminates and reports the progress regression instead of hanging the
+   // test.
+   __atomic_store_n(&blocker.release, TRUE, __ATOMIC_RELEASE);
+   platform_assert_status_ok(platform_thread_join(&blocker.thread));
+   platform_assert_status_ok(platform_thread_join(&first.thread));
+   platform_assert_status_ok(first.status);
+   if (second_started) {
+      platform_assert_status_ok(log_make_durable_if_needed_wait(log, second));
+   }
+   platform_assert_status_ok(log_seal(log));
+   log_deinit(log);
    shard_log_dec_ref(cc, &head);
    cfg->group_size_pages = saved;
+   platform_assert(bounded,
+                   "automatic waiter chased a peer's blocked successor");
+   platform_assert(second_started && second == 2,
+                   "successor threshold did not acquire its own bounded owner");
 }
+
+/* Distinct automatic targets hold independent pins, and the last completing
+ * owner must reclaim a retired handle after its external head is released. */
+static void
+test_log_automatic_owners_survive_retirement(cache            *cc,
+                                             shard_log_config *cfg,
+                                             platform_heap_id  hid)
+{
+   uint64 saved          = cfg->group_size_pages;
+   cfg->group_size_pages = 1;
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create(cc, cfg, hid, &log));
+   log_head   head         = log_get_head(log);
+   allocator *al           = cache_get_allocator(cc);
+   refcount   initial_refs = allocator_get_refcount(al, head.meta_addr);
+   bool32     start        = FALSE;
+   test_log_automatic_waiter waiters[2] = {0};
+   for (uint64 i = 0; i < ARRAY_SIZE(waiters); i++) {
+      test_log_stage_automatic_record(log, i);
+      waiters[i].log   = log;
+      waiters[i].start = &start;
+      bool32 started;
+      platform_assert_status_ok(
+         log_make_durable_if_needed_begin(log, &waiters[i].ticket, &started));
+      platform_assert(started && waiters[i].ticket == i + 1);
+      platform_assert_status_ok(
+         platform_thread_create(&waiters[i].thread,
+                                FALSE,
+                                test_log_automatic_waiter_run,
+                                &waiters[i],
+                                hid));
+      platform_assert(test_log_wait_for_flag(&waiters[i].ready));
+   }
+   log_durable_ticket duplicate;
+   bool32             duplicate_started;
+   platform_assert_status_ok(
+      log_make_durable_if_needed_begin(log, &duplicate, &duplicate_started));
+   platform_assert(!duplicate_started,
+                   "one threshold acquired duplicate automatic drivers");
+   log_deinit(log);
+   shard_log_dec_ref(cc, &head);
+   platform_assert(allocator_get_refcount(al, head.meta_addr)
+                      == initial_refs - 1,
+                   "automatic tickets did not preserve the retired handle");
+   __atomic_store_n(&start, TRUE, __ATOMIC_RELEASE);
+   for (uint64 i = 0; i < ARRAY_SIZE(waiters); i++) {
+      platform_assert_status_ok(platform_thread_join(&waiters[i].thread));
+      platform_assert_status_ok(waiters[i].status);
+   }
+   platform_assert(allocator_get_refcount(al, head.meta_addr) == AL_FREE,
+                   "last automatic owner did not reclaim the retired log");
+   cfg->group_size_pages = saved;
+}
+
 #endif
 
 static void
@@ -2932,8 +3003,9 @@ log_test(int argc, char *argv[])
 
    test_log_automatic_durability((cache *)cc, &system_cfg.log_cfg, hid);
 #if SPLINTER_DEBUG
+   test_log_automatic_wait_is_bounded((cache *)cc, &system_cfg.log_cfg, hid);
    test_log_automatic_cut_does_not_chase((cache *)cc, &system_cfg.log_cfg, hid);
-   test_log_automatic_retire_with_late_reservation(
+   test_log_automatic_owners_survive_retirement(
       (cache *)cc, &system_cfg.log_cfg, hid);
 #endif
    system_cfg.log_cfg.group_size_pages = 1;
