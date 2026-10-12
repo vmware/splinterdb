@@ -5,6 +5,8 @@
 #include "platform_sleep.h"
 #include "poison.h"
 
+/* This rounding rule is part of BLOB_FORMAT: the decoder uses it to infer
+ * address-entry lengths. Changing it requires a new blob format reader. */
 #define MIN_LIVE_PERCENTAGE (90ULL)
 
 static platform_status

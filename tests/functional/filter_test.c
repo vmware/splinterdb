@@ -30,6 +30,7 @@ typedef struct ONDISK test_mini_meta_hdr {
    uint64 meta_page_no;
    uint64 pos;
    uint32 num_entries;
+   uint16 format_version;
    char   entry_buffer[];
 } test_mini_meta_hdr;
 
@@ -222,6 +223,18 @@ test_filter_malicious_metadata(cache           *cc,
       goto out;
    }
 
+   invalid_filter                = filter;
+   invalid_filter.format_version = ROUTING_FILTER_FORMAT_VERSION + 1;
+   if (!test_filter_lookup_rejects(cc, cfg, &invalid_filter, target)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   invalid_filter                = filter;
+   invalid_filter.log_index_size = 32;
+   if (!test_filter_lookup_rejects(cc, cfg, &invalid_filter, target)) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
    invalid_filter                  = filter;
    invalid_filter.fingerprint_size = 0;
    if (!test_filter_lookup_rejects(cc, cfg, &invalid_filter, target)) {
@@ -325,6 +338,21 @@ test_filter_malicious_metadata(cache           *cc,
       rc = STATUS_TEST_FAILED;
       goto out;
    }
+   meta_hdr->format_version = MINI_ALLOCATOR_FORMAT_VERSION + 1;
+   test_filter_unclaim_page(cc, meta_page);
+   mini_meta_cursor version_cursor;
+   if (mini_meta_cursor_init(
+          &version_cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, filter.addr)
+       != MINI_META_CURSOR_INVALID)
+   {
+      mini_meta_cursor_deinit(&version_cursor);
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   mini_meta_cursor_deinit(&version_cursor);
+   meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr  = (test_mini_meta_hdr *)meta_page->data;
+   meta_hdr->format_version    = MINI_ALLOCATOR_FORMAT_VERSION;
    test_mini_meta_entry *entry = (test_mini_meta_entry *)meta_hdr->entry_buffer;
    uint64 target_extent        = (entry->packed >> 16) * cache_extent_size(cc);
    if (meta_hdr->meta_page_no != 0) {
@@ -386,6 +414,7 @@ test_filter_malicious_metadata(cache           *cc,
    memset(second_meta_page->data, 0, page_size);
    test_mini_meta_hdr *second_meta_hdr =
       (test_mini_meta_hdr *)second_meta_page->data;
+   second_meta_hdr->format_version = MINI_ALLOCATOR_FORMAT_VERSION;
    second_meta_hdr->prev_meta_addr = filter.meta_head;
    second_meta_hdr->meta_page_no   = 1;
    second_meta_hdr->num_entries    = 1;
@@ -610,6 +639,9 @@ test_filter_mixed_fingerprint_sizes(cache           *cc,
 
    routing_config narrow_cfg = *cfg;
    narrow_cfg.fingerprint_size--;
+   narrow_cfg.log_index_size--;
+   narrow_cfg.index_size >>= 1;
+   narrow_cfg.seed ^= 0x12345678;
 
    routing_filter  null_filter     = NULL_ROUTING_FILTER;
    routing_filter  narrow_filter   = NULL_ROUTING_FILTER;
@@ -623,7 +655,7 @@ test_filter_mixed_fingerprint_sizes(cache           *cc,
 
    uint64 key_data = 1;
    key    target   = key_create(TRUE, sizeof(key_data), &key_data);
-   uint32 fp       = data_key_hash(cfg->data_cfg, target, cfg->seed);
+   uint32 fp       = data_key_hash(cfg->data_cfg, target, narrow_cfg.seed);
    rc              = routing_filter_add(
       cc, &narrow_cfg, &null_filter, &narrow_filter, &fp, 1, 0);
    if (!SUCCESS(rc)) {
@@ -660,7 +692,7 @@ test_filter_mixed_fingerprint_sizes(cache           *cc,
 
    key_data = 2;
    target   = key_create(TRUE, sizeof(key_data), &key_data);
-   fp       = data_key_hash(cfg->data_cfg, target, cfg->seed);
+   fp       = data_key_hash(cfg->data_cfg, target, narrow_cfg.seed);
    stage    = "extend narrow filter";
    rc =
       routing_filter_add(cc, cfg, &narrow_filter, &extended_filter, &fp, 1, 1);
@@ -681,6 +713,7 @@ test_filter_mixed_fingerprint_sizes(cache           *cc,
    /* The cross-filter estimator samples one sixteenth of each filter. Build
     * two filters containing the same evenly distributed hashes at different
     * widths; after normalization they must still count as one set. */
+   narrow_cfg.seed             = cfg->seed;
    uint32 log_num_fingerprints = cfg->log_index_size + 4;
    uint32 num_fingerprints     = 1U << log_num_fingerprints;
    uint32 stride_shift         = 32 - log_num_fingerprints;

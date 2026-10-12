@@ -37,6 +37,7 @@ typedef struct ONDISK mini_meta_hdr {
    uint64 meta_page_no;
    uint64 pos;
    uint32 num_entries;
+   uint16 format_version;
    char   entry_buffer[];
 } mini_meta_hdr;
 
@@ -179,6 +180,7 @@ mini_init_meta_page(mini_allocator *mini,
    hdr->meta_page_no   = meta_page_no;
    hdr->pos            = offsetof(typeof(*hdr), entry_buffer);
    hdr->num_entries    = 0;
+   hdr->format_version = MINI_ALLOCATOR_FORMAT_VERSION;
 }
 
 /*
@@ -1129,6 +1131,9 @@ mini_validate_meta_header(const mini_meta_hdr *hdr,
                           bool32               check_page_no,
                           uint64               meta_addr)
 {
+   if (hdr->format_version != MINI_ALLOCATOR_FORMAT_VERSION) {
+      return mini_metadata_corruption("unsupported format version", meta_addr);
+   }
    uint64 first_entry_offset = offsetof(mini_meta_hdr, entry_buffer);
    uint64 max_entries = (page_size - first_entry_offset) / sizeof(meta_entry);
    if (check_prev && hdr->prev_meta_addr != expected_prev) {

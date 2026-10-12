@@ -155,6 +155,7 @@ struct trunk_pivot_state {
    key_buffer                key;
    key_buffer                ubkey;
    uint64                    height;
+   uint32                    hash_seed; // immutable seed of this pivot maplet
 
    uint64 refcount;
 
@@ -215,7 +216,9 @@ struct pending_gc {
 static branch_ref
 create_branch_ref(uint64 addr)
 {
-   return (branch_ref){.addr = addr};
+   return (branch_ref){.addr = addr,
+                       .format_version =
+                          addr == 0 ? 0 : BTREE_BRANCH_FORMAT_VERSION};
 }
 
 static uint64
@@ -1524,6 +1527,13 @@ trunk_ondisk_bundle_readable(trunk_ondisk_bundle *bundle,
              > bytes_available - sizeof(*bundle))
    {
       return FALSE;
+   }
+   for (uint64 i = 0; i < bundle->num_branches; i++) {
+      if (bundle->branches[i].addr == 0
+          || bundle->branches[i].format_version != BTREE_BRANCH_FORMAT_VERSION)
+      {
+         return FALSE;
+      }
    }
    if (!routing_filter_descriptor_is_valid(&bundle->maplet)) {
       return FALSE;
@@ -3875,6 +3885,9 @@ trunk_pivot_state_init_protected(trunk_pivot_state *state,
    trunk_pivot_state_lock(state);
    state->protected.maplet_compaction_rc = STATUS_OK;
    state->protected.maplet               = pivot_bundle->maplet;
+   state->hash_seed                      = pivot_bundle->maplet.addr == 0
+                                              ? context->cfg->filter_cfg->seed
+                                              : pivot_bundle->maplet.hash_seed;
    routing_filter_inc_ref(context->cc, &state->protected.maplet);
    state->protected.num_branches = bundle_num_branches(pivot_bundle);
    trunk_pivot_state_unlock(state);
@@ -4813,7 +4826,7 @@ bundle_compaction_task(task *arg)
                             context->cfg->btree_cfg,
                             &merger.merge_itor->super,
                             bc->input.stats.num_tuples,
-                            context->cfg->filter_cfg->seed,
+                            state->hash_seed,
                             TRUE,
                             context->hid);
    if (!SUCCESS(rc)) {
@@ -5357,6 +5370,27 @@ cleanup:
    return rc;
 }
 
+/* An existing pivot maplet keeps its encoding while branches are appended.
+ * Respect that instance's capacity when new creation defaults are larger. */
+static uint64
+trunk_node_filter_limit(const trunk_context *context, const trunk_node *node)
+{
+   cache_config *cache_cfg = cache_get_config(context->cc);
+   uint64        limit =
+      routing_filter_max_fingerprints(cache_cfg, context->cfg->filter_cfg);
+   for (uint64 i = 0; i < vector_length(&node->pivot_bundles); i++) {
+      const routing_filter *filter =
+         &vector_get_ptr(&node->pivot_bundles, i)->maplet;
+      if (filter->addr != 0) {
+         routing_config cfg   = *context->cfg->filter_cfg;
+         cfg.fingerprint_size = filter->fingerprint_size;
+         cfg.log_index_size   = filter->log_index_size;
+         limit = MIN(limit, routing_filter_max_fingerprints(cache_cfg, &cfg));
+      }
+   }
+   return limit;
+}
+
 static platform_status
 leaf_split_target_num_leaves(trunk_context *context,
                              trunk_node    *leaf,
@@ -5364,8 +5398,7 @@ leaf_split_target_num_leaves(trunk_context *context,
 {
    debug_assert(trunk_node_is_well_formed_leaf(context->cfg->data_cfg, leaf));
 
-   uint64 rflimit = routing_filter_max_fingerprints(
-      cache_get_config(context->cc), context->cfg->filter_cfg);
+   uint64 rflimit = trunk_node_filter_limit(context, leaf);
 
    if (!leaf_might_need_to_split(context->cfg, rflimit, leaf)) {
       *target = 1;
@@ -5478,8 +5511,7 @@ leaf_split_select_pivots(trunk_context     *context,
       goto cleanup;
    }
 
-   uint64 rflimit = routing_filter_max_fingerprints(
-      cache_get_config(context->cc), context->cfg->filter_cfg);
+   uint64 rflimit             = trunk_node_filter_limit(context, leaf);
    uint64 leaf_num            = 1;
    uint64 cumulative_kv_bytes = 0;
    uint64 current_tuples      = 0;
@@ -6255,8 +6287,7 @@ restore_balance_index(trunk_context                *context,
 {
    platform_status rc;
    threadid        tid     = platform_get_tid();
-   uint64          rflimit = routing_filter_max_fingerprints(
-      cache_get_config(context->cc), context->cfg->filter_cfg);
+   uint64          rflimit = trunk_node_filter_limit(context, index);
 
    policy = trunk_flush_policy_or_default(policy);
 

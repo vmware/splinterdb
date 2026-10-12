@@ -52,7 +52,8 @@ superblock_log_head_is_valid(superblock_log_head log, disk_geometry geometry)
 {
    if (SUPERBLOCK_NO_LOG(log)) {
       return log.head.addr == 0 && log.head.nonce.high == 0
-             && log.head.nonce.low == 0 && log.start_generation == 0;
+             && log.head.nonce.low == 0 && log.start_generation == 0
+             && log.head.format_version == 0 && log.head.checksum_seed == 0;
    }
 
    return superblock_extent_addr_is_valid(log.head.addr, geometry)
@@ -95,7 +96,6 @@ superblock_has_valid_bootstrap(const superblock *sb)
 {
    disk_geometry geometry = sb->geometry;
    return sb->format_magic == SUPERBLOCK_FORMAT_MAGIC
-          && sb->format_version == SUPERBLOCK_FORMAT_VERSION
           && geometry.page_size == IO_DEFAULT_PAGE_SIZE
           && geometry.extent_size == IO_DEFAULT_EXTENT_SIZE
           && geometry.disk_size >= SUPERBLOCK_NUM_SLOTS * geometry.page_size
@@ -111,7 +111,52 @@ superblock_is_valid(const superblock *sb, const allocator_config *cfg)
    disk_geometry geometry = sb->geometry;
    return superblock_has_valid_bootstrap(sb)
           && superblock_geometry_matches(geometry, cfg)
-          && superblock_metadata_is_valid(sb);
+          && (sb->format_version != SUPERBLOCK_FORMAT_VERSION
+              || superblock_metadata_is_valid(sb));
+}
+
+static platform_status
+superblock_unsupported_version(uint64 version);
+
+/* Check supported readers only after choosing the newest valid record. An
+ * unknown component version must never roll the database back to an older
+ * checkpoint whose versions happen to be understood. */
+static platform_status
+superblock_check_versions(const superblock *sb)
+{
+   /* An unknown version with a checksum valid under this layout is a
+    * recognizable record, not a torn write. Reject it after generation
+    * selection instead of silently returning an older checkpoint. */
+   if (sb->format_version != SUPERBLOCK_FORMAT_VERSION) {
+      return superblock_unsupported_version(sb->format_version);
+   }
+   if (sb->trunk_format_version != TRUNK_FORMAT_VERSION
+       || sb->allocator_format_version != RC_ALLOCATOR_FORMAT_VERSION
+       || (!SUPERBLOCK_NO_LOG(sb->tree.live_log)
+           && sb->tree.live_log.head.format_version != SHARD_LOG_FORMAT_VERSION)
+       || (!SUPERBLOCK_NO_LOG(sb->tree.sealed_log)
+           && sb->tree.sealed_log.head.format_version
+                 != SHARD_LOG_FORMAT_VERSION))
+   {
+      platform_error_log("Unsupported on-disk structure version: "
+                         "trunk=%u allocator=%u live-log=%u sealed-log=%u\n",
+                         sb->trunk_format_version,
+                         sb->allocator_format_version,
+                         sb->tree.live_log.head.format_version,
+                         sb->tree.sealed_log.head.format_version);
+      return STATUS_INVALID_STATE;
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+superblock_unsupported_version(uint64 version)
+{
+   platform_error_log("Unsupported superblock format version %lu; "
+                      "this build requires version %u.\n",
+                      version,
+                      SUPERBLOCK_FORMAT_VERSION);
+   return STATUS_INVALID_STATE;
 }
 
 /*
@@ -134,14 +179,22 @@ superblock_read_bootstrap(const char *filename, superblock *image)
       return STATUS_BAD_PARAM;
    }
 
-   bool32     have_valid = FALSE;
-   superblock newest     = {0};
+   bool32     have_valid          = FALSE;
+   superblock newest              = {0};
+   bool32     have_unsupported    = FALSE;
+   uint64     unsupported_version = 0;
    for (uint64 slot = 0; slot < SUPERBLOCK_NUM_SLOTS; slot++) {
       superblock      candidate;
       platform_status rc = io_read_bootstrap(
          filename, &candidate, sizeof(candidate), slot * IO_DEFAULT_PAGE_SIZE);
       if (!SUCCESS(rc)) {
          continue;
+      }
+      if (candidate.format_magic == SUPERBLOCK_FORMAT_MAGIC
+          && candidate.format_version != SUPERBLOCK_FORMAT_VERSION)
+      {
+         have_unsupported    = TRUE;
+         unsupported_version = candidate.format_version;
       }
       if (superblock_has_valid_bootstrap(&candidate)
           && (!have_valid
@@ -153,12 +206,18 @@ superblock_read_bootstrap(const char *filename, superblock *image)
       }
    }
    if (!have_valid) {
+      if (have_unsupported) {
+         return superblock_unsupported_version(unsupported_version);
+      }
       platform_error_log(
          "superblock_read_bootstrap: no valid superblock found\n");
       return STATUS_NOT_FOUND;
    }
-   *image = newest;
-   return STATUS_OK;
+   platform_status rc = superblock_check_versions(&newest);
+   if (SUCCESS(rc)) {
+      *image = newest;
+   }
+   return rc;
 }
 
 platform_status
@@ -220,8 +279,10 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
    }
    superblock *slot = platform_buffer_getaddr(&slot_buffer);
 
-   bool32          have_valid       = FALSE;
-   platform_status first_read_error = STATUS_OK;
+   bool32          have_valid          = FALSE;
+   platform_status first_read_error    = STATUS_OK;
+   bool32          have_unsupported    = FALSE;
+   uint64          unsupported_version = 0;
    for (uint64 s = 0; s < SUPERBLOCK_NUM_SLOTS; s++) {
       rc = io_read(ctx->io, slot, ctx->page_size, superblock_slot_addr(ctx, s));
       if (!SUCCESS(rc)) {
@@ -229,6 +290,12 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
             first_read_error = rc;
          }
          continue;
+      }
+      if (slot->format_magic == SUPERBLOCK_FORMAT_MAGIC
+          && slot->format_version != SUPERBLOCK_FORMAT_VERSION)
+      {
+         have_unsupported    = TRUE;
+         unsupported_version = slot->format_version;
       }
       if (!superblock_is_valid(slot, cfg)) {
          continue;
@@ -244,7 +311,9 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
    }
 
    if (!have_valid) {
-      if (!SUCCESS(first_read_error)) {
+      if (have_unsupported) {
+         rc = superblock_unsupported_version(unsupported_version);
+      } else if (!SUCCESS(first_read_error)) {
          platform_error_log("superblock_mount: no readable valid superblock "
                             "found: %s\n",
                             platform_status_to_string(first_read_error));
@@ -255,7 +324,7 @@ superblock_mount(superblock_context *ctx, const allocator_config *cfg)
       }
       goto out;
    }
-   rc = STATUS_OK;
+   rc = superblock_check_versions(ctx->image);
 
 out:
 {
@@ -305,13 +374,15 @@ superblock_format(superblock_context *ctx, const allocator_config *cfg)
    platform_assert(ctx->image != NULL);
 
    memset(ctx->image, 0, ctx->page_size);
-   ctx->image->geometry.disk_size    = cfg->capacity;
-   ctx->image->geometry.page_size    = cfg->io_cfg->page_size;
-   ctx->image->geometry.extent_size  = cfg->io_cfg->extent_size;
-   ctx->image->format_magic          = SUPERBLOCK_FORMAT_MAGIC;
-   ctx->image->format_version        = SUPERBLOCK_FORMAT_VERSION;
-   ctx->image->generation            = 0;
-   ctx->image->allocation_state_addr = 0; // fresh DB: rebuild on crash
+   ctx->image->geometry.disk_size       = cfg->capacity;
+   ctx->image->geometry.page_size       = cfg->io_cfg->page_size;
+   ctx->image->geometry.extent_size     = cfg->io_cfg->extent_size;
+   ctx->image->format_magic             = SUPERBLOCK_FORMAT_MAGIC;
+   ctx->image->format_version           = SUPERBLOCK_FORMAT_VERSION;
+   ctx->image->trunk_format_version     = TRUNK_FORMAT_VERSION;
+   ctx->image->allocator_format_version = RC_ALLOCATOR_FORMAT_VERSION;
+   ctx->image->generation               = 0;
+   ctx->image->allocation_state_addr    = 0; // fresh DB: rebuild on crash
    // A fresh, empty tree: no root, and nothing incorporated yet -- replay from
    // generation 0.
    ctx->image->tree.first_unincorporated_generation = 0;

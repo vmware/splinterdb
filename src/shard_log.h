@@ -238,6 +238,7 @@ typedef struct shard_log_iterator {
    platform_heap_id  heap_id;
    cache            *cc;
    shard_log_config *cfg;
+   shard_log_config  read_cfg; // derived from the persisted log head
    char             *contents;
    log_entry       **entries;
    uint64            num_entries;

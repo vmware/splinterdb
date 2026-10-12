@@ -26,7 +26,8 @@
  * extents. This batch-size is somewhat of an artificial limit to manage this
  * contiguity.
  */
-#define MINI_MAX_BATCHES 16
+#define MINI_MAX_BATCHES              16
+#define MINI_ALLOCATOR_FORMAT_VERSION (1)
 
 /*
  * mini_allocator: Mini-allocator context.

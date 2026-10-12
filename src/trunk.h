@@ -124,6 +124,7 @@ typedef struct trunk_ondisk_node_ref {
 
 typedef struct ONDISK branch_ref {
    uint64 addr;
+   uint16 format_version;
 } branch_ref;
 
 typedef VECTOR(branch_ref) branch_ref_vector;

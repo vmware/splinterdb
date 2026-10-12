@@ -22,8 +22,9 @@ typedef uint64 allocator_root_id;
 /*
  * ----------------------------------------------------------------------------
  * Different types of pages managed by SplinterDB:
- * This is currently not a Disk-resident value, but different modules that
- * access a type of a page "know" to expect a page of a specific type / format.
+ * These numeric values are persisted in mini-allocator extent entries. Changing
+ * their meaning requires a mini-allocator format version change. Modules that
+ * access a page also know which structure format to expect.
  *
  * Brief overview of the data structures involved in different page types:
  *

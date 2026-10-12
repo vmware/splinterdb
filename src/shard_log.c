@@ -2053,9 +2053,11 @@ shard_log_get_head(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
    return (log_head){
-      .addr      = log->addr,
-      .meta_addr = log->meta_head,
-      .nonce     = log->nonce,
+      .addr           = log->addr,
+      .meta_addr      = log->meta_head,
+      .nonce          = log->nonce,
+      .checksum_seed  = log->cfg->seed,
+      .format_version = SHARD_LOG_FORMAT_VERSION,
    };
 }
 
@@ -2187,6 +2189,12 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
    if (head.addr == 0) {
       return STATUS_OK; // no such log
    }
+   if (head.format_version != SHARD_LOG_FORMAT_VERSION) {
+      return STATUS_INVALID_STATE;
+   }
+   shard_log_config read_cfg = *cfg;
+   read_cfg.seed             = head.checksum_seed;
+   cfg                       = &read_cfg;
 
    /*
     * The metadata head sits in an extent of its own, allocated before the mini
@@ -2663,7 +2671,7 @@ shard_log_iterator_init(cache              *cc,
                         shard_log_config   *cfg,
                         platform_heap_id    hid,
                         uint64              addr,
-                        log_nonce           nonce,
+                        log_head            head,
                         uint64              first_needed_generation,
                         shard_log_iterator *itor)
 {
@@ -2683,7 +2691,11 @@ shard_log_iterator_init(cache              *cc,
    itor->super.ops       = &shard_log_log_iterator_ops; // log_iterator
    itor->heap_id         = hid;
    itor->cc              = cc;
+   itor->read_cfg        = *cfg;
+   itor->read_cfg.seed   = head.checksum_seed;
+   cfg                   = &itor->read_cfg;
    itor->cfg             = cfg;
+   log_nonce  nonce      = head.nonce;
    allocator *al         = cache_get_allocator(cc);
 
    /*
@@ -3004,6 +3016,9 @@ shard_log_iterator_create(cache            *cc,
       return STATUS_BAD_PARAM;
    }
    *itor_out = NULL;
+   if (head.format_version != SHARD_LOG_FORMAT_VERSION) {
+      return STATUS_INVALID_STATE;
+   }
 
    shard_log_iterator *itor = TYPED_MALLOC(hid, itor);
    if (itor == NULL) {
@@ -3012,7 +3027,7 @@ shard_log_iterator_create(cache            *cc,
       return STATUS_NO_MEMORY;
    }
    platform_status rc = shard_log_iterator_init(
-      cc, cfg, hid, head.addr, head.nonce, first_needed_generation, itor);
+      cc, cfg, hid, head.addr, head, first_needed_generation, itor);
    if (!SUCCESS(rc)) {
       platform_error_log("shard_log_iterator_create: shard_log_iterator_init "
                          "failed: %s\n",

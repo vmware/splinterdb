@@ -33,6 +33,9 @@
  */
 #define BTREE_MAX_HEIGHT (8)
 
+/* Immutable branch version is stored in its trunk branch_ref. */
+#define BTREE_BRANCH_FORMAT_VERSION (1)
+
 /*
  * Mini-allocator uses separate batches for each height of the BTree.
  * Therefore, the max # of mini-batches that the mini-allocator can track

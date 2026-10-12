@@ -45,9 +45,12 @@
  * moved the checksum and uint16 format into the fixed blob header; v5 made
  * log group ids start at 1 so they equal their durability tickets; v6 added
  * per-level page ordinals to branch btree pages; v7 made routing-filter
- * descriptors carry their format version and fingerprint size.
+ * descriptors carry their format version and fingerprint size; v8 adds
+ * independent structure versions and complete routing-filter/log read config.
  */
-#define SUPERBLOCK_FORMAT_VERSION (7)
+#define SUPERBLOCK_FORMAT_VERSION   (8)
+#define TRUNK_FORMAT_VERSION        (1)
+#define RC_ALLOCATOR_FORMAT_VERSION (1)
 
 /* The two physical superblock copies live at pages 0 and 1. */
 #define SUPERBLOCK_NUM_SLOTS (2)
@@ -123,6 +126,8 @@ typedef struct ONDISK superblock {
     * checkpoint writes this as 0 in the same atomic update that advances a
     * root; a clean unmount writes it nonzero after the map is durable.
     */
+   uint16                 trunk_format_version;
+   uint16                 allocator_format_version;
    uint64                 allocation_state_addr;
    superblock_tree_record tree;
    checksum128            checksum;
@@ -180,6 +185,8 @@ superblock_context_deinit(superblock_context *ctx);
  * geometry against cfg), and load the newest valid one into the in-memory
  * image.  Returns STATUS_NOT_FOUND if every readable copy is invalid, or the
  * first read error if no valid copy can be read.
+ *
+ * Unsupported structure versions return STATUS_INVALID_STATE with a diagnostic.
  *
  * Must call superblock_init() first.
  */
