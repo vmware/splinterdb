@@ -109,6 +109,14 @@ routing_filter_lookup(cache                *cc,
                       key                   target,
                       uint64               *found_values);
 
+/* Lookup a full-width hash produced with cfg->seed. */
+platform_status
+routing_filter_lookup_hash(cache                *cc,
+                           const routing_config *cfg,
+                           routing_filter       *filter,
+                           uint32                hash,
+                           uint64               *found_values);
+
 static inline uint16
 routing_filter_get_next_value(uint64 found_values, uint16 last_value)
 {

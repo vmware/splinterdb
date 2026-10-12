@@ -7485,7 +7485,9 @@ cleanup:
 
 
 static platform_status
-trunk_collect_bundle_branches(trunk_ondisk_bundle *bndl,
+trunk_collect_bundle_branches(const trunk_context *context,
+                              trunk_ondisk_bundle *bndl,
+                              const uint32        *hash,
                               uint64               capacity,
                               uint64              *num_branches,
                               trunk_branch_info   *branches)
@@ -7495,34 +7497,43 @@ trunk_collect_bundle_branches(trunk_ondisk_bundle *bndl,
    {
       return STATUS_INVALID_STATE;
    }
-   uint64 bundle_start = *num_branches;
-   for (int64 i = bndl->num_branches - 1; 0 <= i; i--) {
-      if (*num_branches >= capacity) {
-         platform_error_log("trunk_collect_bundle_branches: "
-                            "capacity exceeded\n");
-         /* No references have been acquired for this bundle yet. Discard its
-          * partially copied entries; cleanup will release only earlier,
-          * completely appended bundles. */
-         *num_branches = bundle_start;
-         return STATUS_LIMIT_EXCEEDED;
+   uint64 found_values =
+      bndl->num_branches == 0 ? 0 : (1ULL << bndl->num_branches) - 1;
+   if (hash != NULL) {
+      if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
+         if (bndl->num_branches > 1) {
+            return STATUS_INVALID_STATE;
+         }
+      } else {
+         platform_status rc =
+            routing_filter_lookup_hash(context->cc,
+                                       context->cfg->filter_cfg,
+                                       &bndl->maplet,
+                                       *hash,
+                                       &found_values);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         rc = trunk_ondisk_bundle_validate_found_values(bndl, found_values);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
       }
-      branches[*num_branches].addr = branch_ref_addr(bndl->branches[i]);
+   }
+   if ((uint64)__builtin_popcountll(found_values) > capacity - *num_branches) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   for (int64 i = bndl->num_branches - 1; 0 <= i; i--) {
+      if (!routing_filter_is_value_found(found_values, i)) {
+         continue;
+      }
+      uint64 addr                  = branch_ref_addr(bndl->branches[i]);
+      branches[*num_branches].addr = addr;
       branches[*num_branches].type = trunk_ondisk_bundle_branch_type(bndl);
-
+      btree_inc_ref(context->cc, context->cfg->btree_cfg, addr);
       (*num_branches)++;
    }
    return STATUS_OK;
-}
-
-static void
-trunk_ondisk_bundle_inc_all_branch_refs(const trunk_context *context,
-                                        trunk_ondisk_bundle *bndl)
-{
-   for (uint64 i = 0; i < bndl->num_branches; i++) {
-      branch_ref bref = bndl->branches[i];
-      btree_inc_ref(
-         context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
-   }
 }
 
 platform_status
@@ -7530,6 +7541,7 @@ trunk_collect_branches(const trunk_context            *context,
                        const trunk_ondisk_node_handle *inhandle,
                        key                             tgt,
                        comparison                      start_type,
+                       const uint32                   *hash,
                        uint64                          capacity,
                        uint64                         *num_branches,
                        trunk_branch_info              *branches,
@@ -7585,7 +7597,7 @@ trunk_collect_branches(const trunk_context            *context,
       }
       for (uint64 i = 0; i < num_inflight_bundles; i++) {
          rc = trunk_collect_bundle_branches(
-            bndl, capacity, num_branches, branches);
+            context, bndl, hash, capacity, num_branches, branches);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_collect_branches: "
                                "trunk_collect_bundle_branches failed: %d\n",
@@ -7593,7 +7605,6 @@ trunk_collect_branches(const trunk_context            *context,
             goto cleanup;
          }
 
-         trunk_ondisk_bundle_inc_all_branch_refs(context, bndl);
 
          if (i < num_inflight_bundles - 1) {
             bndl = trunk_ondisk_node_get_next_inflight_bundle(&handle, bndl);
@@ -7606,8 +7617,8 @@ trunk_collect_branches(const trunk_context            *context,
          rc = STATUS_INVALID_STATE;
          goto cleanup;
       }
-      rc =
-         trunk_collect_bundle_branches(bndl, capacity, num_branches, branches);
+      rc = trunk_collect_bundle_branches(
+         context, bndl, hash, capacity, num_branches, branches);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_collect_branches: "
                             "trunk_collect_bundle_branches failed: %d\n",
@@ -7615,7 +7626,6 @@ trunk_collect_branches(const trunk_context            *context,
          goto cleanup;
       }
 
-      trunk_ondisk_bundle_inc_all_branch_refs(context, bndl);
 
       // Proceed to the child
       if (child_addr != 0) {

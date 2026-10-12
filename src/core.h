@@ -290,26 +290,29 @@ struct core_handle {
 };
 
 typedef struct core_range_iterator {
-   iterator          super;
-   core_handle      *spl;
-   uint64            num_branches;
-   uint64            num_memtable_branches;
-   uint64            memtable_start_gen;
-   uint64            memtable_end_gen;
-   bool32            compacted[CORE_RANGE_ITOR_MAX_BRANCHES];
-   merge_iterator   *merge_itor;
-   bool32            can_prev;
-   bool32            can_next;
-   key_buffer        min_key;
-   key_buffer        max_key;
-   key_buffer        local_min_key;
-   key_buffer        local_max_key;
-   comparison        min_key_comparison;
-   comparison        max_key_comparison;
-   comparison        local_min_key_comparison;
-   comparison        local_max_key_comparison;
-   bool32            local_max_key_truncated;
-   btree_iterator    btree_itor[CORE_RANGE_ITOR_MAX_BRANCHES];
+   iterator                   super;
+   core_handle               *spl;
+   uint64                     num_branches;
+   struct core_hash_iterator *hash_itor;
+   bool32                     filter_by_hash;
+   uint32                     hash;
+   uint64                     num_memtable_branches;
+   uint64                     memtable_start_gen;
+   uint64                     memtable_end_gen;
+   bool32                     compacted[CORE_RANGE_ITOR_MAX_BRANCHES];
+   merge_iterator            *merge_itor;
+   bool32                     can_prev;
+   bool32                     can_next;
+   key_buffer                 min_key;
+   key_buffer                 max_key;
+   key_buffer                 local_min_key;
+   key_buffer                 local_max_key;
+   comparison                 min_key_comparison;
+   comparison                 max_key_comparison;
+   comparison                 local_min_key_comparison;
+   comparison                 local_max_key_comparison;
+   bool32                     local_max_key_truncated;
+   btree_iterator             btree_itor[CORE_RANGE_ITOR_MAX_BRANCHES];
    bool32            btree_itor_initialized[CORE_RANGE_ITOR_MAX_BRANCHES];
    trunk_branch_info branch[CORE_RANGE_ITOR_MAX_BRANCHES];
 
@@ -371,6 +374,17 @@ core_range_iterator_init(core_handle         *spl,
                          key                  max_key,
                          comparison           start_key_comparison,
                          key                  start_key);
+
+platform_status
+core_range_iterator_init_with_hash(core_handle         *spl,
+                                   core_range_iterator *range_itor,
+                                   comparison           min_key_comparison,
+                                   key                  min_key,
+                                   comparison           max_key_comparison,
+                                   key                  max_key,
+                                   comparison           start_key_comparison,
+                                   key                  start_key,
+                                   const uint32        *hash);
 void
 core_range_iterator_deinit(core_range_iterator *range_itor);
 

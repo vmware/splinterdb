@@ -561,6 +561,31 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,     // IN
                                      slice      start_key           // IN
 );
 
+// Initialize a range iterator restricted to keys whose full 32-bit data_config
+// hash equals hash_key's hash, using the database's routing-filter seed.
+// Routing filters prune branches; exact per-key filtering removes false
+// positives before merging messages. Memtables are searched as well.
+// NULL_SLICE disables filtering. The hash key is consumed during initialization
+// and need not remain alive. Bounds, start position and direction semantics are
+// identical to the corresponding unfiltered initializer.
+int
+splinterdb_iterator_init_with_hash(splinterdb           *kvs,
+                                   splinterdb_iterator **iter,
+                                   comparison            start_type,
+                                   slice                 start_key,
+                                   slice                 hash_key);
+
+int
+splinterdb_iterator_init_with_bounds_and_hash(splinterdb           *kvs,
+                                              splinterdb_iterator **iter,
+                                              comparison min_key_comparison,
+                                              slice      min_key,
+                                              comparison max_key_comparison,
+                                              slice      max_key,
+                                              comparison start_type,
+                                              slice      start_key,
+                                              slice      hash_key);
+
 // Deinitialize an iterator
 //
 // Failing to do this may cause hangs.

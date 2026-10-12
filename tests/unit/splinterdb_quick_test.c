@@ -2935,3 +2935,222 @@ custom_key_comparator(const data_config *cfg, user_key key1, user_key key2)
    ccfg->num_comparisons += 1;
    return r;
 }
+
+static bool32 hash_range_reject_unmatched_merge;
+
+/* All groups collide in the routing filter's truncated fingerprint. */
+static uint32
+hash_range_key_hash(const data_config *cfg, user_key k, uint32 seed)
+{
+   const uint8 *bytes = slice_data(k.key);
+   return seed ^ bytes[slice_length(k.key) - 1];
+}
+
+static int
+hash_range_add(const data_config *cfg,
+               slice              k,
+               message            older,
+               merge_accumulator *newer)
+{
+   const char *bytes = slice_data(k);
+   if (hash_range_reject_unmatched_merge && bytes[slice_length(k) - 1] != 'a') {
+      return EINVAL;
+   }
+   char       *new_value = merge_accumulator_data(newer);
+   const char *old_value = message_data(older);
+   new_value[0] += old_value[0] - '0';
+   merge_accumulator_set_class(newer, message_class(older));
+   return 0;
+}
+
+static int
+hash_range_finalize(const data_config *cfg, slice k, merge_accumulator *msg)
+{
+   merge_accumulator_set_class(msg, MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+CTEST2(splinterdb_quick, test_hash_filtered_range_merges_only_matching_keys)
+{
+   data->default_data_cfg.super.key_hash           = hash_range_key_hash;
+   data->default_data_cfg.super.merge_tuples       = hash_range_add;
+   data->default_data_cfg.super.merge_tuples_final = hash_range_finalize;
+   const char *keys[] = {"0a", "0b", "1a", "1b", "2a", "2b"};
+   for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
+      insert_string_kv(data->kvsb, keys[i], "1");
+   }
+   force_flush_current_memtable(data->kvsb);
+   for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
+      ASSERT_EQUAL(
+         0,
+         splinterdb_update(
+            data->kvsb, slice_create(2, keys[i]), slice_create(1, "2"), NULL));
+   }
+   ASSERT_EQUAL(0, splinterdb_delete(data->kvsb, slice_create(2, "1a"), NULL));
+   insert_string_kv(data->kvsb, "3a", "3");
+   hash_range_reject_unmatched_merge = TRUE;
+   for (int forwards = 0; forwards < 2; forwards++) {
+      splinterdb_iterator *it = NULL;
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_hash(
+                      data->kvsb,
+                      &it,
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      slice_create(1, "a")));
+      const char *expected[] = {"0a", "2a", "3a"};
+      for (int i = 0; i < 3; i++) {
+         check_current_string_kv(it, expected[forwards ? i : 2 - i], "3");
+         if (forwards) {
+            splinterdb_iterator_next(it);
+         } else {
+            splinterdb_iterator_prev(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      if (forwards) {
+         splinterdb_iterator_prev(it);
+         check_current_string_kv(it, "3a", "3");
+         splinterdb_iterator_prev(it);
+         check_current_string_kv(it, "2a", "3");
+         splinterdb_iterator_next(it);
+         check_current_string_kv(it, "3a", "3");
+      } else {
+         splinterdb_iterator_next(it);
+         check_current_string_kv(it, "0a", "3");
+         splinterdb_iterator_next(it);
+         check_current_string_kv(it, "2a", "3");
+         splinterdb_iterator_prev(it);
+         check_current_string_kv(it, "0a", "3");
+      }
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+   }
+   hash_range_reject_unmatched_merge = FALSE;
+
+   /* Persist/reopen, then cover exclusive bounds, no match, and opt-out. */
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+   splinterdb_iterator *it = NULL;
+   ASSERT_EQUAL(
+      0,
+      splinterdb_iterator_init_with_bounds_and_hash(data->kvsb,
+                                                    &it,
+                                                    greater_than,
+                                                    slice_create(2, "0a"),
+                                                    less_than,
+                                                    slice_create(2, "3a"),
+                                                    greater_than_or_equal,
+                                                    NULL_SLICE,
+                                                    slice_create(1, "a")));
+   check_current_string_kv(it, "2a", "3");
+   splinterdb_iterator_next(it);
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   splinterdb_iterator_prev(it);
+   check_current_string_kv(it, "2a", "3");
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_hash(data->kvsb,
+                                                   &it,
+                                                   greater_than_or_equal,
+                                                   NULL_SLICE,
+                                                   slice_create(1, "z")));
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+   ASSERT_EQUAL(
+      0,
+      splinterdb_iterator_init_with_hash(
+         data->kvsb, &it, greater_than_or_equal, NULL_SLICE, NULL_SLICE));
+   check_current_string_kv(it, "0a", "3");
+   splinterdb_iterator_next(it);
+   check_current_string_kv(it, "0b", "3");
+   splinterdb_iterator_deinit(it);
+}
+
+static uint32
+hash_range_sparse_hash(const data_config *cfg, user_key k, uint32 seed)
+{
+   uint64 encoded;
+   memcpy(&encoded, slice_data(k.key), sizeof(encoded));
+   uint64 id = __builtin_bswap64(encoded);
+   if (id == UINT64_MAX) {
+      return seed ^ 0x80000000;
+   }
+   if (id % 2048 == 0) {
+      return seed;
+   }
+   return seed
+          ^ ((platform_hash32(&encoded, sizeof(encoded), seed) & 0x7fffffff)
+             | 1);
+}
+
+CTEST2(splinterdb_quick, test_hash_filtered_range_crosses_empty_trunk_leaves)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->default_data_cfg.super.key_hash = hash_range_sparse_hash;
+   data->cfg.memtable_capacity           = 4 * MiB;
+   data->cfg.fanout                      = 2;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   /* Keep a viable memtable while forcing small trunk leaves for the scan. */
+   ((trunk_config *)core->trunk_context.cfg)->incorporation_size_kv_bytes =
+      64 * KiB;
+   char value[32] = {0};
+   for (uint64 id = 0; id < 32768; id++) {
+      uint64 encoded = __builtin_bswap64(id);
+      ASSERT_EQUAL(0,
+                   splinterdb_insert(data->kvsb,
+                                     slice_create(sizeof(encoded), &encoded),
+                                     slice_create(sizeof(value), value),
+                                     NULL));
+   }
+   force_flush_current_memtable(data->kvsb);
+   uint64 height;
+   ASSERT_TRUE(SUCCESS(trunk_get_height(&core->trunk_context, &height)));
+   ASSERT_TRUE(height > 0);
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+   for (int forwards = 0; forwards < 2; forwards++) {
+      uint64               hash_key = 0;
+      splinterdb_iterator *it       = NULL;
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_hash(
+                      data->kvsb,
+                      &it,
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      slice_create(sizeof(hash_key), &hash_key)));
+      for (int i = 0; i < 16; i++) {
+         ASSERT_TRUE(splinterdb_iterator_valid(it));
+         slice k, v;
+         splinterdb_iterator_get_current(it, &k, &v);
+         uint64 encoded;
+         memcpy(&encoded, slice_data(k), sizeof(encoded));
+         ASSERT_EQUAL((forwards ? i : 15 - i) * 2048,
+                      __builtin_bswap64(encoded));
+         if (forwards) {
+            splinterdb_iterator_next(it);
+         } else {
+            splinterdb_iterator_prev(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+
+      hash_key = UINT64_MAX;
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_hash(
+                      data->kvsb,
+                      &it,
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      slice_create(sizeof(hash_key), &hash_key)));
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+   }
+}

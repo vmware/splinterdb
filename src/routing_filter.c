@@ -1433,17 +1433,22 @@ routing_filter_lookup(cache                *cc,
                       key                   target,
                       uint64               *found_values)
 {
-#if 0
-   return async_call_sync_callback(cache_cleanup(cc),
-                                   routing_filter_lookup_async,
-                                   cc,
-                                   cfg,
-                                   *filter,
-                                   target,
-                                   found_values);
-#else
    debug_assert(key_is_user_key(target));
+   return routing_filter_lookup_hash(
+      cc,
+      cfg,
+      filter,
+      data_key_hash(cfg->data_cfg, target, cfg->seed),
+      found_values);
+}
 
+platform_status
+routing_filter_lookup_hash(cache                *cc,
+                           const routing_config *cfg,
+                           routing_filter       *filter,
+                           uint32                hash,
+                           uint64               *found_values)
+{
    if (filter == NULL || found_values == NULL) {
       return STATUS_BAD_PARAM;
    }
@@ -1459,8 +1464,7 @@ routing_filter_lookup(cache                *cc,
       return rc;
    }
 
-   uint32 fp = data_key_hash(cfg->data_cfg, target, cfg->seed);
-   fp >>= 32 - filter->fingerprint_size;
+   uint32 fp    = hash >> (32 - filter->fingerprint_size);
    uint32 index = routing_get_index(fp << params.value_size,
                                     params.index_remainder_and_value_size);
    if (index >= params.num_indices) {
@@ -1482,7 +1486,6 @@ routing_filter_lookup(cache                *cc,
    }
    routing_unget_header(cc, filter_node);
    return rc;
-#endif
 }
 
 /*
