@@ -237,8 +237,8 @@ are not evidence of a guard benefit. Throughput sample ranges were:
 |---|---:|---:|
 | 1 / 1 | 5,315–12,859 | 12,359–12,796 |
 | 1 / 8 | 11,424–67,109 | 66,793–67,811 |
-| 10,000 / 1 | 88–140 | 140–140 |
-| 10,000 / 8 | 213–732 | 765–781 |
+| 10,000 / 1 | 88.4–139.6 | 140.2–140.4 |
+| 10,000 / 8 | 213.2–731.6 | 764.8–781.4 |
 
 All 20 recorded phases reported zero errors and violations. The repair adds one
 atomic status clear per admitted prefetch page, with no resident hit-path source
@@ -249,3 +249,11 @@ corrected suite commands are in the adjacent validation manifest. Reproduce
 the follow-up with `coordination/cache_prefetch_validate.py fixed`,
 `cache_prefetch_release.py`, and `cache_prefetch_cold.py cache-errors` under the
 same build/benchmark locking wrapper described above.
+
+A subsequent harness review found that these copied-fixture campaigns did not
+explicitly `fsync` each copied database before opening it. `O_DIRECT` reads of
+reachable pages do not necessarily drain buffered copy writes to historical or
+unreachable pages. Such writeback could overlap timing. This is a procedure
+limitation, not a demonstrated cause of the observed variation; original
+commands and results remain unchanged. Future disk controls should sync the
+copied file before opening/warming it.
