@@ -40,7 +40,9 @@ notification and does not establish a durability guarantee.
 
 Polling only observes completion. With no normal background workers, use
 `splinterdb_notification_wait()` or another operation that performs task work
-to make progress. Notification storage must remain alive until completion;
+to make progress. Other foreground operations may execute queued barrier work,
+so moving the durability wait off launch does not make every subsequent API
+call nonblocking. Notification storage must remain alive until completion;
 cross-process completion requires shared notification storage. NULL launches
 without retaining a completion result.
 
@@ -71,5 +73,74 @@ it is not a device-service latency measurement.
 
 The independent log-group-size project can be combined with this API; group-size
 cuts and barrier tickets have separate purposes. That integration is not part
-of this branch. The serialized WAL/worker/depth benchmark matrix is pending at
-this implementation milestone; no performance-neutrality claim is made yet.
+of this branch.
+
+# Measurements
+
+The common-source benchmark used 24-byte keys, 100-byte values, 256 inserts per
+barrier, a 128 MiB cache, O_DIRECT files on ext4, CPU affinity 0–11 and zero
+memtable background workers. It compared baseline blocking, candidate blocking,
+and candidate polling with one or eight outstanding notifications. Each of the
+four WAL/normal-worker configurations has three repetitions per mode. The
+writer process exits without close after all barriers finish; the parent opens
+and verifies every key/value before recording success. All 48 initial measured
+runs and four pilot runs recovered successfully.
+
+| Initial matrix: WAL / normal workers | Async launch mean, depth 1 / 8 | Async launch p99, depth 1 / 8 |
+| --- | ---: | ---: |
+| Off / 0 | 0.49 / 0.55 us | 1.20 / 1.37 us |
+| Off / 1 | 1.07 / 1.13 us | 3.03 / 2.94 us |
+| On / 0 | 0.80 / 0.78 us | 2.69 / 2.18 us |
+| On / 1 | 1.33 / 1.43 us | 4.88 / 6.26 us |
+
+Launch timing includes polling-notification initialization. Each cell averages
+three run-level measurements, including the p99s. Throughput
+was strongly affected by shared wall-time shifts. For example, WAL/one-worker
+baseline blocking fell from 289k updates/s to 63k in later repetitions, while
+candidate blocking fell from 262k to 62k with similar CPU time. At zero workers,
+WAL baseline instead rose from 61k to 273–280k. A whole-matrix mean would falsely
+attribute those shifts to the API mode. These observations motivate the fixed-
+count controls below; they do not establish a throughput gain or regression.
+
+The follow-up controls used 2,048 barriers with WAL/one worker and 1,024
+barriers without WAL/workers. Each repeats all four modes three times, using
+one fresh scratch image at a time and collecting process block-I/O accounting.
+All 24 additional runs passed recovery. The latency shift recurred: the WAL
+baseline's later sample fell from 244–251k to 62k updates/s, while the candidate
+blocking sample fell from 259–270k to 73k. All modes wrote essentially identical
+amounts. The table retains the full measured throughput range instead of
+presenting a misleading whole-matrix mean.
+
+| Control | Mode | Throughput range (k updates/s) | Mean CPU (us/update) | Mean written MiB/run |
+| --- | --- | ---: | ---: | ---: |
+| WAL / 1 worker | Baseline blocking | 61.9–250.6 | 1.294 | 103.32 |
+| WAL / 1 worker | Candidate blocking | 72.9–270.1 | 1.273 | 103.32 |
+| WAL / 1 worker | Async depth 1 | 63.8–274.1 | 1.385 | 103.32 |
+| WAL / 1 worker | Async depth 8 | 64.3–277.5 | 1.345 | 103.32 |
+| No WAL / 0 workers | Baseline blocking | 19.9–27.3 | 14.739 | 2715.91 |
+| No WAL / 0 workers | Candidate blocking | 20.3–28.4 | 14.605 | 2715.91 |
+| No WAL / 0 workers | Async depth 1 | 20.6–21.1 | 14.893 | 2715.91 |
+| No WAL / 0 workers | Async depth 8 | 19.7–22.2 | 15.154 | 2715.94 |
+
+The controls averaged 1.96 / 1.80 us to launch WAL barriers at depth 1 / 8,
+and 0.56 / 0.63 us without WAL. Async CPU per update was approximately 2–9%
+higher than candidate blocking; block-write volume differed by less than 0.002%.
+The existing blocking path showed no CPU regression in these controls, but the
+shared wall-time variability prevents a tight throughput-neutrality claim.
+Async notification support is functionally validated and makes launch cheap;
+it is not a promise to reduce the total durability work or its CPU cost.
+
+
+The release-only ticket operation and queue-failure cleanup are tested; polling
+launches perform no device I/O, and the deterministic gated-device test proves
+launch returns while durability remains pending. Completion still performs the
+same log/checkpoint work. With eight outstanding operations, observed completion
+latency includes application work and queueing, so it should not be compared to
+blocking call latency as if both measured device service time.
+
+Compact raw CSVs, manifests, exact measured harness sources and build provenance
+are committed in `benchmarks/results-20261011/`. Full logs remain under
+`.cache/projects-20261011/benchmarks/async-durable-barrier/` in the main checkout.
+The original successfully verified scratch images were reclaimed after their
+runs; subsequent controls reuse a single fresh scratch path, unlinking only
+after successful crash-recovery verification. No database images are committed.

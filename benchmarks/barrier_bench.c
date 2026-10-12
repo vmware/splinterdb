@@ -74,6 +74,7 @@ finish(splinterdb *db, pending_barrier *slot, uint64_t *completion)
 typedef struct barrier_metrics {
    uint64_t elapsed;
    double   cpu;
+   uint64_t read_bytes, write_bytes;
    double   launch_mean, completion_mean;
    uint64_t launch_p50, launch_p99, completion_p50, completion_p99;
 } barrier_metrics;
@@ -144,6 +145,8 @@ run_workload(splinterdb_config *cfg,
    barrier_metrics result = {
       .elapsed         = elapsed,
       .cpu             = cpu,
+      .read_bytes      = (after.ru_inblock - before.ru_inblock) * 512,
+      .write_bytes     = (after.ru_oublock - before.ru_oublock) * 512,
       .launch_mean     = launch_sum / count,
       .completion_mean = completion_sum / count,
       .launch_p50      = launch[count / 2],
@@ -256,10 +259,12 @@ main(int argc, char **argv)
          csv,
          "label,mode,log,workers,batch,barriers,depth,seconds,updates_s,cpu_s,"
          "launch_mean_us,launch_p50_us,launch_p99_us,observed_completion_mean_"
-         "us,observed_completion_p50_us,observed_completion_p99_us,verified\n");
+         "us,observed_completion_p50_us,observed_completion_p99_us,verified,"
+         "read_bytes,write_bytes\n");
    fprintf(csv,
            "%s,%s,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
-           ",%.6f,%.3f,%.6f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,1\n",
+           ",%.6f,%.3f,%.6f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,1,%" PRIu64
+           ",%" PRIu64 "\n",
            argv[3],
            argv[4],
            logging,
@@ -275,7 +280,9 @@ main(int argc, char **argv)
            measured.launch_p99 / 1e3,
            measured.completion_mean / 1e3,
            measured.completion_p50 / 1e3,
-           measured.completion_p99 / 1e3);
+           measured.completion_p99 / 1e3,
+           measured.read_bytes,
+           measured.write_bytes);
    fclose(csv);
    printf("verified %" PRIu64 " updates, %.3f updates/s\n",
           batch * count,
