@@ -1,0 +1,14 @@
+{
+  "base_head": "0ac64ac5f3ba8d596e4dcc7930833a146edd71e3",
+  "changed_runtime_sources_sha256": {
+    "include/splinterdb/splinterdb.h": "6cfb8aa6f62dd2a8e695face5666efe00d9299db5ce346d591c610eeefab07f6",
+    "src/notification.c": "54af1fe6af2e5fc84fbee21a74ff55069a8aa7e4ec7f9d8c9485e85e91669b58",
+    "src/notification.h": "f4df33131f407e6a957602a05c72f4bca7efed98b1a39134f94bf889a6ca5f29",
+    "src/splinterdb.c": "aba37c652ad9aafe672db7a13b6ef43838bca1db20e7d2434f0d0c8852edafc8"
+  },
+  "baseline_archive_implementation_commit": "9d66eee",
+  "baseline_library_sha256": "cc67d58fccbc85fd3be6dcb7a00ae0513cab835bed8246e57201f5b417c05d86",
+  "candidate_library_sha256": "632f500a628898f0296ea2162cdef07de5ebc84388a62b06022e0ecb0288455f",
+  "storage": "ext4 /dev/mapper/snafu-root_crypt[/home/rob/projects/splinterdb]",
+  "locks": "All runs used run_job.py benchmark mode with exclusive benchmark.lock and machine.lock"
+}

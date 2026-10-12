@@ -116,11 +116,19 @@ run_workload(splinterdb_config *cfg,
          splinterdb_notification_init_polling(&slot->note, NULL);
          slot->started = t;
          slot->index   = b;
+#   ifdef HAVE_SENTINEL_NOTIFICATION
+         checked(splinterdb_durable_barrier(db, &slot->note), "launch");
+#   else
          checked(splinterdb_durable_barrier_async(db, &slot->note), "launch");
+#   endif
          slot->active = true;
 #endif
       } else {
+#ifdef HAVE_SENTINEL_NOTIFICATION
+         checked(splinterdb_durable_barrier(db, NULL), "durable barrier");
+#else
          checked(splinterdb_durable_barrier(db), "durable barrier");
+#endif
       }
       launch[b] = now_ns() - t;
       if (!async_mode)

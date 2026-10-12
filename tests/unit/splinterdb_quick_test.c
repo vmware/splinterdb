@@ -302,7 +302,7 @@ CTEST2(splinterdb_quick, test_durable_barrier)
    rc = splinterdb_insert(data->kvsb, key, value, NULL);
    ASSERT_EQUAL(0, rc);
 
-   rc = splinterdb_durable_barrier(data->kvsb);
+   rc = splinterdb_durable_barrier(data->kvsb, NULL);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -323,8 +323,7 @@ CTEST2(splinterdb_quick, test_async_durable_barrier_notifications)
          splinterdb_notification notes[8];
          for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
             splinterdb_notification_init_polling(&notes[i], &notes[i]);
-            ASSERT_EQUAL(
-               0, splinterdb_durable_barrier_async(data->kvsb, &notes[i]));
+            ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb, &notes[i]));
             if (workers == 0) {
                ASSERT_FALSE(splinterdb_notification_poll(&notes[i], NULL));
             }
@@ -340,19 +339,17 @@ CTEST2(splinterdb_quick, test_async_durable_barrier_notifications)
             splinterdb_notification_deinit(&notes[i]);
          }
 
-         splinterdb_notification blocking;
-         splinterdb_notification_init_blocking(&blocking);
          ASSERT_EQUAL(0,
-                      splinterdb_durable_barrier_async(data->kvsb, &blocking));
-         ASSERT_TRUE(splinterdb_notification_poll(&blocking, NULL));
-         splinterdb_notification_deinit(&blocking);
+                      splinterdb_durable_barrier(
+                         data->kvsb, SPLINTERDB_NOTIFICATION_BLOCKING));
 
          /* Close drains accepted work even when no thread is waiting on it. */
          splinterdb_notification closing;
          splinterdb_notification_init_polling(&closing, NULL);
+         ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb, &closing));
          ASSERT_EQUAL(0,
-                      splinterdb_durable_barrier_async(data->kvsb, &closing));
-         ASSERT_EQUAL(0, splinterdb_durable_barrier_async(data->kvsb, NULL));
+                      splinterdb_durable_barrier(
+                         data->kvsb, SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET));
          ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
          int status = -1;
          ASSERT_TRUE(splinterdb_notification_poll(&closing, &status));
@@ -411,7 +408,7 @@ CTEST2(splinterdb_quick,
    splinterdb_lookup_result_deinit(&result);
 
    /* A rejected reservation must not poison the log's durability suffix. */
-   ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb));
+   ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb, NULL));
    platform_free(data->cfg.heap_id, value_data);
 }
 

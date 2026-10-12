@@ -280,13 +280,18 @@ typedef struct splinterdb_notification {
    char opaque[SPLINTERDB_NOTIFICATION_BUFSIZE];
 } __attribute__((__aligned__(8))) splinterdb_notification;
 
-// The caller owns notification storage and must keep it alive until completion.
-// After completion, call splinterdb_notification_deinit before reusing or
-// destroying the notification. If completion may happen in another process, the
-// notification object must be allocated in shared memory.
-void
-splinterdb_notification_init_blocking(splinterdb_notification *notification);
+// Operation notification arguments select blocking, fire-and-forget, or tracked
+// asynchronous completion. These sentinels are operation arguments, not
+// objects: never pass them to notification init, deinit, poll, wait, or
+// user_data.
+#define SPLINTERDB_NOTIFICATION_BLOCKING        NULL
+#define SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET ((splinterdb_notification *)1)
 
+// A real notification requests asynchronous completion. The caller owns its
+// storage and must keep it alive until completion. After completion (or
+// rejected submission), call deinit before reusing or destroying it. If
+// completion may happen in another process, allocate the notification in shared
+// memory.
 void
 splinterdb_notification_init_polling(splinterdb_notification *notification,
                                      void                    *user_data);
@@ -298,6 +303,8 @@ _Bool
 splinterdb_notification_poll(const splinterdb_notification *notification,
                              int                           *status);
 
+// Drive queued work until completion. A wait error can leave the operation
+// pending: poll to confirm completion before destroying the notification.
 int
 splinterdb_notification_wait(splinterdb              *kvs,
                              splinterdb_notification *notification);
@@ -429,9 +436,12 @@ splinterdb_update(splinterdb               *kvsb,
 // Optimize already-incorporated trunk data in [min_key, max_key). A null
 // min_key or max_key means the range is unbounded on that side. If
 // full_leaf_compactions is true, enqueue full compactions for leaves in the
-// range after flushing. Passing a NULL notification makes this fire-and-forget.
-// Blocking notifications wait before this function returns; polling
-// notifications complete later.
+// range after flushing. NULL (SPLINTERDB_NOTIFICATION_BLOCKING) waits and
+// returns completion or wait status. On a wait error, accepted work may still
+// finish later; the library retains its internal completion state as needed.
+// SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET returns without waiting and discards
+// completion status. A real notification receives completion asynchronously.
+// For either nonblocking mode, a nonzero return means submission failed.
 int
 splinterdb_optimize(splinterdb              *kvs,
                     slice                    min_key,
@@ -443,44 +453,35 @@ splinterdb_optimize(splinterdb              *kvs,
 // Durability
 /////////////////////////////////
 
-// Establish a durability barrier.
+// Establish a durability barrier covering updates that linearized before this
+// call began, including every successful insert, update, or delete that
+// returned before the call. Updates may proceed concurrently; an overlapping
+// update may or may not be covered.
 //
-// On success, every update to kvs that linearized before this call began is
-// recoverable after a crash or power loss. This includes every successful
-// insert, update, or delete that returned before the call began. Updates may
-// proceed concurrently; an update overlapping the call may or may not be
-// covered.
+// NULL (SPLINTERDB_NOTIFICATION_BLOCKING) waits and returns the durability
+// status directly. Zero establishes the guarantee; a nonzero result means it
+// was not established, although some or all updates may already be durable.
+// This blocking path requires no notification allocation or task submission.
 //
-// This establishes durability only. With the write-ahead log enabled, it does
-// not promise a checkpoint, log reclamation, a clean cache, or recovery without
-// log replay. Without the write-ahead log, SplinterDB obtains the same
-// guarantee by checkpointing the tree, which may be substantially more
-// expensive.
+// A real notification requests asynchronous completion; the guarantee holds
+// when it completes successfully. SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET
+// submits without retaining a completion result. In either nonblocking mode,
+// zero means accepted, not durable; a nonzero return means no work was accepted
+// and any notification remains idle. Keep accepted notification storage alive
+// until completion.
 //
-// Returns 0 on success. A nonzero return means the guarantee was not
-// established; some or all updates may nevertheless already be durable.
+// Nonblocking launch allocates memory and takes internal locks but performs no
+// device I/O. Completion runs in the normal task queue. With no normal workers,
+// use notification_wait() or another operation that performs task work;
+// polling alone does not progress the barrier. Close drains accepted barriers.
+//
+// This establishes durability only. With the WAL enabled, it does not promise
+// a checkpoint, log reclamation, a clean cache, or recovery without log replay.
+// Without the WAL, the guarantee requires checkpointing the tree and may be
+// substantially more expensive.
 int
-splinterdb_durable_barrier(splinterdb *kvs);
-
-// Start a durability barrier covering updates that linearized before this
-// call. The durability guarantee above holds once notification completes
-// successfully. A polling notification returns before waiting for I/O;
-// a blocking notification waits before this call returns. NULL starts a
-// fire-and-forget barrier, without a way to observe its result.
-//
-// Launch allocates memory and takes internal locks, but does no device
-// I/O. Completion runs in the normal task queue. With no normal background
-// workers, callers must drive tasks through splinterdb_notification_wait()
-// or other operations that perform task work; polling alone does not progress
-// the barrier. Close drains accepted barriers before releasing the database.
-//
-// For polling or NULL notifications, a nonzero return means no work was
-// accepted and the notification remains idle. Blocking notifications return
-// the launch or wait status; after a wait error, poll to check completion.
-// Keep accepted notification storage alive until completion.
-int
-splinterdb_durable_barrier_async(splinterdb              *kvs,
-                                 splinterdb_notification *notification);
+splinterdb_durable_barrier(splinterdb              *kvs,
+                           splinterdb_notification *notification);
 
 /*
 Iterator API (range query)
