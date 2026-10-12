@@ -1,0 +1,73 @@
+{
+  "probe": "hash",
+  "runs": [
+    {
+      "index": 0,
+      "version": "baseline",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/baseline/build/release/bin/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-ranges/hash-probe-abba-v2-100k/0-baseline.db",
+        "16384",
+        "100000"
+      ],
+      "started": 1791784348.8224638,
+      "binary_sha256": "319be1f9d09a641180f22ad5b9ecc9d828b8d833e0e11f56c2a70c8f7a4daefe",
+      "returncode": 0,
+      "finished": 1791784366.7008984
+    },
+    {
+      "index": 1,
+      "version": "candidate",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build/release/bin/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-ranges/hash-probe-abba-v2-100k/1-candidate.db",
+        "16384",
+        "100000"
+      ],
+      "started": 1791784366.70126,
+      "binary_sha256": "fd2f86ea6607e175bffe475dd054362609a327de66680c13b011b5df8905eb4e",
+      "returncode": 0,
+      "finished": 1791784382.0968258
+    },
+    {
+      "index": 2,
+      "version": "candidate",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build/release/bin/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-ranges/hash-probe-abba-v2-100k/2-candidate.db",
+        "16384",
+        "100000"
+      ],
+      "started": 1791784382.0970826,
+      "binary_sha256": "fd2f86ea6607e175bffe475dd054362609a327de66680c13b011b5df8905eb4e",
+      "returncode": 0,
+      "finished": 1791784396.9611971
+    },
+    {
+      "index": 3,
+      "version": "baseline",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/baseline/build/release/bin/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-ranges/hash-probe-abba-v2-100k/3-baseline.db",
+        "16384",
+        "100000"
+      ],
+      "started": 1791784396.9615352,
+      "binary_sha256": "319be1f9d09a641180f22ad5b9ecc9d828b8d833e0e11f56c2a70c8f7a4daefe",
+      "returncode": 0,
+      "finished": 1791784413.9323077
+    }
+  ]
+}

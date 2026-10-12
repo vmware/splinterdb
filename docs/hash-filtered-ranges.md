@@ -22,9 +22,13 @@ scan an unrelated source's entire tail before returning an earlier result.
 Rejected copies advance individually without invoking application callbacks.
 
 The existing API and on-disk format are unchanged. No per-source adapter is
-allocated. Ordinary unfiltered scans use separate iterator operations with no
-per-key predicate or hash. Empty trunk spans are
-crossed iteratively to avoid stack growth when a hash is sparse or absent.
+allocated. Ordinary unfiltered scans use separate iterator operations that skip
+predicate and hash calls. The filter callback lives in a derived merge iterator,
+so an ordinary merge iterator retains its original size and field offsets. The
+new range-iterator fields follow the existing fields. These layout choices do
+not make the generated machine code identical to the baseline. Empty trunk
+spans are crossed iteratively to avoid stack growth when a hash is sparse or
+absent.
 
 When integrating the separate persisted-configuration project, a routing filter
 built with a different seed must be treated as unpruned. Exact matching is
@@ -36,11 +40,16 @@ seed. This independent branch retains the existing single-seed format.
 The independent lazy-merge experiment also changes `merge.c`. When combining
 the branches, its deferred initial ordering must preserve this predicate's
 position before message merging and retain the filtered movement operations.
+Its initial operations must also preserve identification of the derived filter
+object; replacing its operations with the lazy iterator's initial operations
+without that distinction would lose the predicate.
 
 ## Validation
 
-Based on `db3047a8`. All 9 debug merge tests, 49 `splinterdb_quick_test` cases,
-and 31 `splinter_test` core cases pass, including:
+Based on `db3047a8`. The final implementation (`f30ebdf`) passes all 9 debug
+merge tests and 49 `splinterdb_quick_test` cases. The preceding ordered-merge
+implementation (`9062730`) also passed 31 `splinter_test` core cases; those core
+cases were not rerun after the final layout change. Coverage includes:
 
 - Deliberate routing-fingerprint collisions between different full hashes;
   a merge callback rejects any nonmatching key it sees.
@@ -77,7 +86,7 @@ cc -D_GNU_SOURCE -std=gnu11 -O3 -g -pthread -ffast-math -flto \
 ```
 
 The database is explicitly opened with `O_DIRECT`. Run with
-`DB_PATH 16384 2000`: 32 tenants, 16-byte keys, 64-byte values, a
+`DB_PATH 16384 100000`: 32 tenants, 16-byte keys, 64-byte values, a
 64 MiB cache, 4 MiB memtables, and range lengths 1/2/10/100. The first key field
 sorts by time and the second identifies the tenant; the custom hash uses only
 the tenant. Tenant-grouped ingestion preserves selective immutable branches,
@@ -96,27 +105,93 @@ linked against each release archive. These public-API runs disable logging
 `-flto`, and `-march=native`. Full commands and binary hashes are in each run's
 `manifest.json`; `results.csv` retains latency, CPU, I/O, and correctness fields.
 The campaign root is `.cache/projects-20261011` in the original checkout.
+Databases were on ext4, backed by `/dev/mapper/snafu-root_crypt`. Builds and
+tests were excluded from timing through the shared campaign lock.
 
-## Initial prototype results (superseded implementation)
+## Final implementation: existing API
 
-The unfiltered API used one identical 200,000-key image, a 128 MiB cache,
-24-byte keys, 100-byte values, five seconds per phase, and ABBA order (two
-samples per version). Median throughput changes were:
+Commit `f30ebdf` restores the ordinary iterator layouts after the earlier
+implementation showed a repeatable short-scan loss. The focused final check
+uses one identical 200,000-key image, a 128 MiB cache, 24-byte keys, 100-byte
+values, ten seconds per phase, eight query threads, and ABBA order (two samples
+per version). Throughput is queries per second:
 
-| Operation | 1 thread | 8 threads |
-| --- | ---: | ---: |
-| Point query (control) | +2.01% | +1.91% |
-| Range 1 | +1.43% | -2.70% |
-| Range 10,000 | +0.56% | +0.26% |
+| Operation | Baseline samples | Candidate samples | Median change |
+| --- | ---: | ---: | ---: |
+| Point query (control) | 4,740,299 / 4,809,014 | 5,133,688 / 5,270,101 | +8.95% |
+| Range 1 | 492,836 / 479,998 | 466,527 / 481,521 | -2.55% |
 
-All correctness counters were zero. Long scans were neutral in this run;
-the short eight-thread scan showed a small loss. The sample count is too small
-to claim that every workload has zero overhead. Raw results are under
-`.cache/projects-20261011/benchmarks/filtered-ranges/resident-log0-fixed-image/`.
+Every correctness counter was zero. The short-scan loss is smaller than the
+preceding implementation's repeated 7.77% loss. The final ranges overlap, and
+the point control moves in the opposite direction. Two samples per version
+cannot establish performance neutrality: a residual short-scan cost remains
+possible. The final layout revision was tested with this focused resident
+check, not a new complete disk and long-scan matrix.
 
-The original per-source adapter design failed the positive hash-filtered probe:
-it took 21.2x, 23.0x, 17.9x, and 2.94x the application-filtering time for range
-lengths 1, 2, 10, and 100. A candidate branch could contain matching hashes only
-before the requested start key, causing eager filtering to exhaust its entire
-unrelated tail. The final implementation moves filtering into ordered merge
-selection; the focused regression above captures that failure mode.
+## Final implementation: matching-hash queries
+
+The final positive probe runs 100,000 queries per range length in each ABBA
+sample, with the tenant-grouped fixture described above. All samples validate
+every matching key and value and produce identical checksums. Median mean
+time per query:
+
+| Returned matches | Application filtering | Native filtering | Time change |
+| --- | ---: | ---: | ---: |
+| 1 | 6.346 us | 4.946 us | -22.06% |
+| 2 | 6.784 us | 5.502 us | -18.89% |
+| 10 | 18.528 us | 15.094 us | -18.54% |
+| 100 | 138.406 us | 119.890 us | -13.38% |
+
+This is a benefit on a selective tenant-hash workload, not a guarantee for
+arbitrary hash functions or branch layouts. The long sweep amortizes initial
+cache warming; it does not establish that a cold one-result query is faster.
+The exact predicate also protects application callbacks when routing filters
+produce false-positive candidates.
+
+## Earlier implementations and measurements
+
+The original per-source adapter design (`6ff014b`, v1) failed the positive
+hash-filtered probe: it took 21.2x, 23.0x, 17.9x, and 2.94x the
+application-filtering time for range lengths 1, 2, 10, and 100. A candidate
+branch could contain matching hashes only before the requested start key,
+causing eager filtering to exhaust its entire unrelated tail. Ordered merge
+selection repairs that behavior; the focused regression above captures it.
+
+The ordered-merge implementation (`9062730`, v2) passed the 100,000-query
+positive probe, reducing query time by 18.83%, 16.42%, 16.29%, and 13.08%.
+Its shorter 2,000-query probe had a noisy first phase: range1 averaged 36–47 us
+for application filtering and 38–58 us for native filtering (+15.9% median
+time). Later lengths improved 6.9–9.6%.
+
+V2 was also measured without hash filtering, using an identical image for
+every sample within each regime. Resident means 200,000 keys and a 128 MiB
+cache; disk means 2,000,000 keys and a 64 MiB cache. Both use 24-byte keys,
+100-byte values, five-second phases, O_DIRECT, disabled logging, and ABBA
+order with two samples per version. Median throughput changes:
+
+| Operation | Resident 1T | Resident 8T | Disk 1T | Disk 8T |
+| --- | ---: | ---: | ---: | ---: |
+| Point query (control) | -0.47% | -1.64% | -1.31% | -3.48% |
+| Range 1 | -1.57% | -5.62% | -1.78% | -2.06% |
+| Range 10,000 | +0.26% | +2.47% | +1.20% | -1.28% |
+
+Every correctness counter was zero. Resident baseline range1/8T fell from
+549.6k to 516.7k queries/sec, while the candidate returned 502.3k and 504.1k.
+A focused ten-second repeat still lost 7.77% for range1/8T (the point control
+lost 2.31%), motivating the final layout repair. These earlier measurements
+must not be presented as measurements of that repair.
+
+The copied-image runner used buffered `cp` without an explicit `fsync` before
+O_DIRECT warming and timing. Pending copy writeback might therefore overlap
+the historical disk opt-out runs; this is a method limitation, not a proven
+explanation of their results. No disk speedup is claimed. The final resident
+check and the native hash probe, which creates its own O_DIRECT database, are
+the main final evidence. Future copied-image runs use an explicit sync.
+
+Compact raw samples, exact commands, fixture and binary hashes, build flags,
+and machine/filesystem provenance are retained in
+[`benchmarks/results-20261011`](../benchmarks/results-20261011/README.md).
+Unsuffixed directories are the superseded v1 implementation; `v2` directories
+measure ordered merge selection before the layout repair; `v3` directories
+measure the final implementation. Database images and verbose logs remain in
+the original campaign directory and are not committed.
