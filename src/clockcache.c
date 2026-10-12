@@ -474,7 +474,7 @@ clockcache_entry_set_addr(clockcache_entry *entry, uint64 addr)
 static inline clockcache_entry *
 clockcache_page_to_entry(const clockcache *cc, page_handle *page)
 {
-   return (clockcache_entry *)page->page;
+   return (clockcache_entry *)page_handle_page(page);
 }
 
 static inline uint32
@@ -2020,8 +2020,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type, page_handle *page)
                   "alloc: entry %u addr %lu\n",
                   entry_no,
                   clockcache_entry_addr(entry));
-   page->page         = &entry->page;
-   page->read_ref_tid = platform_get_tid();
+   *page = page_handle_make(&entry->page, platform_get_tid());
    return page;
 }
 
@@ -2441,8 +2440,7 @@ clockcache_get(clockcache  *cc,
       retry = clockcache_get_internal(cc, addr, blocking, type, &handle, &rc);
       if (!retry) {
          if (SUCCESS(rc)) {
-            page->page         = handle;
-            page->read_ref_tid = platform_get_tid();
+            *page = page_handle_make(handle, platform_get_tid());
          }
          return rc;
       }
@@ -2704,7 +2702,7 @@ void
 clockcache_unget(clockcache *cc, page_handle *page)
 {
    uint32         entry_number = clockcache_page_to_entry_number(cc, page);
-   const threadid tid          = page->read_ref_tid;
+   const threadid tid          = page_handle_ref_stripe(page);
 
    clockcache_record_backtrace(cc, entry_number);
 
@@ -2791,7 +2789,7 @@ clockcache_lock(clockcache *cc, page_handle *page)
                   "lock: entry %u addr %lu\n",
                   entry_number,
                   page_handle_addr(page));
-   clockcache_get_write(cc, entry_number, page->read_ref_tid);
+   clockcache_get_write(cc, entry_number, page_handle_ref_stripe(page));
    // A write lock marks the page dirty (and stamps its dirty generation). The
    // CC_WRITEBACK exclusion in clockcache_get_write guarantees this cannot race
    // a writeback completion.
@@ -4025,8 +4023,7 @@ clockcache_get_async_state_result_virtual(void *payload, page_handle *page)
 {
    clockcache_get_async_state *state = (clockcache_get_async_state *)payload;
    if (SUCCESS(state->result_status)) {
-      page->page         = state->__async_result;
-      page->read_ref_tid = state->tid;
+      *page = page_handle_make(state->__async_result, state->tid);
    }
    return state->result_status;
 }

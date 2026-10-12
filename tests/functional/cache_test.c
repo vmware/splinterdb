@@ -2089,7 +2089,7 @@ test_cache_prefetch_early_wakeup(clockcache *clock)
    platform_assert(entry_number < clock->cfg->page_capacity);
    clockcache_entry *entry = &clock->entry[entry_number];
    // Simulate stale bytes left by the prior occupant of this cache entry.
-   page_handle observed_page = {.page = &entry->page};
+   page_handle observed_page = page_handle_make(&entry->page, 0);
    memset(entry->page.data, 'A', page_size);
 
    prefetch_waiter waiters[2] = {0};

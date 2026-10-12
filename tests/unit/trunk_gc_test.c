@@ -124,7 +124,7 @@ gc_get(cache       *cc,
    platform_assert(test_cc->context->pending_gcs_lock == 0);
    platform_assert(type == PAGE_TYPE_TRUNK && !test_cc->discarded[index]);
    test_cc->readers[index]++;
-   page->page = &test_cc->pages[index];
+   *page = page_handle_make(&test_cc->pages[index], 0);
    return STATUS_OK;
 }
 
@@ -175,7 +175,7 @@ gc_init_node(gc_cache *cc, uint64 index, uint64 child_addr)
    cache_page *identity     = &cc->pages[index];
    identity->data           = (char *)cc->words[index];
    identity->disk_addr      = (index + 1) * GC_EXTENT_SIZE;
-   page_handle     receipt  = {.page = identity};
+   page_handle     receipt  = page_handle_make(identity, 0);
    page_handle    *page     = &receipt;
    gc_node_header *header   = (gc_node_header *)page_handle_data(page);
    header->height           = child_addr != 0;

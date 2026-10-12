@@ -159,8 +159,8 @@ trunk_async_test_pivot_lookup(bool32 fail)
       .data      = (char *)pivot_words,
       .disk_addr = TRUNK_ASYNC_TEST_HEADER_ADDR + TRUNK_ASYNC_TEST_PAGE_SIZE,
    };
-   page_handle            header_page = {.page = &header_identity};
-   page_handle            pivot_page  = {.page = &pivot_identity};
+   page_handle            header_page = page_handle_make(&header_identity, 0);
+   page_handle            pivot_page  = page_handle_make(&pivot_identity, 0);
    trunk_async_test_cache test_cc     = {
           .super      = {.ops = &trunk_async_test_cache_ops},
           .pivot_page = &pivot_page,

@@ -23,6 +23,8 @@
 
 /* how distributed the rw locks are */
 #define CC_RC_WIDTH 4
+_Static_assert(CC_RC_WIDTH == PAGE_HANDLE_REF_STRIPES,
+               "cache reference stripes must fit the page receipt");
 
 /*
  * Configuration struct to setup the clock cache sub-system.
