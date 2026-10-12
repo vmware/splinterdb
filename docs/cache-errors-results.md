@@ -73,6 +73,18 @@ unchanged.
 The full aggregate unit-test binary was interrupted while running the expensive
 concurrent-insertion case; it is not reported as a completed suite.
 
+A follow-up fixes an inherited prefetch admission race. A reader could retain an
+old lookup candidate while prefetch reused that slot, set the same address, then
+lost publication to another loader. The reader could acquire the unpublished
+loser's reference before that slot was freed. Prefetch now keeps `WRITELOCKED`
+until its directory CAS succeeds, clearing it before appending the I/O page.
+Demand admission still initializes identity after its CAS and is unchanged.
+The deterministic `cache_test --prefetch-admission` failed with the exact stale
+reference assertion on the unguarded code and passed after this repair.
+The writeback/fault suite, all quick tests, and async cache driver passed again
+using `BUILD_ROOT=build-prefetch`. Debug-only hooks schedule this interleaving;
+release builds contain neither the hooks nor their branches.
+
 ## Performance
 
 The implementation is **not established as performance-neutral**. The compact
@@ -207,5 +219,6 @@ Compact per-run summaries, CSVs, command manifests, binary provenance, and the
 machine description are committed under
 [`benchmarks/results-20261011/cache-errors`](../benchmarks/results-20261011/cache-errors/README.md).
 Large interval traces, logs, images, and binary profiles remain at the original
-campaign paths. Later documentation/comment commits leave the benchmarked code
-unchanged.
+campaign paths. The measurements above precede the narrow prefetch admission
+repair. Its follow-up cold-read comparison uses a separate build root, preserving
+the earlier measured binaries; resident cache-hit code is unchanged.

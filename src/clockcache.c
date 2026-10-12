@@ -2177,7 +2177,17 @@ clockcache_get_in_cache(clockcache      *cc,           // IN
          return TRUE;
       }
    } else {
-      switch (clockcache_try_get_read(cc, entry_number, TRUE)) {
+      get_rc result = clockcache_try_get_read(cc, entry_number, TRUE);
+#ifdef SPLINTER_DEBUG
+      if (cc->after_candidate_ref_attempt != NULL) {
+         cc->after_candidate_ref_attempt(cc,
+                                         addr,
+                                         entry_number,
+                                         result == GET_RC_SUCCESS,
+                                         cc->after_candidate_ref_attempt_arg);
+      }
+#endif
+      switch (result) {
          case GET_RC_CONFLICT:
             clockcache_log(addr,
                            entry_number,
@@ -2400,6 +2410,12 @@ clockcache_get_internal(clockcache      *cc,       // IN
    uint32 entry_number = clockcache_lookup(cc, addr);
 
    if (entry_number != CC_UNMAPPED_ENTRY) {
+#ifdef SPLINTER_DEBUG
+      if (cc->before_candidate_ref != NULL) {
+         cc->before_candidate_ref(
+            cc, addr, entry_number, cc->before_candidate_ref_arg);
+      }
+#endif
       return clockcache_get_in_cache(
          cc, addr, blocking, type, entry_number, page, rc);
    } else if (blocking) {
@@ -3462,12 +3478,21 @@ clockcache_prefetch_pages(clockcache *cc,
                break;
             }
 
+            /* A stale lookup candidate can still name this slot. Prevent it
+             * from acquiring a reference until this prefetch wins publication;
+             * a losing admission must be able to release the slot outright. */
             uint32 free_entry_no = clockcache_get_free_page(
-               cc, CC_READ_LOADING_STATUS, type, FALSE, TRUE);
+               cc, CC_READ_LOADING_STATUS | CC_WRITELOCKED, type, FALSE, TRUE);
             clockcache_entry *entry = &cc->entry[free_entry_no];
             clockcache_entry_set_addr(entry, addr);
             entry->type      = type;
             uint64 lookup_no = clockcache_lookup_number(cc, addr);
+#ifdef SPLINTER_DEBUG
+            if (cc->before_prefetch_publish != NULL) {
+               cc->before_prefetch_publish(
+                  cc, addr, free_entry_no, cc->before_prefetch_publish_arg);
+            }
+#endif
 
             if (state == NULL) {
                state = TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, state);
@@ -3511,6 +3536,7 @@ clockcache_prefetch_pages(clockcache *cc,
             if (__sync_bool_compare_and_swap(
                    &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
             {
+               clockcache_clear_flag(cc, free_entry_no, CC_WRITELOCKED);
                platform_status rc =
                   io_async_state_append_page(state->iostate, entry->page.data);
                if (!SUCCESS(rc)) {

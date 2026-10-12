@@ -153,6 +153,20 @@ struct clockcache {
    platform_log_handle *logfile;
    platform_heap_id     heap_id;
 
+#ifdef SPLINTER_DEBUG
+   // Deterministic admission test; configure only on a quiescent cache.
+   void (*before_candidate_ref)(clockcache *, uint64, uint32, void *);
+   void *before_candidate_ref_arg;
+   void (*before_prefetch_publish)(clockcache *, uint64, uint32, void *);
+   void *before_prefetch_publish_arg;
+   void (*after_candidate_ref_attempt)(clockcache *,
+                                       uint64,
+                                       uint32,
+                                       bool32,
+                                       void *);
+   void *after_candidate_ref_attempt_arg;
+#endif
+
    // Distributed locks (the write bit is in the status uint32 of the entry)
    buffer_handle    rc_bh;
    volatile uint16 *refcount;
