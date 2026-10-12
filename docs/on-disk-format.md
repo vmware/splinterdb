@@ -54,22 +54,45 @@ unknown versions, changed routing widths/seeds across reopen and further
 compaction, synchronous/asynchronous filter reads, and changed log checksum
 creation defaults.
 
-Initial resident ABBA measurements found a 2.8–4.0% point-read regression.
-After removing redundant validation, a second campaign used a single loader,
-200,000 keys in a 128 MiB cache and 7-second read phases. Point throughput was
-still 3.4–3.6% lower; range results ranged from -2.5% to +2.6%. The 2-million-key,
-64 MiB-cache campaign reported +2.0–2.4% point throughput and +2.7–6.6% range
-throughput, with comparable I/O per operation. Device/run variability and
-independently constructed trees prevent attributing those gains to metadata.
-All samples had zero correctness violations and errors. Brief load samples do
-not establish write-performance neutrality.
+The benchmark used identical generated kvbench source, O_DIRECT files on ext4,
+CPU affinity 0–11, 24-byte keys, 100-byte values and WAL disabled. A single
+loader constructed each image; one memtable and three normal workers were
+enabled, so incompatible baseline/candidate formats still have a concurrent
+tree-shape caveat. Resident: 200,000 keys / 128 MiB cache. Disk regime: 2 million
+keys / 64 MiB cache. ABBA read phases lasted seven seconds.
 
-A subsequent reader change removes a full routing-config copy from each filter
-lookup, passing the saved index width and hash seed directly. Version and bounds
-validation remains at the same boundaries. The full functional filter suite and
-changed-configuration reopen/compaction regression pass after that change.
-Its profiling and fixed-image old/new reader measurements are pending; this
-implementation milestone does not claim performance acceptance.
+| Pre-scalar-reader campaign | Point, 1 reader | Point, 8 readers | Range throughput change |
+| --- | ---: | ---: | ---: |
+| Resident | -3.4% | -3.6% | -2.5% to +2.6% |
+| Disk | +2.0% | +2.4% | +2.7% to +6.6% |
+
+The disk samples had comparable I/O per operation. Device/run variation and
+independently constructed trees prevent attributing their apparent gains to
+metadata. Initial shorter resident samples also showed a 2.8–4.0% point-read
+regression. All runs had zero correctness violations and errors; brief load
+samples do not establish write-performance neutrality.
+
+The final reader removes a full routing-config copy from each filter lookup,
+passing the saved index width and hash seed directly. Version and bounds
+validation stays at the same boundaries. A six-run, ten-second fixed-image
+comparison used baseline / old reader / final reader / final reader / old
+reader / baseline order. Both candidate readers used copies of exactly the same
+format-8 image; baseline used its own format-7 image.
+
+| Final reader, resident | Versus old reader | Versus baseline |
+| --- | ---: | ---: |
+| Point, 1 reader | +1.2% | -1.5% |
+| Point, 8 readers | +2.0% | -6.5% |
+| Length-1 range, 1 reader | -2.2% | -1.5% |
+| Length-1 range, 8 readers | -1.7% | -1.0% |
+
+The final functional filter suite and changed-configuration reopen/compaction
+regression pass. Profiling the earlier reader places most samples in cache
+acquisition/release and B-tree/trunk lookup. It does not isolate a single cause
+for the residual point-read cost. Each bundle decode now checks its branch
+versions; that added work remains a possible cost. Performance neutrality has
+**not** been established. The final scalar reader has not repeated the full
+disk or write matrix; the disk figures above describe the earlier reader.
 
 Campaign artifacts: `.cache/projects-20261011/benchmarks/disk-format/` in the
 main checkout. The common harness and build provenance are retained there;
