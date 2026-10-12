@@ -94,7 +94,8 @@ versions; that added work remains a possible cost. Performance neutrality has
 **not** been established. The final scalar reader has not repeated the full
 disk or write matrix; the disk figures above describe the earlier reader.
 
-Campaign artifacts: `.cache/projects-20261011/benchmarks/disk-format/` in the
-main checkout. The common harness and build provenance are retained there;
+Compact CSVs, manifests, profiling summaries, runners and build provenance are
+committed under `benchmarks/results-20261011/`. Full campaign artifacts remain
+at `.cache/projects-20261011/benchmarks/disk-format/` in the main checkout;
 benchmark database files were on a verified disk filesystem, with the shared
 benchmark lock excluding other benchmarks, builds and tests.
