@@ -22,3 +22,10 @@ sizes, and input fixture. Serialize benchmarks against other work and keep the
 database on a real disk. The campaign's `coordination/run_job.py` enforces this.
 The same-file disk campaign intentionally reopens one physical file; the other
 read campaigns copy the baseline fixture separately for each run.
+
+`prefetch-admission/` records the later inherited prefetch repair, complete
+handoff validation suites, and separate release provenance. The two
+`disk-log0-prefetch-guard*` campaigns compare that repair against this branch's
+own pre-guard binary, unlike the earlier project 1 comparisons. An initial
+short-range loss reversed in the longer repeat. Neither copied-fixture control
+explicitly synced the copy before timing; see the report's procedure limitation.

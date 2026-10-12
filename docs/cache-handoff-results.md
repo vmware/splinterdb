@@ -1,7 +1,8 @@
 # Cross-thread page handles
 
-This branch is stacked on project 1, `robj/cache-errors` at `1da0450`. Compare
-performance against its compact receipt implementation to isolate the handoff change.
+This branch is stacked on project 1, `robj/cache-errors`, including its final
+prefetch admission repair. Compare performance against its compact receipt
+implementation to isolate the handoff change.
 
 ## Implementation and contract
 
@@ -66,6 +67,13 @@ Validation used `BUILD_ROOT=build-receipt` for the separate-stripe layout and
 `BUILD_ROOT=build-tagged` for the tagged layout; use the corresponding executable
 prefix when reproducing the commands above.
 
+The follow-up prefetch admission repair inherited from project 1 also passed
+the deterministic `cache_test --prefetch-admission` regression and async cache
+driver. Complete reruns verified 16 writeback tests and 48 public quick tests,
+including the cache handle and public iterator handoff tests, using
+`BUILD_ROOT=build-prefetch`. The logs and exact counts are in the
+`prefetch-admission` evidence directory.
+
 ## Performance
 
 The retained 16-byte receipt has mostly small resident read changes. Storage
@@ -80,9 +88,10 @@ The separate-stripe code is `6c3a211`, followed by formatting-only synchronizati
 in `4f99413`; tagged code is `7c65f4b`. Compare against project 1's `068fef0`
 compact receipt implementation (`1a8190a` adds formatting). The measured
 libraries remain frozen in their distinct build roots. After reverting the tag,
-the final production/test code matches the validated 16-byte layout except for
-comment updates inherited from project 1. No executables were rebuilt for the
-final report or ancestry merge. The same public-API benchmark
+the production/test code retained the validated 16-byte layout. A later merge
+inherits project 1's prefetch-only publication guard and deterministic regression;
+its separate follow-up builds leave the earlier measured binaries frozen.
+The same public-API benchmark
 source, fixed database fixtures, ABBA order, CPU selection, phase lengths, and
 serialized disk-backed execution described in
 [the project 1 report](cache-errors-results.md#performance) apply here. This
@@ -167,3 +176,29 @@ evidence is under the adjacent `cache-errors` directory inherited from project 1
 Full interval traces and logs remain in the campaign paths recorded in the
 manifests. Limitations of the project 1 matrix also apply to this prototype;
 two samples per implementation are insufficient for a strong statistical claim.
+
+The later prefetch guard was measured separately against this branch's own
+frozen pre-guard binary (`65b9123` with the repair; the old binary remains in
+`build-receipt`). Five-second disk ABBA ranges measured -4.26%/-6.12% for one-row
+ranges at 1/8 threads and -1.55%/-4.04% for 10,000-row ranges. For short ranges
+at 8 threads, the old samples were 60.6–62.1K queries/s and the repaired samples
+55.7–59.5K; mean CPU efficiency changed -5.91%, with nearly unchanged bytes/query.
+
+A focused ten-second ABBA repeat of the short ranges measured **+1.67% at one
+thread and +1.20% at eight threads**. CPU efficiency changed +1.75%/+1.17%;
+bytes/query again barely changed. Its old/repaired eight-thread ranges were
+66.3–67.2K and 66.8–68.3K queries/s. The initial short-range loss did not repeat;
+these samples do not establish a guard speedup or prove that it is free. All
+32 recorded phases across both follow-ups reported zero errors and violations.
+The guard adds one atomic status clear per admitted prefetch page and leaves
+the resident hit-path source unchanged.
+
+The follow-up directories are `disk-log0-prefetch-guard` and
+`disk-log0-prefetch-guard-short10`. Their manifests retain build/fixture hashes
+and exact commands; `prefetch-admission` records the repair validation and new
+release provenance. Both campaigns copied the fixture before each run but did
+**not** explicitly sync that copy before opening/warming the database. Buffered
+writes to historical or unreachable pages could therefore overlap timed disk
+reads. This is a procedure limitation, not a demonstrated cause. Future controls should
+`fsync` the copied file before opening it. The earlier query and insertion
+binaries were preserved throughout this repair.
