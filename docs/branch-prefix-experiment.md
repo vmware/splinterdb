@@ -32,7 +32,7 @@ repeated seeks, full-key-only lexical callbacks, and prefix mismatches on both
 sides. All 15 superblock tests pass, including rejection of the other independent
 experiment formats. After the reconstruction optimization, all eight B-tree
 tests (including bounded suffix copies) and the prefix roundtrip pass.
-Performance acceptance is pending the follow-up measurements below.
+Performance remains workload dependent; the completed measurements follow.
 
 `benchmarks/build_prefix_bench.py /path/to/tree` compiles identical generated
 kvbench source against baseline and candidate libraries and records source and
