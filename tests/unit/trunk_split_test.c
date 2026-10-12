@@ -237,6 +237,7 @@ CTEST2(trunk_split, split_scan_propagates_io_error)
                                            data->cfg.btree_cfg,
                                            &itor,
                                            branch,
+                                           BTREE_BRANCH_FORMAT_VERSION,
                                            PAGE_TYPE_BRANCH,
                                            greater_than_or_equal,
                                            NEGATIVE_INFINITY_KEY,

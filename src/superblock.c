@@ -8,6 +8,9 @@
  */
 
 #include "superblock.h"
+#include "trunk.h"
+#include "rc_allocator.h"
+#include "shard_log.h"
 #include "poison.h"
 
 #define SUPERBLOCK_CSUM_SEED (0x53555045524231ULL) // "SUPERB1"
@@ -130,21 +133,24 @@ superblock_check_versions(const superblock *sb)
    if (sb->format_version != SUPERBLOCK_FORMAT_VERSION) {
       return superblock_unsupported_version(sb->format_version);
    }
-   if (sb->trunk_format_version != TRUNK_FORMAT_VERSION
-       || sb->allocator_format_version != RC_ALLOCATOR_FORMAT_VERSION
-       || (!SUPERBLOCK_NO_LOG(sb->tree.live_log)
-           && sb->tree.live_log.head.format_version != SHARD_LOG_FORMAT_VERSION)
-       || (!SUPERBLOCK_NO_LOG(sb->tree.sealed_log)
-           && sb->tree.sealed_log.head.format_version
-                 != SHARD_LOG_FORMAT_VERSION))
-   {
-      platform_error_log("Unsupported on-disk structure version: "
-                         "trunk=%u allocator=%u live-log=%u sealed-log=%u\n",
-                         sb->trunk_format_version,
-                         sb->allocator_format_version,
-                         sb->tree.live_log.head.format_version,
-                         sb->tree.sealed_log.head.format_version);
-      return STATUS_INVALID_STATE;
+   platform_status rc = trunk_validate_format_version(sb->trunk_format_version);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   rc = rc_allocator_validate_format_version(sb->allocator_format_version);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   if (!SUPERBLOCK_NO_LOG(sb->tree.live_log)) {
+      rc = shard_log_validate_format_version(
+         sb->tree.live_log.head.format_version);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   if (!SUPERBLOCK_NO_LOG(sb->tree.sealed_log)) {
+      return shard_log_validate_format_version(
+         sb->tree.sealed_log.head.format_version);
    }
    return STATUS_OK;
 }

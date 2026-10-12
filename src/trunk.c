@@ -1528,13 +1528,6 @@ trunk_ondisk_bundle_readable(trunk_ondisk_bundle *bundle,
    {
       return FALSE;
    }
-   for (uint64 i = 0; i < bundle->num_branches; i++) {
-      if (bundle->branches[i].addr == 0
-          || bundle->branches[i].format_version != BTREE_BRANCH_FORMAT_VERSION)
-      {
-         return FALSE;
-      }
-   }
    if (!routing_filter_descriptor_is_valid(&bundle->maplet)) {
       return FALSE;
    }
@@ -1904,6 +1897,13 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, trunk_ondisk_bundle *odb)
    bndl->maplet = odb->maplet;
 
    for (uint64 i = 0; i < odb->num_branches; i++) {
+      rc = btree_validate_root(odb->branches[i].addr,
+                               odb->branches[i].format_version,
+                               trunk_ondisk_bundle_branch_type(odb));
+      if (!SUCCESS(rc)) {
+         bundle_deinit(bndl);
+         return rc;
+      }
       rc = vector_append(&bndl->branches, odb->branches[i]);
       platform_assert_status_ok(rc);
    }
@@ -2337,8 +2337,11 @@ trunk_recover_bundle_refs(const trunk_context *context, bundle *bndl)
    page_type type = bundle_branch_type(bndl);
    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
       branch_ref      bref = vector_get(&bndl->branches, i);
-      platform_status rc   = btree_recover_allocations(
-         context->cc, context->cfg->btree_cfg, branch_ref_addr(bref), type);
+      platform_status rc   = btree_recover_allocations(context->cc,
+                                                     context->cfg->btree_cfg,
+                                                     branch_ref_addr(bref),
+                                                     bref.format_version,
+                                                     type);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -2973,13 +2976,14 @@ trunk_branch_merger_init(trunk_branch_merger *merger,
 static platform_status
 trunk_branch_merger_add_branch(trunk_branch_merger *merger,
                                uint64               addr,
+                               uint16               format_version,
                                page_type            type)
 {
    platform_assert(merger != NULL);
    platform_assert(addr != 0);
    platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
 
-   trunk_branch_info branch = {addr, type};
+   trunk_branch_info branch = {addr, type, format_version};
    platform_status   rc     = vector_append(&merger->branches, branch);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: vector_append() failed: %s",
@@ -3010,8 +3014,10 @@ trunk_branch_merger_add_branches(trunk_branch_merger     *merger,
    }
 
    for (uint64 i = 0; i < num_branches; i++) {
-      rc = trunk_branch_merger_add_branch(
-         merger, branches[i].addr, branches[i].type);
+      rc = trunk_branch_merger_add_branch(merger,
+                                          branches[i].addr,
+                                          branches[i].format_version,
+                                          branches[i].type);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
                             __func__,
@@ -3043,8 +3049,10 @@ trunk_branch_merger_add_bundle(trunk_branch_merger *merger,
 
    for (uint64 i = 0; i < bundle_num_branches(routed); i++) {
       branch_ref bref = vector_get(&routed->branches, i);
-      rc              = trunk_branch_merger_add_branch(
-         merger, branch_ref_addr(bref), bundle_branch_type(routed));
+      rc              = trunk_branch_merger_add_branch(merger,
+                                          branch_ref_addr(bref),
+                                          bref.format_version,
+                                          bundle_branch_type(routed));
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
                             __func__,
@@ -3095,8 +3103,12 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
       for (uint64 i = 0; i < num_branches; i++) {
          trunk_branch_info branch = vector_get(&merger->branches, i);
          uint32            root_height;
-         rc = btree_get_root_height(
-            cc, merger->cfg->btree_cfg, branch.addr, branch.type, &root_height);
+         rc = btree_get_root_height(cc,
+                                    merger->cfg->btree_cfg,
+                                    branch.addr,
+                                    branch.format_version,
+                                    branch.type,
+                                    &root_height);
          if (!SUCCESS(rc)) {
             platform_error_log("%s():%d: btree_get_root_height() failed: %s",
                                __func__,
@@ -3122,6 +3134,7 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
                                merger->cfg->btree_cfg,
                                itor,
                                branch.addr,
+                               branch.format_version,
                                branch.type,
                                greater_than_or_equal,
                                merger->min_key,
@@ -3970,7 +3983,7 @@ bundle_compaction_create(trunk_context     *context,
          btree_inc_ref(
             context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
          page_type         type = bundle_branch_type(bndl);
-         trunk_branch_info bi   = {bref.addr, type};
+         trunk_branch_info bi   = {bref.addr, type, bref.format_version};
          rc                     = vector_append(&result->input.branches, bi);
          platform_assert_status_ok(rc);
          __sync_fetch_and_add(&bc_incs, 1);
@@ -4728,8 +4741,13 @@ compute_input_stats(trunk_context            *context,
    for (uint64 i = 0; i < vector_length(branches); i++) {
       trunk_branch_info bi = vector_get(branches, i);
       btree_pivot_stats btree_stats;
-      platform_status   rc = btree_count_in_range(
-         context->cc, context->cfg->btree_cfg, bi.addr, lb, ub, &btree_stats);
+      platform_status   rc = btree_count_in_range(context->cc,
+                                                context->cfg->btree_cfg,
+                                                bi.addr,
+                                                bi.format_version,
+                                                lb,
+                                                ub,
+                                                &btree_stats);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -5063,6 +5081,7 @@ accumulate_branch_tuple_counts_in_range(branch_ref         bref,
    platform_status   rc = btree_count_in_range(context->cc,
                                              context->cfg->btree_cfg,
                                              branch_ref_addr(bref),
+                                             bref.format_version,
                                              minkey,
                                              maxkey,
                                              &stats);
@@ -5267,6 +5286,7 @@ leaf_estimate_unique_keys(trunk_context *context,
          rc = btree_count_in_range(context->cc,
                                    context->cfg->btree_cfg,
                                    bundle_branch(bndl, 0).addr,
+                                   bundle_branch(bndl, 0).format_version,
                                    trunk_node_pivot_min_key(leaf),
                                    trunk_node_pivot_max_key(leaf),
                                    &stats);
@@ -5288,12 +5308,14 @@ leaf_estimate_unique_keys(trunk_context *context,
       platform_assert(bundle_num_branches(&pivot_bundle) <= 1);
       if (bundle_num_branches(&pivot_bundle) == 1) {
          btree_pivot_stats stats;
-         rc = btree_count_in_range(context->cc,
-                                   context->cfg->btree_cfg,
-                                   bundle_branch(&pivot_bundle, 0).addr,
-                                   trunk_node_pivot_min_key(leaf),
-                                   trunk_node_pivot_max_key(leaf),
-                                   &stats);
+         rc =
+            btree_count_in_range(context->cc,
+                                 context->cfg->btree_cfg,
+                                 bundle_branch(&pivot_bundle, 0).addr,
+                                 bundle_branch(&pivot_bundle, 0).format_version,
+                                 trunk_node_pivot_min_key(leaf),
+                                 trunk_node_pivot_max_key(leaf),
+                                 &stats);
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
@@ -5382,10 +5404,9 @@ trunk_node_filter_limit(const trunk_context *context, const trunk_node *node)
       const routing_filter *filter =
          &vector_get_ptr(&node->pivot_bundles, i)->maplet;
       if (filter->addr != 0) {
-         routing_config cfg   = *context->cfg->filter_cfg;
-         cfg.fingerprint_size = filter->fingerprint_size;
-         cfg.log_index_size   = filter->log_index_size;
-         limit = MIN(limit, routing_filter_max_fingerprints(cache_cfg, &cfg));
+         limit =
+            MIN(limit,
+                routing_filter_max_fingerprints_for_filter(cache_cfg, filter));
       }
    }
    return limit;
@@ -7048,6 +7069,7 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
       rc = btree_lookup_and_merge(context->cc,
                                   context->cfg->btree_cfg,
                                   branch_ref_addr(bndl->branches[idx]),
+                                  bndl->branches[idx].format_version,
                                   trunk_ondisk_bundle_branch_type(bndl),
                                   tgt,
                                   result,
@@ -7080,6 +7102,7 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
          rc = btree_lookup_and_merge(context->cc,
                                      context->cfg->btree_cfg,
                                      branch_ref_addr(bndl->branches[idx]),
+                                     bndl->branches[idx].format_version,
                                      trunk_ondisk_bundle_branch_type(bndl),
                                      tgt,
                                      &temp_result,
@@ -7185,6 +7208,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
                        state->context->cc,
                        state->context->cfg->btree_cfg,
                        branch_ref_addr(state->bndl->branches[state->idx]),
+                       state->bndl->branches[state->idx].format_version,
                        trunk_ondisk_bundle_branch_type(state->bndl),
                        state->tgt,
                        state->result,
@@ -7221,6 +7245,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
             state->context->cc,
             state->context->cfg->btree_cfg,
             branch_ref_addr(state->bndl->branches[state->idx]),
+            state->bndl->branches[state->idx].format_version,
             trunk_ondisk_bundle_branch_type(state->bndl),
             state->tgt,
             &temp_result,
@@ -7537,7 +7562,17 @@ trunk_collect_bundle_branches(trunk_ondisk_bundle *bndl,
          *num_branches = bundle_start;
          return STATUS_LIMIT_EXCEEDED;
       }
+      platform_status rc =
+         btree_validate_root(bndl->branches[i].addr,
+                             bndl->branches[i].format_version,
+                             trunk_ondisk_bundle_branch_type(bndl));
+      if (!SUCCESS(rc)) {
+         /* References are acquired only after the whole bundle is copied. */
+         *num_branches = bundle_start;
+         return rc;
+      }
       branches[*num_branches].addr = branch_ref_addr(bndl->branches[i]);
+      branches[*num_branches].format_version = bndl->branches[i].format_version;
       branches[*num_branches].type = trunk_ondisk_bundle_branch_type(bndl);
 
       (*num_branches)++;

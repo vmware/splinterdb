@@ -310,6 +310,7 @@ CTEST2(btree_stress, insert_callback_failure_abandons_insert)
    rc = btree_lookup((cache *)&data->cc,
                      &data->dbtree_cfg,
                      root_addr,
+                     0,
                      PAGE_TYPE_MEMTABLE,
                      tuple_key,
                      &lookup);
@@ -352,6 +353,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
    ASSERT_TRUE(SUCCESS(btree_get_root_height((cache *)&data->cc,
                                              &data->dbtree_cfg,
                                              root_addr,
+                                             0,
                                              PAGE_TYPE_MEMTABLE,
                                              &height)));
    ASSERT_EQUAL_U(0, height);
@@ -384,6 +386,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
    ASSERT_TRUE(SUCCESS(btree_get_root_height((cache *)&data->cc,
                                              &data->dbtree_cfg,
                                              root_addr,
+                                             0,
                                              PAGE_TYPE_MEMTABLE,
                                              &height)));
    ASSERT_TRUE(height > 0);
@@ -396,6 +399,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
    rc = btree_lookup((cache *)&data->cc,
                      &data->dbtree_cfg,
                      root_addr,
+                     0,
                      PAGE_TYPE_MEMTABLE,
                      rejected_key,
                      &lookup);
@@ -540,8 +544,8 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
 
    lookup_result lookup;
    lookup_result_init(&lookup, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
-   ASSERT_TRUE(SUCCESS(
-      btree_lookup(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, target, &lookup)));
+   ASSERT_TRUE(SUCCESS(btree_lookup(
+      cc, cfg, root_addr, 0, PAGE_TYPE_MEMTABLE, target, &lookup)));
    ASSERT_EQUAL(0,
                 slice_lex_cmp(merge_accumulator_to_value(
                                  lookup_result_accumulator(&lookup)),
@@ -792,6 +796,7 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
       rc = btree_lookup((cache *)&data->cc,
                         &data->dbtree_cfg,
                         root_addr,
+                        0,
                         PAGE_TYPE_MEMTABLE,
                         gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
                         &verify_result);
@@ -929,6 +934,7 @@ query_tests(cache           *cc,
       btree_lookup(cc,
                    cfg,
                    root_addr,
+                   BTREE_BRANCH_FORMAT_VERSION,
                    type,
                    gen_key(cfg, i, keybuf, bt_page_size),
                    &result);
@@ -1027,6 +1033,7 @@ iterator_tests(cache           *cc,
                                             cfg,
                                             &dbiter,
                                             root_addr,
+                                            BTREE_BRANCH_FORMAT_VERSION,
                                             type,
                                             greater_than_or_equal,
                                             NEGATIVE_INFINITY_KEY,
@@ -1080,6 +1087,7 @@ iterator_seek_tests(cache           *cc,
                                             cfg,
                                             &dbiter,
                                             root_addr,
+                                            0,
                                             PAGE_TYPE_MEMTABLE,
                                             greater_than_or_equal,
                                             NEGATIVE_INFINITY_KEY,
@@ -1128,6 +1136,7 @@ pack_tests(cache           *cc,
                                             cfg,
                                             &dbiter,
                                             root_addr,
+                                            0,
                                             PAGE_TYPE_MEMTABLE,
                                             greater_than_or_equal,
                                             NEGATIVE_INFINITY_KEY,
@@ -1229,6 +1238,7 @@ bounds_init_with_copy(cache          *cc,
                                  cfg,
                                  itor,
                                  root,
+                                 BTREE_BRANCH_FORMAT_VERSION,
                                  type,
                                  lo_cmp,
                                  lo,
@@ -1247,6 +1257,7 @@ bounds_init_with_copy(cache          *cc,
                                    cfg,
                                    itor,
                                    root,
+                                   BTREE_BRANCH_FORMAT_VERSION,
                                    type,
                                    lo_cmp,
                                    lo,
@@ -1368,6 +1379,7 @@ iterator_endpoint_fault_init(cache          *cc,
                                  cfg,
                                  itor,
                                  root,
+                                 BTREE_BRANCH_FORMAT_VERSION,
                                  PAGE_TYPE_BRANCH,
                                  greater_than_or_equal,
                                  NEGATIVE_INFINITY_KEY,
@@ -1387,6 +1399,7 @@ iterator_endpoint_fault_init(cache          *cc,
                                    cfg,
                                    itor,
                                    root,
+                                   BTREE_BRANCH_FORMAT_VERSION,
                                    PAGE_TYPE_BRANCH,
                                    greater_than_or_equal,
                                    NEGATIVE_INFINITY_KEY,
@@ -1424,6 +1437,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
                                             cfg,
                                             &source,
                                             source_root,
+                                            0,
                                             PAGE_TYPE_MEMTABLE,
                                             greater_than_or_equal,
                                             NEGATIVE_INFINITY_KEY,
@@ -1450,6 +1464,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
                             cfg,
                             &probe,
                             packed_root,
+                            BTREE_BRANCH_FORMAT_VERSION,
                             PAGE_TYPE_BRANCH,
                             greater_than_or_equal,
                             NEGATIVE_INFINITY_KEY,
@@ -1530,6 +1545,7 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
                                             cfg,
                                             &source,
                                             source_root,
+                                            0,
                                             PAGE_TYPE_MEMTABLE,
                                             greater_than_or_equal,
                                             NEGATIVE_INFINITY_KEY,
@@ -1568,7 +1584,13 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
 
       btree_pivot_stats stats = {
          .num_kvs = 1, .key_bytes = 1, .message_bytes = 1};
-      rc = btree_count_in_range(cc, cfg, packed_root, min_key, max_key, &stats);
+      rc = btree_count_in_range(cc,
+                                cfg,
+                                packed_root,
+                                BTREE_BRANCH_FORMAT_VERSION,
+                                min_key,
+                                max_key,
+                                &stats);
 
       cc->ops                        = fault.original;
       active_iterator_endpoint_fault = NULL;
@@ -1834,6 +1856,7 @@ CTEST2(btree_stress, copied_iterator_split_on_release)
                                                cfg,
                                                &probe,
                                                root,
+                                               0,
                                                PAGE_TYPE_MEMTABLE,
                                                greater_than_or_equal,
                                                NEGATIVE_INFINITY_KEY,

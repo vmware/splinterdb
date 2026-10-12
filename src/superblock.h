@@ -48,9 +48,7 @@
  * descriptors carry their format version and fingerprint size; v8 adds
  * independent structure versions and complete routing-filter/log read config.
  */
-#define SUPERBLOCK_FORMAT_VERSION   (8)
-#define TRUNK_FORMAT_VERSION        (1)
-#define RC_ALLOCATOR_FORMAT_VERSION (1)
+#define SUPERBLOCK_FORMAT_VERSION (8)
 
 /* The two physical superblock copies live at pages 0 and 1. */
 #define SUPERBLOCK_NUM_SLOTS (2)

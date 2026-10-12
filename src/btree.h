@@ -33,7 +33,11 @@
  */
 #define BTREE_MAX_HEIGHT (8)
 
-/* Immutable branch version is stored in its trunk branch_ref. */
+/*
+ * Immutable branch versions travel with the root address. Query and recovery
+ * entry points validate the version before interpreting branch pages. The
+ * version argument is ignored for PAGE_TYPE_MEMTABLE (an in-memory structure).
+ */
 #define BTREE_BRANCH_FORMAT_VERSION (1)
 
 /*
@@ -298,6 +302,12 @@ btree_create(cache              *cc,
              page_type           type,
              uint64             *root_addr);
 
+/* Validate persisted roots before acquiring references. Query entry points
+ * also validate before reading pages. Refcount operations below require a
+ * validated root or one freshly created by this module. */
+platform_status
+btree_validate_root(uint64 root_addr, uint16 format_version, page_type type);
+
 void
 btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr);
 
@@ -311,6 +321,7 @@ platform_status
 btree_get_root_height(cache              *cc,
                       const btree_config *cfg,
                       uint64              root_addr,
+                      uint16              format_version,
                       page_type           type,
                       uint32             *height);
 
@@ -322,6 +333,7 @@ platform_status
 btree_recover_allocations(cache              *cc,
                           const btree_config *cfg,
                           uint64              root_addr,
+                          uint16              format_version,
                           page_type           type);
 
 void
@@ -331,6 +343,7 @@ platform_status
 btree_lookup(cache         *cc,
              btree_config  *cfg,
              uint64         root_addr,
+             uint16         format_version,
              page_type      type,
              key            target,
              lookup_result *result);
@@ -345,6 +358,7 @@ platform_status
 btree_lookup_and_merge(cache              *cc,
                        const btree_config *cfg,
                        uint64              root_addr,
+                       uint16              format_version,
                        page_type           type,
                        key                 target,
                        lookup_result      *result,
@@ -355,6 +369,7 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    param, cache *,                      cc,
    param, const btree_config *,         cfg,
    param, uint64,                       root_addr,
+   param, uint16,                       format_version,
    param, page_type,                    type,
    param, key,                          target,
    param, lookup_result *,              result,
@@ -377,14 +392,23 @@ btree_lookup_and_merge_async_state_init(btree_lookup_async_state *state,
                                         cache                    *cc,
                                         const btree_config       *cfg,
                                         uint64                    root_addr,
-                                        page_type                 type,
-                                        key                       target,
-                                        lookup_result            *result,
-                                        async_callback_fn         callback,
-                                        void                     *callback_arg)
+                                        uint16            format_version,
+                                        page_type         type,
+                                        key               target,
+                                        lookup_result    *result,
+                                        async_callback_fn callback,
+                                        void             *callback_arg)
 {
-   btree_lookup_async_state_init(
-      state, cc, cfg, root_addr, type, target, result, callback, callback_arg);
+   btree_lookup_async_state_init(state,
+                                 cc,
+                                 cfg,
+                                 root_addr,
+                                 format_version,
+                                 type,
+                                 target,
+                                 result,
+                                 callback,
+                                 callback_arg);
 }
 
 async_status
@@ -403,6 +427,7 @@ btree_iterator_init(cache              *cc,
                     const btree_config *cfg,
                     btree_iterator     *itor,
                     uint64              root_addr,
+                    uint16              format_version,
                     page_type           page_type,
                     comparison          min_key_comparison,
                     key                 min_key,
@@ -420,6 +445,7 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
    param, const btree_config *,         cfg,
    param, btree_iterator *,             itor,
    param, uint64,                       root_addr,
+   param, uint16,                       format_version,
    param, page_type,                    type,
    param, comparison,                   min_key_comparison,
    param, key,                          min_key,
@@ -446,7 +472,6 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
    local, uint64,                       next_addr,
    local, uint64,                       prev_addr,
    local, uint64,                       expected_page_no,
-   local, uint64,                       num_entries,
    local, key,                          first_key,
    local, key,                          last_key)
 // clang-format on
@@ -508,6 +533,7 @@ platform_status
 btree_count_in_range(cache              *cc,
                      const btree_config *cfg,
                      uint64              root_addr,
+                     uint16              format_version,
                      key                 min_key,
                      key                 max_key,
                      btree_pivot_stats  *stats);
@@ -516,6 +542,7 @@ void
 btree_count_in_range_by_iterator(cache             *cc,
                                  btree_config      *cfg,
                                  uint64             root_addr,
+                                 uint16             format_version,
                                  key                min_key,
                                  key                max_key,
                                  btree_pivot_stats *stats);

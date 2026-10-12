@@ -753,6 +753,7 @@ splinterdb_get_cost_stats(splinterdb *kvs, splinterdb_cost_stats *stats)
       status = btree_get_root_height(mt_ctxt->cc,
                                      mt_ctxt->cfg.btree_cfg,
                                      memtable_root_addr(&mt_ctxt->mt[mt_no]),
+                                     0,
                                      PAGE_TYPE_MEMTABLE,
                                      &height);
       if (!SUCCESS(status)) {

@@ -252,6 +252,19 @@ routing_filter_get_params(const routing_config  *cfg,
    return STATUS_OK;
 }
 
+uint64
+routing_filter_max_fingerprints_for_filter(cache_config         *cache_cfg,
+                                           const routing_filter *filter)
+{
+   debug_assert(routing_filter_descriptor_is_valid(filter));
+   debug_assert(filter->addr != 0);
+   routing_config cfg = {
+      .fingerprint_size = filter->fingerprint_size,
+      .log_index_size   = filter->log_index_size,
+   };
+   return routing_filter_max_fingerprints(cache_cfg, &cfg);
+}
+
 static platform_status
 routing_get_header(cache                *cc,
                    const routing_config *cfg,

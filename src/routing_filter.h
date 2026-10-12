@@ -184,6 +184,11 @@ routing_filter_max_fingerprints(cache_config         *cache_cfg,
    return MIN(UINT32_MAX, MIN(index_limit, fingerprint_limit));
 }
 
+/* Capacity of an existing instance, independent of new-filter settings. */
+uint64
+routing_filter_max_fingerprints_for_filter(cache_config         *cache_cfg,
+                                           const routing_filter *filter);
+
 // clang-format off
 DEFINE_ASYNC_STATE(routing_filter_lookup_async_state, 2,
    param, cache *,                      cc,

@@ -1679,6 +1679,26 @@ btree_create(cache              *cc,
    return STATUS_OK;
 }
 
+/* The B-tree owns branch format compatibility, independent of its container. */
+platform_status
+btree_validate_root(uint64 root_addr, uint16 format_version, page_type type)
+{
+   if (type == PAGE_TYPE_BRANCH
+       && format_version != BTREE_BRANCH_FORMAT_VERSION)
+   {
+      platform_error_log("Unsupported branch format version %u at %lu; "
+                         "this build requires version %u.\n",
+                         format_version,
+                         root_addr,
+                         BTREE_BRANCH_FORMAT_VERSION);
+      return STATUS_INVALID_STATE;
+   }
+   if (root_addr == 0) {
+      return STATUS_INVALID_STATE;
+   }
+   return STATUS_OK;
+}
+
 void
 btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
 {
@@ -1696,8 +1716,15 @@ platform_status
 btree_recover_allocations(cache              *cc,
                           const btree_config *cfg,
                           uint64              root_addr,
+                          uint16              format_version,
                           page_type           type)
 {
+   platform_status version_rc =
+      btree_validate_root(root_addr, format_version, type);
+   if (!SUCCESS(version_rc)) {
+      return version_rc;
+   }
+
    return mini_recover_references(
       cc, btree_root_to_meta_addr(cfg, root_addr, 0), type);
 }
@@ -1717,9 +1744,16 @@ platform_status
 btree_get_root_height(cache              *cc,
                       const btree_config *cfg,
                       uint64              root_addr,
+                      uint16              format_version,
                       page_type           type,
                       uint32             *height)
 {
+   platform_status version_rc =
+      btree_validate_root(root_addr, format_version, type);
+   if (!SUCCESS(version_rc)) {
+      return version_rc;
+   }
+
    if (height == NULL
        || (type != PAGE_TYPE_BRANCH && type != PAGE_TYPE_MEMTABLE))
    {
@@ -3040,37 +3074,45 @@ btree_lookup_with_ref(cache              *cc,        // IN
 }
 
 platform_status
-btree_lookup(cache         *cc,        // IN
-             btree_config  *cfg,       // IN
-             uint64         root_addr, // IN
-             page_type      type,      // IN
-             key            target,    // IN
-             lookup_result *result)    // OUT
+btree_lookup(cache         *cc,             // IN
+             btree_config  *cfg,            // IN
+             uint64         root_addr,      // IN
+             uint16         format_version, // IN
+             page_type      type,           // IN
+             key            target,         // IN
+             lookup_result *result)         // OUT
 {
    lookup_result_reset(result);
    return btree_lookup_and_merge(
-      cc, cfg, root_addr, type, target, result, NULL);
+      cc, cfg, root_addr, format_version, type, target, result, NULL);
 }
 
 platform_status
-btree_lookup_and_merge(cache              *cc,        // IN
-                       const btree_config *cfg,       // IN
-                       uint64              root_addr, // IN
-                       page_type           type,      // IN
-                       key                 target,    // IN
-                       lookup_result      *result,    // IN/OUT
-                       bool32             *local_found)           // OUT
+btree_lookup_and_merge(cache              *cc,             // IN
+                       const btree_config *cfg,            // IN
+                       uint64              root_addr,      // IN
+                       uint16              format_version, // IN
+                       page_type           type,           // IN
+                       key                 target,         // IN
+                       lookup_result      *result,         // IN/OUT
+                       bool32             *local_found)                // OUT
 {
+   if (local_found != NULL) {
+      *local_found = FALSE;
+   }
+
+   platform_status version_rc =
+      btree_validate_root(root_addr, format_version, type);
+   if (!SUCCESS(version_rc)) {
+      return version_rc;
+   }
+
    btree_node      node;
    key             found_key;
    message         local_data;
    platform_status rc = STATUS_OK;
 
    log_trace_key(target, "btree_lookup");
-
-   if (local_found != NULL) {
-      *local_found = FALSE;
-   }
 
    rc = btree_lookup_with_ref(
       cc, cfg, root_addr, type, target, &node, &found_key, &local_data);
@@ -3115,6 +3157,12 @@ async_status
 btree_lookup_and_merge_async(btree_lookup_async_state *state)
 {
    async_begin(state, 0);
+
+   platform_status version_rc =
+      btree_validate_root(state->root_addr, state->format_version, state->type);
+   if (!SUCCESS(version_rc)) {
+      async_return(state, version_rc);
+   }
 
    async_await_subroutine(state, btree_lookup_with_ref_async);
 
@@ -3660,6 +3708,7 @@ btree_iterator_find_end_addr_async(btree_iterator_async_state *state,
                                  state->itor->cc,
                                  state->itor->cfg,
                                  state->itor->root_addr,
+                                 state->format_version,
                                  state->itor->page_type,
                                  state->itor->max_key,
                                  NULL,
@@ -4670,6 +4719,7 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
                                  state->itor->cc,
                                  state->itor->cfg,
                                  state->itor->root_addr,
+                                 state->format_version,
                                  state->itor->page_type,
                                  state->target,
                                  NULL,
@@ -4874,6 +4924,7 @@ btree_iterator_init_common(cache              *cc,
                            const btree_config *cfg,
                            btree_iterator     *itor,
                            uint64              root_addr,
+                           uint16              format_version,
                            page_type           page_type,
                            comparison          min_key_comparison,
                            key                 min_key,
@@ -4885,7 +4936,12 @@ btree_iterator_init_common(cache              *cc,
                            uint32              prefetch_lookahead,
                            key                *normalized_start_key)
 {
-   platform_assert(root_addr != 0);
+   ZERO_CONTENTS(itor);
+   platform_status version_rc =
+      btree_validate_root(root_addr, format_version, page_type);
+   if (!SUCCESS(version_rc)) {
+      return version_rc;
+   }
    debug_assert(page_type == PAGE_TYPE_MEMTABLE
                 || page_type == PAGE_TYPE_BRANCH);
 
@@ -4908,7 +4964,6 @@ btree_iterator_init_common(cache              *cc,
       start_key = max_key;
    }
 
-   ZERO_CONTENTS(itor);
    itor->cc                 = cc;
    itor->cfg                = cfg;
    itor->root_addr          = root_addr;
@@ -4940,6 +4995,7 @@ btree_iterator_init(cache              *cc,
                     const btree_config *cfg,
                     btree_iterator     *itor,
                     uint64              root_addr,
+                    uint16              format_version,
                     page_type           page_type,
                     comparison          min_key_comparison,
                     key                 min_key,
@@ -4955,6 +5011,7 @@ btree_iterator_init(cache              *cc,
                                                    cfg,
                                                    itor,
                                                    root_addr,
+                                                   format_version,
                                                    page_type,
                                                    min_key_comparison,
                                                    min_key,
@@ -4993,6 +5050,7 @@ btree_iterator_init_async(btree_iterator_async_state *state)
                                                    state->cfg,
                                                    state->itor,
                                                    state->root_addr,
+                                                   state->format_version,
                                                    state->type,
                                                    state->min_key_comparison,
                                                    state->min_key,
@@ -5523,6 +5581,7 @@ platform_status
 btree_count_in_range(cache              *cc,
                      const btree_config *cfg,
                      uint64              root_addr,
+                     uint16              format_version,
                      key                 min_key,
                      key                 max_key,
                      btree_pivot_stats  *stats)
@@ -5531,6 +5590,12 @@ btree_count_in_range(cache              *cc,
 
    debug_assert(!key_is_null(min_key) && !key_is_null(max_key));
    memset(stats, 0, sizeof(*stats));
+
+   platform_status version_rc =
+      btree_validate_root(root_addr, format_version, PAGE_TYPE_BRANCH);
+   if (!SUCCESS(version_rc)) {
+      return version_rc;
+   }
 
    platform_status rc = btree_get_rank(cc, cfg, root_addr, min_key, &min_stats);
    if (!SUCCESS(rc)) {
@@ -5560,6 +5625,7 @@ void
 btree_count_in_range_by_iterator(cache             *cc,
                                  btree_config      *cfg,
                                  uint64             root_addr,
+                                 uint16             format_version,
                                  key                min_key,
                                  key                max_key,
                                  btree_pivot_stats *stats)
@@ -5570,6 +5636,7 @@ btree_count_in_range_by_iterator(cache             *cc,
                                             cfg,
                                             &btree_itor,
                                             root_addr,
+                                            format_version,
                                             PAGE_TYPE_BRANCH,
                                             greater_than_or_equal,
                                             min_key,

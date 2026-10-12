@@ -106,3 +106,76 @@ committed under `benchmarks/results-20261011/`. Full campaign artifacts remain
 at `.cache/projects-20261011/benchmarks/disk-format/` in the main checkout;
 benchmark database files were on a verified disk filesystem, with the shared
 benchmark lock excluding other benchmarks, builds and tests.
+
+## Format ownership follow-up (2026-10-12)
+
+Branch compatibility now belongs to the B-tree. Point queries pass the selected
+branch's persisted version to synchronous/asynchronous B-tree entry points;
+`trunk_ondisk_bundle_readable()` no longer scans every branch. The B-tree rejects
+unsupported versions or null roots before reading pages. Range initialization,
+compaction, root-height/count queries, and allocation recovery preserve the
+version alongside the address. Memtables do not acquire a format requirement.
+
+Reference acquisition needs validation before iterator initialization: a null
+root would otherwise target extent zero through the mini allocator. Existing
+bundle-deserialization and range-collection loops therefore call the B-tree's
+root validator before admitting references. Failed collection discards the
+unreferenced partial bundle, preserving correct cleanup. These checks add no
+branch scan to the ordinary point-query bundle decoder.
+
+The ownership audit also moved trunk/allocator version constants and support
+checks to their modules. Superblock reading still selects the newest valid
+record before invoking owner validators for trunk, allocator, and both logs;
+it never silently falls back to an older record with supported components.
+Routing-filter instance-capacity calculation now lives in the routing-filter
+module instead of reconstructing its encoding configuration in the trunk.
+Routing-filter descriptor validation and mini-allocator private-header
+validation were already correctly owned. No on-disk layout or version changed
+in this follow-up.
+
+Direct B-tree regressions cover old/future versions and null roots before any
+cache access, including safe iterator cleanup. The core corruption regression
+covers synchronous/asynchronous point hits and ranges, and verifies that
+routing-filter misses succeed without inspecting the irrelevant branch.
+
+Final debug validation passed all 108 cases across B-tree (11), superblock (16),
+core (33), quick API (47), and async trunk (1), plus the functional filter and
+log suites. Release builds of all tests and the inspection tool also passed;
+the earlier release correctness run passed those same 108 cases before the
+last reference-admission and corruption-test extensions.
+
+The follow-up resident comparison uses the prior final-scalar executable and
+the new reader on copies of the same format-8 image, avoiding independently
+built tree shapes. Every private copy is explicitly fsynced before opening.
+The runner uses O_DIRECT on verified ext4 storage, 200,000 keys, 128 MiB cache,
+24-byte keys, 100-byte values, WAL disabled, CPU affinity 0-11, and 15-second
+phases. ABBA then BAAB gives four samples per reader for point queries and
+length-1 ranges at one/eight threads. The shared benchmark and machine locks
+exclude simultaneous benchmarks, builds, and tests. This compares the complete
+ownership refactor, not a one-line validation-loop ablation, and does not
+remeasure the original main branch.
+
+| Ownership refactor versus prior scalar reader | Throughput | CPU/op |
+| --- | ---: | ---: |
+| Point, 1 reader | -1.41% | +1.38% |
+| Point, 8 readers | -0.94% | +0.74% |
+| Length-1 range, 1 reader | +0.04% | -0.05% |
+| Length-1 range, 8 readers | +1.31% | -1.36% |
+
+All eight runs passed with zero errors/violations. Timed read/write bytes were
+zero: these are resident CPU measurements, though the database files remain
+on physical disk. Every before/after sample interval overlaps, both overall
+and within each block. For example, eight-reader point throughput changed
+-3.56% in ABBA but +1.94% in BAAB; the prior reader's block means drifted
+-8.62%. The measurements establish neither a clear benefit nor a reliably
+attributable regression. Removing the eager loop has not demonstrated a cure
+for the original project's overhead; neutrality versus the original main
+branch remains unestablished. Disk-limited and insertion matrices were not
+repeated for this ownership-only follow-up.
+
+The final release corruption regression also passes with the reference
+admission guards and filter-negative cases. Compact raw measurements, block
+summaries, test logs, hashes, commands, and the measured source patch are in
+[`benchmarks/results-20261011/layering-20261012/`](../benchmarks/results-20261011/layering-20261012/).
+Full fixtures and preserved measured executables remain in the campaign's
+`benchmarks/disk-format/resident-layering-20261012/` directory.

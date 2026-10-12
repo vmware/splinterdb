@@ -20,6 +20,10 @@
 #include "platform_mutex.h"
 #include "writeback_set.h"
 
+/* Validate the version persisted in a log head before accessing its stream. */
+platform_status
+shard_log_validate_format_version(uint16 format_version);
+
 /*
  * Configuration structure to set up the sharded log sub-system.
  */

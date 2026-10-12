@@ -19,6 +19,23 @@
 #include "data_internal.h"
 #include "batch_rwlock.h"
 
+#define TRUNK_FORMAT_VERSION (1)
+
+/* The superblock persists this version; the trunk owns its supported readers.
+ */
+static inline platform_status
+trunk_validate_format_version(uint16 format_version)
+{
+   if (format_version != TRUNK_FORMAT_VERSION) {
+      platform_error_log("Unsupported trunk format version %u; "
+                         "this build requires version %u.\n",
+                         format_version,
+                         TRUNK_FORMAT_VERSION);
+      return STATUS_INVALID_STATE;
+   }
+   return STATUS_OK;
+}
+
 typedef struct trunk_config {
    const data_config    *data_cfg;
    const btree_config   *btree_cfg;
@@ -335,6 +352,7 @@ trunk_merge_lookup(trunk_context            *context,
 typedef struct trunk_branch_info {
    uint64    addr;
    page_type type;
+   uint16    format_version;
 } trunk_branch_info;
 
 platform_status

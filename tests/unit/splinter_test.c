@@ -1494,7 +1494,7 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    ASSERT_TRUE(range_rejected);
 }
 
-CTEST2(splinter, test_unknown_branch_version_rejected)
+CTEST2(splinter, test_invalid_branch_reference_rejected)
 {
    cache      *cc = (cache *)data->clock_cache;
    core_handle spl;
@@ -1532,41 +1532,108 @@ CTEST2(splinter, test_unknown_branch_version_rejected)
    test_trunk_bundle *bundle =
       (test_trunk_bundle *)(page->data + offset % page_size);
    ASSERT_TRUE(bundle->num_branches != 0);
-   uint16 saved_version = bundle->branches[0].format_version;
-   bundle->branches[0].format_version++;
+   branch_ref     saved_branch = bundle->branches[0];
+   routing_filter saved_maplet = bundle->maplet;
    test_splinter_unclaim_page(cc, page);
 
-   lookup_result result;
-   lookup_result_init(
-      &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
-   platform_status sync_rc =
-      core_lookup(&spl, key_buffer_key(&keybuf), &result);
-   platform_status async_rc = async_call_sync_callback(cache_cleanup(cc),
-                                                       core_lookup_async,
-                                                       &spl,
-                                                       key_buffer_key(&keybuf),
-                                                       &result);
-   lookup_result_deinit(&result);
-   core_range_iterator itor;
-   platform_status     range_rc = core_range_iterator_init(&spl,
-                                                       &itor,
-                                                       greater_than_or_equal,
-                                                       NEGATIVE_INFINITY_KEY,
-                                                       less_than,
-                                                       POSITIVE_INFINITY_KEY,
-                                                       greater_than_or_equal,
-                                                       NEGATIVE_INFINITY_KEY);
-   if (SUCCESS(range_rc)) {
-      core_range_iterator_deinit(&itor);
+   /* Select the branch for its key, but skip it for a known filter miss. The
+    * latter must not inspect a branch that the query does not need to read. */
+   const routing_config *filter_cfg  = spl.cfg.trunk_node_cfg->filter_cfg;
+   routing_filter        null_filter = NULL_ROUTING_FILTER;
+   routing_filter        filter      = NULL_ROUTING_FILTER;
+   uint32                fp          = data_key_hash(
+      spl.cfg.data_cfg, key_buffer_key(&keybuf), filter_cfg->seed);
+   ASSERT_TRUE(SUCCESS(
+      routing_filter_add(cc, filter_cfg, &null_filter, &filter, &fp, 1, 0)));
+   uint64 found_values;
+   ASSERT_TRUE(SUCCESS(routing_filter_lookup(
+      cc, filter_cfg, &filter, key_buffer_key(&keybuf), &found_values)));
+   ASSERT_EQUAL_U(1, found_values);
+
+   DECLARE_AUTO_KEY_BUFFER(miss_keybuf, data->hid);
+   for (uint64 i = 2; i < 1002; i++) {
+      test_key(
+         &miss_keybuf, TEST_RANDOM, i, 0, 0, data->workload_cfg->key_size, 0);
+      ASSERT_TRUE(SUCCESS(routing_filter_lookup(cc,
+                                                filter_cfg,
+                                                &filter,
+                                                key_buffer_key(&miss_keybuf),
+                                                &found_values)));
+      if (found_values == 0) {
+         break;
+      }
    }
-   page   = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
-   bundle = (test_trunk_bundle *)(page->data + offset % page_size);
-   bundle->branches[0].format_version = saved_version;
-   test_splinter_unclaim_page(cc, page);
+   ASSERT_EQUAL_U(0, found_values);
+
+   platform_status sync_rc[2];
+   platform_status async_rc[2];
+   platform_status range_rc[2];
+   bool32          sync_miss_ok[2];
+   bool32          async_miss_ok[2];
+   for (uint64 invalid_field = 0; invalid_field < 2; invalid_field++) {
+      page           = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      bundle         = (test_trunk_bundle *)(page->data + offset % page_size);
+      bundle->maplet = filter;
+      if (invalid_field == 0) {
+         bundle->branches[0].format_version++;
+      } else {
+         bundle->branches[0].addr = 0;
+      }
+      test_splinter_unclaim_page(cc, page);
+
+      lookup_result result;
+      lookup_result_init(
+         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      sync_rc[invalid_field] =
+         core_lookup(&spl, key_buffer_key(&keybuf), &result);
+      async_rc[invalid_field] =
+         async_call_sync_callback(cache_cleanup(cc),
+                                  core_lookup_async,
+                                  &spl,
+                                  key_buffer_key(&keybuf),
+                                  &result);
+      platform_status rc =
+         core_lookup(&spl, key_buffer_key(&miss_keybuf), &result);
+      sync_miss_ok[invalid_field] =
+         SUCCESS(rc) && !lookup_result_found(&result);
+      rc = async_call_sync_callback(cache_cleanup(cc),
+                                    core_lookup_async,
+                                    &spl,
+                                    key_buffer_key(&miss_keybuf),
+                                    &result);
+      async_miss_ok[invalid_field] =
+         SUCCESS(rc) && !lookup_result_found(&result);
+      lookup_result_deinit(&result);
+
+      core_range_iterator itor;
+      range_rc[invalid_field] = core_range_iterator_init(&spl,
+                                                         &itor,
+                                                         greater_than_or_equal,
+                                                         NEGATIVE_INFINITY_KEY,
+                                                         less_than,
+                                                         POSITIVE_INFINITY_KEY,
+                                                         greater_than_or_equal,
+                                                         NEGATIVE_INFINITY_KEY);
+      if (SUCCESS(range_rc[invalid_field])) {
+         core_range_iterator_deinit(&itor);
+      }
+
+      /* Restore the owning reference before cleanup can release it. */
+      page   = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      bundle = (test_trunk_bundle *)(page->data + offset % page_size);
+      bundle->branches[0] = saved_branch;
+      bundle->maplet      = saved_maplet;
+      test_splinter_unclaim_page(cc, page);
+   }
+   routing_filter_dec_ref(cc, &filter);
    core_destroy(&spl);
-   ASSERT_FALSE(SUCCESS(sync_rc));
-   ASSERT_FALSE(SUCCESS(async_rc));
-   ASSERT_FALSE(SUCCESS(range_rc));
+   for (uint64 invalid_field = 0; invalid_field < 2; invalid_field++) {
+      ASSERT_TRUE(STATUS_IS_EQ(sync_rc[invalid_field], STATUS_INVALID_STATE));
+      ASSERT_TRUE(STATUS_IS_EQ(async_rc[invalid_field], STATUS_INVALID_STATE));
+      ASSERT_TRUE(STATUS_IS_EQ(range_rc[invalid_field], STATUS_INVALID_STATE));
+      ASSERT_TRUE(sync_miss_ok[invalid_field]);
+      ASSERT_TRUE(async_miss_ok[invalid_field]);
+   }
 }
 
 /* Persisted pivot statistics are sizing hints, but they still feed arithmetic

@@ -715,7 +715,7 @@ CTEST2(superblock, test_bootstrap_geometry_metadata_budget)
 /* A checksummed newer version is not permission to roll back to its peer. */
 CTEST2(superblock, test_unknown_structure_version_rejected)
 {
-   for (uint64 component = 0; component < 3; component++) {
+   for (uint64 component = 0; component < 4; component++) {
       superblock_context ctx;
       platform_status    rc = superblock_context_init(
          &ctx, data->ioh, &data->allocator_cfg, data->hid);
@@ -725,9 +725,13 @@ CTEST2(superblock, test_unknown_structure_version_rejected)
          ctx.image->trunk_format_version++;
       } else if (component == 1) {
          ctx.image->allocator_format_version++;
-      } else {
+      } else if (component == 2) {
          superblock_log_cut(&ctx, TEST_LOG_L1);
          ctx.image->tree.live_log.head.format_version++;
+      } else {
+         superblock_log_cut(&ctx, TEST_LOG_L1);
+         superblock_log_cut(&ctx, TEST_LOG_L2);
+         ctx.image->tree.sealed_log.head.format_version++;
       }
       ASSERT_TRUE(SUCCESS(superblock_make_durable(&ctx)));
       superblock image;
