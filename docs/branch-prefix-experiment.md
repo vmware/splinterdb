@@ -82,6 +82,14 @@ candidate / previous candidate / baseline. Both candidate binaries read the
 same candidate image. Disk order was ABBA. Read phases lasted seven seconds.
 Positive changes below mean more throughput than baseline.
 
+These full fixed-image matrices used buffered `cp` without an explicit fsync
+before O_DIRECT open/warm/timing. Pending copy writeback, including unreachable
+historical pages, may confound their results. This is a method limitation, not
+proof of the cause of any earlier outlier. The initial seven pattern/control
+matrices constructed fresh O_DIRECT databases and did not use this copy path.
+The bounded fsynced disk repeat described below checks two final-reader phases;
+the original full matrices are preserved here for comparison.
+
 | Final common-prefix reader | Resident | Disk |
 | --- | ---: | ---: |
 | Point, 1 reader | +0.9% | +11.0% |
@@ -111,6 +119,23 @@ order. Point throughput changed by -0.0% / -1.4%, length-1 ranges by -1.4% /
 -2.6%, and long ranges by +0.4% / -1.2% (one/eight readers). I/O per operation
 remained comparable. This did not reproduce the earlier isolated 8-reader
 collapse, but the small negative differences remain part of the measured cost.
+
+A bounded followup fsynced each copied disk fixture before O_DIRECT open and
+warmup, then repeated only point and length-10,000 queries with eight readers.
+It used the same frozen final binaries, the same per-format images, ABBA order
+and seven-second phases. All four runs passed with no errors or violations.
+
+| Fsynced common-prefix disk control | Baseline ops/s, min–max | Candidate ops/s, min–max | Mean throughput change | Read bytes/query change |
+| --- | ---: | ---: | ---: | ---: |
+| Point, 8 readers | 138,877–161,839 | 169,695–187,194 | +18.7% | -9.1% |
+| Length-10,000 range, 8 readers | 810.7–840.3 | 1,039.3–1,049.8 | +26.5% | -29.0% |
+
+CPU efficiency increased 3.6% for points and 13.9% for long ranges. Baseline
+rates still varied between the two repetitions, so these throughput deltas are
+not precise universal estimates. The large gains and read-I/O reductions persist
+after explicitly synchronizing the copies. This control does not establish that
+copy writeback caused any earlier outlier, and it does not replace unmeasured
+phases or the nonlexical and resident controls.
 
 All completed samples report zero correctness violations and errors. Loads were
 short (subsecond resident, a few seconds on disk), so their throughput is not a
