@@ -20,56 +20,24 @@ typedef struct cache_page {
    uint64 disk_addr;
 } cache_page;
 
-/* The shared identity is naturally aligned, leaving two low bits for the
- * acquisition stripe. The cache's stripe count must match this receipt. */
-#define PAGE_HANDLE_REF_STRIPES 4u
-#define PAGE_HANDLE_REF_MASK    ((uintptr_t)(PAGE_HANDLE_REF_STRIPES - 1))
-_Static_assert(_Alignof(cache_page) >= PAGE_HANDLE_REF_STRIPES,
-               "shared page identity must leave room for the stripe tag");
-
 /* Caller-owned receipt for one cache reference. Copying it transfers ownership;
- * it does not acquire another reference. cache_unget() clears this receipt.
- * page_and_ref is private to these helpers; it is not a dereferenceable
- * pointer.
- */
+ * it does not acquire another reference. cache_unget() clears this receipt. */
 typedef struct page_handle {
-   uintptr_t page_and_ref;
+   cache_page *page;
+   /* Stripe receipt, independent of the thread that later owns the handle. */
+   threadid read_ref_tid;
 } page_handle;
-
-_Static_assert(sizeof(page_handle) == sizeof(cache_page *),
-               "page receipts must remain pointer-sized");
-
-static inline page_handle
-page_handle_make(cache_page *page, threadid tid)
-{
-   uintptr_t identity = (uintptr_t)page;
-   debug_assert(page != NULL && (identity & PAGE_HANDLE_REF_MASK) == 0);
-   return (page_handle){.page_and_ref =
-                           identity | (tid & PAGE_HANDLE_REF_MASK)};
-}
-
-static inline cache_page *
-page_handle_page(const page_handle *page)
-{
-   return (cache_page *)(page->page_and_ref & ~PAGE_HANDLE_REF_MASK);
-}
-
-static inline threadid
-page_handle_ref_stripe(const page_handle *page)
-{
-   return page->page_and_ref & PAGE_HANDLE_REF_MASK;
-}
 
 static inline bool32
 page_handle_is_null(const page_handle *page)
 {
-   return page->page_and_ref == 0;
+   return page->page == NULL;
 }
 
 static inline bool32
 page_handle_same_page(const page_handle *a, const page_handle *b)
 {
-   return page_handle_page(a) == page_handle_page(b);
+   return a->page == b->page;
 }
 
 /* These accessors require a live, successful handle. Neither the identity
@@ -77,13 +45,13 @@ page_handle_same_page(const page_handle *a, const page_handle *b)
 static inline char *
 page_handle_data(const page_handle *page)
 {
-   return page_handle_page(page)->data;
+   return page->page->data;
 }
 
 static inline uint64
 page_handle_addr(const page_handle *page)
 {
-   return page_handle_page(page)->disk_addr;
+   return page->page->disk_addr;
 }
 
 typedef struct cache_config cache_config;
