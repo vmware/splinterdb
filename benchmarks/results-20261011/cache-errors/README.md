@@ -28,3 +28,10 @@ different campaign directories as if they were contemporaneous samples.
 The profile text locates sampled functions. `cpu_core` stat counters are usable;
 near-zero-runtime `cpu_atom` extrapolations are not. Counters include process
 startup, warmup, and close; the report states the resulting attribution limit.
+
+`prefetch-admission/` records the later unpublished-prefetch race reproduction,
+repair, corrected full-suite validation, and new release provenance. Its
+`invalid-zero-selection/` logs are explicitly invalid validation.
+`disk-log0-prefetch-guard/` compares that repair with this branch's own frozen
+pre-guard executable; its exceptionally slow first baseline prevents causal
+performance attribution. The earlier campaign binaries were preserved.

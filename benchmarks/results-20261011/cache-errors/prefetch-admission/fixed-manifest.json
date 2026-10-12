@@ -1,5 +1,6 @@
 {
   "stage": "fixed",
+  "source_head": "526a0a03b54bb7eb9c76042fae7233311c2fc1ac",
   "build_command": [
     "make",
     "--jobserver-style=pipe",
@@ -31,18 +32,14 @@
     {
       "name": "writeback",
       "command": [
-        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-errors/build-prefetch/debug/bin/unit/writeback_set_test",
-        "--db-location",
-        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-prefetch-validation/fixed-writeback.db"
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-errors/build-prefetch/debug/bin/unit/writeback_set_test"
       ],
       "returncode": 0
     },
     {
       "name": "quick",
       "command": [
-        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-errors/build-prefetch/debug/bin/unit/splinterdb_quick_test",
-        "--db-location",
-        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-prefetch-validation/fixed-quick.db"
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-errors/build-prefetch/debug/bin/unit/splinterdb_quick_test"
       ],
       "returncode": 0
     },
@@ -61,5 +58,7 @@
       ],
       "returncode": 0
     }
-  ]
+  ],
+  "validated": true,
+  "library_sha256": "8629965cad93c59dc983da0b3f2775c3bf9ca3fc651d7645c052c8a1ea4ca13e"
 }

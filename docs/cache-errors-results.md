@@ -81,9 +81,13 @@ until its directory CAS succeeds, clearing it before appending the I/O page.
 Demand admission still initializes identity after its CAS and is unchanged.
 The deterministic `cache_test --prefetch-admission` failed with the exact stale
 reference assertion on the unguarded code and passed after this repair.
-The writeback/fault suite, all quick tests, and async cache driver passed again
-using `BUILD_ROOT=build-prefetch`. Debug-only hooks schedule this interleaving;
-release builds contain neither the hooks nor their branches.
+The async cache driver, all 14 writeback tests, and all 47 public quick tests
+also passed using `BUILD_ROOT=build-prefetch`. The first follow-up unit commands
+mistakenly selected zero tests; those logs are retained as invalid validation
+under `prefetch-admission/invalid-zero-selection`. The corrected manifests and
+logs explicitly verify the complete nonzero suite counts. Debug-only hooks
+schedule this interleaving; release builds contain neither the hooks nor their
+branches.
 
 ## Performance
 
@@ -222,3 +226,26 @@ Large interval traces, logs, images, and binary profiles remain at the original
 campaign paths. The measurements above precede the narrow prefetch admission
 repair. Its follow-up cold-read comparison uses a separate build root, preserving
 the earlier measured binaries; resident cache-hit code is unchanged.
+
+The prefetch-guard follow-up compares `526a0a0` with this branch's own frozen
+pre-guard binary, using the disk fixture, five-second range phases, and ABBA
+ordering (`disk-log0-prefetch-guard`). It is inconclusive because the first
+baseline run was unusually slow; the raw apparent throughput gains of 23–71%
+are not evidence of a guard benefit. Throughput sample ranges were:
+
+| Range / threads | Before guard, queries/s | With guard, queries/s |
+|---|---:|---:|
+| 1 / 1 | 5,315–12,859 | 12,359–12,796 |
+| 1 / 8 | 11,424–67,109 | 66,793–67,811 |
+| 10,000 / 1 | 88–140 | 140–140 |
+| 10,000 / 8 | 213–732 | 765–781 |
+
+All 20 recorded phases reported zero errors and violations. The repair adds one
+atomic status clear per admitted prefetch page, with no resident hit-path source
+change; this noisy disk control does not establish that the repair is free.
+`prefetch-admission/release-manifest.json` identifies the new release build and
+confirms the older measured binary was preserved. The exact regression and
+corrected suite commands are in the adjacent validation manifest. Reproduce
+the follow-up with `coordination/cache_prefetch_validate.py fixed`,
+`cache_prefetch_release.py`, and `cache_prefetch_cold.py cache-errors` under the
+same build/benchmark locking wrapper described above.
