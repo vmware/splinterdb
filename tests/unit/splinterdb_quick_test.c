@@ -37,8 +37,8 @@
 #include "unit_tests.h"
 #include "util.h"
 #include "test_data.h"
-#include "ctest.h" // This is required for all test-case files.
-#include "btree.h" // for MAX_INLINE_MESSAGE_SIZE
+#include "ctest.h"         // This is required for all test-case files.
+#include "btree_private.h" // branch encoding assertions
 #include "config.h"
 #include "splinterdb_tests_private.h"
 #include "clockcache.h"
@@ -1201,6 +1201,192 @@ CTEST2(splinterdb_quick, test_variable_length_values)
 /*
  * iterator test case.
  */
+static slice
+prefix_test_key(char buffer[64], uint64 value)
+{
+   memset(buffer, 'm', 48);
+   char suffix[17];
+   snprintf(suffix, sizeof(suffix), "%016lx", value);
+   memcpy(buffer + 48, suffix, 16);
+   return slice_create(64, buffer);
+}
+
+static int
+prefix_test_compare(const data_config *cfg, user_key first, user_key second)
+{
+   /* Lexical ordering does not require accepting compressed suffixes. */
+   platform_assert(slice_length(first.key) >= 48);
+   platform_assert(slice_length(second.key) >= 48);
+   return slice_lex_cmp(first.key, second.key);
+}
+
+CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
+{
+   const uint64 count = 4096;
+   for (uint64 enabled = 0; enabled < 2; enabled++) {
+      ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+      data->default_data_cfg.super.key_compare_is_lexical = enabled;
+      data->default_data_cfg.super.key_compare = prefix_test_compare;
+      ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+      char keybuf[64];
+      for (uint64 i = 0; i < count; i++) {
+         slice k = prefix_test_key(keybuf, i * 2);
+         ASSERT_EQUAL(0,
+                      splinterdb_insert(
+                         data->kvsb, k, slice_create(sizeof(i), &i), NULL));
+      }
+      /* A key equal to a leaf's prefix exercises zero-length suffixes. */
+      memset(keybuf, 'm', 48);
+      uint64 sentinel = UINT64_MAX;
+      ASSERT_EQUAL(0,
+                   splinterdb_insert(data->kvsb,
+                                     slice_create(48, keybuf),
+                                     slice_create(sizeof(sentinel), &sentinel),
+                                     NULL));
+      core_handle *core =
+         (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+      ASSERT_TRUE(SUCCESS(core_checkpoint(core, 0)));
+
+      core_range_iterator probe;
+      ASSERT_TRUE(SUCCESS(core_range_iterator_init(core,
+                                                   &probe,
+                                                   greater_than_or_equal,
+                                                   NEGATIVE_INFINITY_KEY,
+                                                   less_than,
+                                                   POSITIVE_INFINITY_KEY,
+                                                   greater_than_or_equal,
+                                                   NEGATIVE_INFINITY_KEY)));
+      bool32 compressed = FALSE;
+      for (uint64 i = 0; i < probe.num_branches; i++) {
+         if (probe.btree_itor_initialized[i]
+             && probe.btree_itor[i].curr.hdr != NULL)
+         {
+            compressed |= probe.btree_itor[i].curr.hdr->prefix_length != 0;
+         }
+      }
+      ASSERT_EQUAL(enabled, compressed);
+      /* Repeated seeks reuse the first/last-bound reconstruction buffer. */
+      for (uint64 branch = 0; branch < probe.num_branches; branch++) {
+         if (!probe.btree_itor_initialized[branch]
+             || probe.btree_itor[branch].curr.hdr == NULL
+             || probe.btree_itor[branch].page_type != PAGE_TYPE_BRANCH)
+         {
+            continue;
+         }
+         ASSERT_TRUE(btree_verify_tree(core->cc,
+                                        core->cfg.btree_cfg,
+                                        probe.btree_itor[branch].root_addr,
+                                        PAGE_TYPE_BRANCH));
+         iterator *branch_it = (iterator *)&probe.btree_itor[branch];
+         for (uint64 i = 0; i < 64; i++) {
+            uint64 logical = (i * 19) % 64;
+            slice  target  = prefix_test_key(keybuf, logical * 2 + 1);
+            ASSERT_TRUE(
+               SUCCESS(iterator_seek(branch_it,
+                                     greater_than_or_equal,
+                                     key_create_from_slice(TRUE, target))));
+            key     found;
+            message value;
+            iterator_curr(branch_it, &found, &value);
+            ASSERT_EQUAL(
+               0,
+               slice_lex_cmp(key_slice(found),
+                             prefix_test_key(keybuf, (logical + 1) * 2)));
+         }
+      }
+      core_range_iterator_deinit(&probe);
+
+      ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+      ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+      core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+      splinterdb_lookup_result result;
+      splinterdb_lookup_result_init(
+         data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      for (uint64 i = 0; i < count; i++) {
+         slice k = prefix_test_key(keybuf, i * 2);
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, k, &result));
+         ASSERT_TRUE(splinterdb_lookup_found(&result));
+         slice value;
+         ASSERT_EQUAL(0, splinterdb_lookup_result_value(&result, &value));
+         ASSERT_EQUAL(sizeof(i), slice_length(value));
+         ASSERT_EQUAL(0, memcmp(slice_data(value), &i, sizeof(i)));
+         if (i % 127 == 0) {
+            lookup_result async_result;
+            lookup_result_init(&async_result,
+                               core->cfg.data_cfg,
+                               SPLINTERDB_LOOKUP_VALUE,
+                               0,
+                               NULL);
+            ASSERT_TRUE(
+               SUCCESS(async_call_sync_callback(cache_cleanup(core->cc),
+                                                core_lookup_async,
+                                                core,
+                                                key_create_from_slice(TRUE, k),
+                                                &async_result)));
+            ASSERT_TRUE(lookup_result_found(&async_result));
+            lookup_result_deinit(&async_result);
+         }
+         /* Missing keys between existing suffixes stay absent. */
+         k = prefix_test_key(keybuf, i * 2 + 1);
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, k, &result));
+         ASSERT_FALSE(splinterdb_lookup_found(&result));
+      }
+      splinterdb_lookup_result_deinit(&result);
+
+      splinterdb_iterator *it;
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init(
+                      data->kvsb, &it, greater_than_or_equal, NULL_SLICE));
+      slice k, v;
+      ASSERT_TRUE(splinterdb_iterator_valid(it));
+      splinterdb_iterator_get_current(it, &k, &v);
+      ASSERT_EQUAL(48, slice_length(k));
+      splinterdb_iterator_next(it);
+      for (uint64 i = 0; i < count; i++) {
+         ASSERT_TRUE(splinterdb_iterator_valid(it));
+         splinterdb_iterator_get_current(it, &k, &v);
+         slice expected = prefix_test_key(keybuf, i * 2);
+         ASSERT_EQUAL(0, slice_lex_cmp(k, expected));
+         ASSERT_EQUAL(0, memcmp(slice_data(v), &i, sizeof(i)));
+         if (i + 1 < count) {
+            splinterdb_iterator_next(it);
+         }
+      }
+      for (uint64 i = count; i-- > 0;) {
+         ASSERT_TRUE(splinterdb_iterator_valid(it));
+         splinterdb_iterator_get_current(it, &k, &v);
+         ASSERT_EQUAL(0, slice_lex_cmp(k, prefix_test_key(keybuf, i * 2)));
+         splinterdb_iterator_prev(it);
+      }
+      ASSERT_TRUE(splinterdb_iterator_valid(it));
+      splinterdb_iterator_get_current(it, &k, &v);
+      ASSERT_EQUAL(48, slice_length(k));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+
+      /* Prefix mismatch can lie below or above every tuple. */
+      for (uint64 side = 0; side < 2; side++) {
+         memset(keybuf, side ? 'z' : 'a', sizeof(keybuf));
+         ASSERT_EQUAL(0,
+                      splinterdb_iterator_init(
+                         data->kvsb,
+                         &it,
+                         side ? less_than_or_equal : greater_than_or_equal,
+                         slice_create(sizeof(keybuf), keybuf)));
+         ASSERT_TRUE(splinterdb_iterator_valid(it));
+         splinterdb_iterator_get_current(it, &k, &v);
+         if (side) {
+            ASSERT_EQUAL(
+               0, slice_lex_cmp(k, prefix_test_key(keybuf, (count - 1) * 2)));
+         } else {
+            ASSERT_EQUAL(48, slice_length(k));
+         }
+         ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+         splinterdb_iterator_deinit(it);
+      }
+   }
+}
+
 CTEST2(splinterdb_quick, test_basic_iterator)
 {
    const int num_inserts = 50;
@@ -2360,8 +2546,9 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb, FALSE);
 
-   data->default_data_cfg.super.key_compare = custom_key_comparator;
-   data->default_data_cfg.num_comparisons   = 0;
+   data->default_data_cfg.super.key_compare            = custom_key_comparator;
+   data->default_data_cfg.super.key_compare_is_lexical = FALSE;
+   data->default_data_cfg.num_comparisons              = 0;
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);

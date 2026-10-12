@@ -188,6 +188,11 @@ struct data_config {
    merge_tuple_final_fn merge_tuples_final;
    key_to_str_fn        key_to_string;
    message_to_str_fn    message_to_string;
+   /* Opt in only when key_compare is exactly unsigned bytewise lexical order,
+    * with shorter equal-prefix keys first, for both stored and query keys.
+    * Enables common-prefix compression in immutable branch leaves. Clear this
+    * when replacing the default comparator with a different ordering. */
+   bool32 key_compare_is_lexical;
 };
 
 #ifdef __cplusplus

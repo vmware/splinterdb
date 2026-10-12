@@ -59,12 +59,13 @@ default_data_config_init(data_config *out_cfg // OUT
 )
 {
    data_config cfg = {
-      .key_compare        = key_compare,
-      .key_hash           = key_hash,
-      .merge_tuples       = NULL,
-      .merge_tuples_final = NULL,
-      .key_to_string      = key_to_string,
-      .message_to_string  = message_to_string,
+      .key_compare            = key_compare,
+      .key_hash               = key_hash,
+      .merge_tuples           = NULL,
+      .merge_tuples_final     = NULL,
+      .key_to_string          = key_to_string,
+      .message_to_string      = message_to_string,
+      .key_compare_is_lexical = TRUE,
    };
 
    *out_cfg = cfg;

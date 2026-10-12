@@ -45,9 +45,10 @@
  * moved the checksum and uint16 format into the fixed blob header; v5 made
  * log group ids start at 1 so they equal their durability tickets; v6 added
  * per-level page ordinals to branch btree pages; v7 made routing-filter
- * descriptors carry their format version and fingerprint size.
+ * descriptors carry their format version and fingerprint size. Experimental
+ * v0x8007 adds per-leaf common-prefix encoding to immutable branch btrees.
  */
-#define SUPERBLOCK_FORMAT_VERSION (7)
+#define SUPERBLOCK_FORMAT_VERSION (0x8007)
 
 /* The two physical superblock copies live at pages 0 and 1. */
 #define SUPERBLOCK_NUM_SLOTS (2)
