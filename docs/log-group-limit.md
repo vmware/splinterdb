@@ -54,5 +54,42 @@ builds passed. The bounded-wait regression was also run against the preceding
 coalescing implementation (`ca179b2`), where it failed because the first driver
 chased a peer's blocked successor. It passes with fixed-ticket ownership.
 
-Performance measurements and final validation results are recorded below after
-the serialized disk benchmark campaign finishes.
+## Performance
+
+Measured implementation: `7c8cb3d`; baseline: `db3047a`. The candidate's
+same-source insert harness was linked against both libraries (the baseline
+build defines `KVBENCH_NO_LOG_GROUP_LIMIT`). On an i7-12800H with GCC 14.2,
+all database files used `O_DIRECT` on ext4 on `/dev/mapper/snafu-root_crypt`.
+A process lock serialized every benchmark and excluded our builds/tests.
+
+Each cell is the mean of two six-second closed-loop runs, in forward/reverse
+policy order. Configuration: 256 MiB cache, 16 GiB logical disk, 8 MiB
+memtables, one memtable and three normal workers, 16-byte keys and values,
+WAL enabled, no automatic checkpoints, CPU affinity 0-11. All 16 runs and
+closes succeeded. These are throughput comparisons, not offered-rate latency
+measurements or long-duration durability guarantees.
+
+| Writers | Policy | Inserts/s | Change | p99 ms | p99.9 ms |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1 | 1024pages | 865,775 | -5.5% | 0.019 | 0.037 |
+| 1 | baseline | 915,999 | +0.0% | 0.019 | 0.031 |
+| 1 | default64 | 538,553 | -41.2% | 0.018 | 0.058 |
+| 1 | disabled | 915,142 | -0.1% | 0.018 | 0.035 |
+| 8 | 1024pages | 2,465,351 | -3.6% | 0.055 | 0.186 |
+| 8 | baseline | 2,558,495 | +0.0% | 0.055 | 0.180 |
+| 8 | default64 | 1,262,088 | -50.7% | 0.023 | 0.097 |
+| 8 | disabled | 2,533,143 | -1.0% | 0.056 | 0.184 |
+
+The disabled policy is within 1% of baseline in this sample. Enabling the
+requested 64-page default materially reduces throughput, by 41% with one
+writer and 51% with eight writers; it adds frequent device durability work
+that the baseline does not perform. A 1,024-page policy costs about 4-5%.
+These results do not establish performance neutrality for the new default.
+Lower p99 in some slower configurations does not offset the throughput cost;
+rare durability/compaction stalls may lie beyond that percentile.
+
+Raw per-run and time-series CSVs, executable hashes, commands, and machine
+information are retained in
+[`benchmarks/results-20261011`](../benchmarks/results-20261011).
+The earlier single-owner loop was superseded because it could follow a
+continuously advancing target. Its measurements are not used in this table.
