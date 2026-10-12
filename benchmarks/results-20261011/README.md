@@ -11,3 +11,9 @@ the scalar change. `resident-scalar-fixed` compares the old and final readers
 on copies of exactly the same candidate image, with its own incompatible
 baseline image. The retained runners document fixture sources and run order.
 Baseline source is db3047a; the final implementation milestone is 33389f3.
+
+Method caveat: `resident-scalar-fixed` used buffered fixture copies without an
+explicit fsync before O_DIRECT open/warm/timing. Pending copy writeback could
+confound those samples; it is not an established explanation of any difference.
+The earlier fresh-create matrices did not use copied fixtures. Original evidence
+is preserved without modification; there is no fsynced metadata repeat.

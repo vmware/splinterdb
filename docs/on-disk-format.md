@@ -79,6 +79,13 @@ comparison used baseline / old reader / final reader / final reader / old
 reader / baseline order. Both candidate readers used copies of exactly the same
 format-8 image; baseline used its own format-7 image.
 
+The final resident fixture copies were made with buffered `cp` and were not
+explicitly fsynced before opening with O_DIRECT. Pending copy writeback, including
+unreachable historical pages, is a possible measurement confound; this does not
+establish that it caused any observed difference. The earlier resident/disk
+matrices constructed fresh O_DIRECT databases and did not use this copy path.
+No additional metadata benchmark was run after identifying this method caveat.
+
 | Final reader, resident | Versus old reader | Versus baseline |
 | --- | ---: | ---: |
 | Point, 1 reader | +1.2% | -1.5% |
