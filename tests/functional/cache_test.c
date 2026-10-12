@@ -2371,12 +2371,224 @@ test_cache_idle_batches(clockcache *main_cc, platform_heap_id hid)
       "cache_test: idle and exited batch owners test passed\n");
 }
 
+#ifdef SPLINTER_DEBUG
+typedef struct {
+   clockcache      *clock;
+   platform_heap_id hid;
+   uint64           addr;
+   uint32           slot;
+   page_handle     *guard_to_release;
+   page_handle      winner;
+   platform_thread  loader;
+   platform_condvar cv;
+   bool32           unpublished;
+   bool32           resume;
+   bool32           finished;
+   bool32           attempted;
+} cache_admission_race;
+
+static void
+cache_admission_wait(cache_admission_race *test, const bool32 *condition)
+{
+   timestamp start = platform_get_timestamp();
+   while (TRUE) {
+      platform_assert_status_ok(platform_condvar_lock(&test->cv));
+      bool32 complete = *condition;
+      platform_assert_status_ok(platform_condvar_unlock(&test->cv));
+      if (complete) {
+         return;
+      }
+      platform_assert(platform_timestamp_elapsed(start) < SEC_TO_NSEC(10),
+                      "unpublished cache admission did not make progress");
+      platform_sleep_ns(SEC_TO_NSEC(1) / 1000);
+   }
+}
+
+static void
+cache_admission_before_publish(clockcache *clock,
+                               uint64      addr,
+                               uint32      slot,
+                               void       *arg)
+{
+   cache_admission_race *test = arg;
+   if (slot != test->slot) {
+      return;
+   }
+   platform_assert(addr == test->addr);
+   platform_assert_status_ok(platform_condvar_lock(&test->cv));
+   platform_assert(!test->unpublished);
+   test->unpublished = TRUE;
+   platform_assert_status_ok(platform_condvar_signal(&test->cv));
+   while (!test->resume) {
+      platform_assert_status_ok(platform_condvar_wait(&test->cv));
+   }
+   platform_assert_status_ok(platform_condvar_unlock(&test->cv));
+}
+
+static void
+cache_admission_loader(void *arg)
+{
+   cache_admission_race *test = arg;
+   cache                *cc   = (cache *)test->clock;
+   cache_prefetch_page(cc, test->addr, PAGE_TYPE_MISC);
+   platform_assert_status_ok(platform_condvar_lock(&test->cv));
+   test->finished = TRUE;
+   platform_assert_status_ok(platform_condvar_signal(&test->cv));
+   platform_assert_status_ok(platform_condvar_unlock(&test->cv));
+}
+
+static void
+cache_admission_save_candidate(clockcache *clock,
+                               uint64      addr,
+                               uint32      slot,
+                               void       *arg)
+{
+   cache_admission_race *test = arg;
+   cache                *cc   = (cache *)clock;
+   platform_assert(addr == test->addr && slot == test->slot);
+   clock->before_candidate_ref = NULL;
+   cache_batch_test_discard(cc, addr);
+   platform_assert_status_ok(platform_thread_create(
+      &test->loader, FALSE, cache_admission_loader, test, test->hid));
+   cache_admission_wait(test, &test->unpublished);
+
+   // X now names A but has not published its mapping. Free one guard so a
+   // second loader must publish A in Y while X remains parked.
+   cache_unget(cc, test->guard_to_release);
+   test->winner = test_cache_get_page(cc, addr, TRUE, PAGE_TYPE_MISC);
+   platform_assert(test->winner.page != &clock->entry[slot].page);
+}
+
+static void
+cache_admission_after_ref_attempt(clockcache *clock,
+                                  uint64      addr,
+                                  uint32      slot,
+                                  bool32      acquired,
+                                  void       *arg)
+{
+   cache_admission_race *test = arg;
+   platform_assert(addr == test->addr && slot == test->slot);
+   platform_assert(!test->attempted);
+   test->attempted = TRUE;
+   platform_assert_status_ok(platform_condvar_lock(&test->cv));
+   test->resume = TRUE;
+   platform_assert_status_ok(platform_condvar_signal(&test->cv));
+   platform_assert_status_ok(platform_condvar_unlock(&test->cv));
+   cache_admission_wait(test, &test->finished);
+
+   // The parked admission lost publication to Y and released X. An old
+   // implementation had already accepted a foreign reference to this now
+   // free slot, or could have enqueued an async waiter on it.
+   platform_assert(
+      __atomic_load_n(&clock->entry[slot].page.disk_addr, __ATOMIC_RELAXED)
+      == UINT64_MAX);
+   platform_assert(!acquired,
+                   "unpublished admission accepted a stale candidate read "
+                   "reference before losing duplicate publication");
+}
+
+static void
+test_cache_prefetch_unpublished_admission(clockcache      *main_cc,
+                                          platform_heap_id hid)
+{
+   clockcache_config cfg = *main_cc->cfg;
+   cfg.page_capacity     = 64;
+   cfg.capacity = cfg.page_capacity * cache_page_size((cache *)main_cc);
+   clockcache clock;
+   platform_assert_status_ok(clockcache_init(&clock,
+                                             &cfg,
+                                             main_cc->io,
+                                             main_cc->al,
+                                             "unpublished admission",
+                                             hid,
+                                             platform_get_module_id()));
+   cache       *cc               = (cache *)&clock;
+   const uint64 page_size        = cache_page_size(cc);
+   const uint64 pages_per_extent = cache_extent_size(cc) / page_size;
+   uint64       extents[66];
+   uint64       num_extents = 2 + (cfg.page_capacity - 2) / pages_per_extent;
+   platform_assert(num_extents <= ARRAY_SIZE(extents));
+   for (uint64 i = 0; i < num_extents; i++) {
+      platform_assert_status_ok(
+         allocator_alloc(clock.al, &extents[i], PAGE_TYPE_MISC));
+   }
+   buffer_handle buffer;
+   platform_assert_status_ok(platform_buffer_init(&buffer, page_size));
+   void *bytes = platform_buffer_getaddr(&buffer);
+   {
+      memset(bytes, 'A', page_size);
+      platform_assert_status_ok(
+         io_write(clock.io, bytes, page_size, extents[0]));
+      page_handle victim =
+         test_cache_get_page(cc, extents[0], TRUE, PAGE_TYPE_MISC);
+      cache_admission_race test = {
+         .clock = &clock,
+         .hid   = hid,
+         .addr  = extents[0],
+         .slot  = (clockcache_entry *)victim.page - clock.entry,
+      };
+      platform_assert_status_ok(platform_condvar_init(&test.cv, FALSE));
+      cache_unget(cc, &victim);
+      page_handle guards[63];
+      memset(bytes, 'G', page_size);
+      for (uint64 i = 0; i < ARRAY_SIZE(guards); i++) {
+         uint64 addr = extents[1 + i / pages_per_extent]
+                       + (i % pages_per_extent) * page_size;
+         platform_assert_status_ok(io_write(clock.io, bytes, page_size, addr));
+         guards[i] = test_cache_get_page(cc, addr, TRUE, PAGE_TYPE_MISC);
+      }
+      test.guard_to_release                 = &guards[0];
+      clock.before_candidate_ref            = cache_admission_save_candidate;
+      clock.before_candidate_ref_arg        = &test;
+      clock.before_prefetch_publish         = cache_admission_before_publish;
+      clock.before_prefetch_publish_arg     = &test;
+      clock.after_candidate_ref_attempt     = cache_admission_after_ref_attempt;
+      clock.after_candidate_ref_attempt_arg = &test;
+      page_handle     result;
+      platform_status rc =
+         cache_get(cc, test.addr, FALSE, PAGE_TYPE_MISC, &result);
+      platform_assert(STATUS_IS_EQ(rc, STATUS_BUSY)
+                      && page_handle_is_null(&result) && test.attempted);
+      platform_assert_status_ok(platform_thread_join(&test.loader));
+      clock.before_prefetch_publish     = NULL;
+      clock.after_candidate_ref_attempt = NULL;
+      platform_assert(
+         cache_get_read_ref(
+            cc, &(page_handle){.page = &clock.entry[test.slot].page})
+         == 0);
+      platform_assert(page_handle_addr(&test.winner) == test.addr);
+      for (uint64 i = 0; i < page_size; i++) {
+         platform_assert(page_handle_data(&test.winner)[i] == 'A');
+      }
+      cache_unget(cc, &test.winner);
+      for (uint64 i = 1; i < ARRAY_SIZE(guards); i++) {
+         cache_unget(cc, &guards[i]);
+      }
+      for (uint64 i = 0; i < num_extents; i++) {
+         cache_batch_test_discard(cc, extents[i]);
+      }
+      platform_condvar_destroy(&test.cv);
+   }
+   for (uint64 i = 0; i < num_extents; i++) {
+      platform_assert(allocator_dec_ref(clock.al, extents[i], PAGE_TYPE_MISC)
+                      == AL_NO_REFS);
+      platform_assert(allocator_dec_ref(clock.al, extents[i], PAGE_TYPE_MISC)
+                      == AL_FREE);
+   }
+   platform_buffer_deinit(&buffer);
+   clockcache_deinit(&clock);
+   platform_default_log(
+      "cache_test: unpublished prefetch admission race passed\n");
+}
+#endif
+
 static void
 usage(const char *argv0)
 {
-   platform_error_log("Usage:\n"
-                      "\t%s [--async | --batch | --perf]\n",
-                      argv0);
+   platform_error_log(
+      "Usage:\n"
+      "\t%s [--async | --batch | --prefetch-admission | --perf]\n",
+      argv0);
    config_usage();
 }
 
@@ -2389,6 +2601,7 @@ cache_test(int argc, char *argv[])
    platform_status        rc;
    task_system            ts;
    bool32                 benchmark = FALSE, async = FALSE, batch = FALSE;
+   bool32                 prefetch_admission = FALSE;
    uint64                 seed;
    test_message_generator gen;
 
@@ -2401,6 +2614,10 @@ cache_test(int argc, char *argv[])
          config_argv++;
       } else if (strncmp(argv[1], "--async", sizeof("--async")) == 0) {
          async = TRUE;
+         config_argc--;
+         config_argv++;
+      } else if (strcmp(argv[1], "--prefetch-admission") == 0) {
+         prefetch_admission = TRUE;
          config_argc--;
          config_argv++;
       } else if (strcmp(argv[1], "--batch") == 0) {
@@ -2500,7 +2717,14 @@ cache_test(int argc, char *argv[])
 
    cache *ccp = (cache *)cc;
 
-   if (batch) {
+   if (prefetch_admission) {
+#ifdef SPLINTER_DEBUG
+      test_cache_prefetch_unpublished_admission(cc, hid);
+#else
+      platform_error_log("--prefetch-admission requires SPLINTER_DEBUG\n");
+      rc = STATUS_BAD_PARAM;
+#endif
+   } else if (batch) {
       test_cache_idle_batches(cc, hid);
    } else if (benchmark) {
       rc = test_cache_flush(ccp,
