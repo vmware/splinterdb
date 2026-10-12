@@ -40,6 +40,20 @@ static iterator_ops merge_ops = {
    .prev     = merge_prev,
 };
 
+static platform_status
+merge_filtered_next(iterator *itor);
+
+static platform_status
+merge_filtered_prev(iterator *itor);
+
+static const iterator_ops merge_filtered_ops = {
+   .curr     = merge_curr,
+   .can_prev = merge_can_prev,
+   .can_next = merge_can_next,
+   .next     = merge_filtered_next,
+   .prev     = merge_filtered_prev,
+};
+
 /*
  * bsearch which returns insertion position
  *
@@ -394,8 +408,8 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
    return STATUS_OK;
 }
 
-static platform_status
-advance_one_loop(merge_iterator *merge_itor, bool32 *retry)
+static inline platform_status
+advance_one_loop(merge_iterator *merge_itor, bool32 *retry, bool32 filtered)
 {
    *retry = FALSE;
    // Determine whether we're no longer in range.
@@ -412,6 +426,15 @@ advance_one_loop(merge_iterator *merge_itor, bool32 *retry)
    merge_itor->curr_key = merge_itor->ordered_iterators[0]->curr_key;
    debug_assert(key_is_user_key(merge_itor->curr_key));
    merge_itor->curr_data = merge_itor->ordered_iterators[0]->curr_data;
+   if (filtered
+       && !merge_itor->keep_key(merge_itor->filter_context,
+                                merge_itor->curr_key))
+   {
+      // Discard this source's tuple without invoking application callbacks.
+      // Other copies are skipped as they reach the front of the merge.
+      *retry = TRUE;
+      return STATUS_OK;
+   }
    if (!merge_itor->merge_messages) {
       /*
        * We only have keys.  We COULD still merge (skip duplicates) the keys
@@ -518,13 +541,13 @@ setup_ordered_iterators(merge_iterator *merge_itor)
    }
 
    bool32 retry;
-   rc = advance_one_loop(merge_itor, &retry);
+   rc = advance_one_loop(merge_itor, &retry, merge_itor->keep_key != NULL);
 
    if (retry && SUCCESS(rc)) {
       if (merge_itor->forwards) {
-         rc = merge_next((iterator *)merge_itor);
+         rc = iterator_next((iterator *)merge_itor);
       } else {
-         rc = merge_prev((iterator *)merge_itor);
+         rc = iterator_prev((iterator *)merge_itor);
       }
    }
 
@@ -563,6 +586,28 @@ merge_iterator_create(platform_heap_id   hid,
                       bool32             forwards,
                       merge_iterator   **out_itor)
 {
+   return merge_iterator_create_with_filter(hid,
+                                            cfg,
+                                            num_trees,
+                                            itor_arr,
+                                            merge_mode,
+                                            forwards,
+                                            NULL,
+                                            NULL,
+                                            out_itor);
+}
+
+platform_status
+merge_iterator_create_with_filter(platform_heap_id   hid,
+                                  const data_config *cfg,
+                                  int                num_trees,
+                                  iterator         **itor_arr,
+                                  merge_behavior     merge_mode,
+                                  bool32             forwards,
+                                  merge_key_filter   keep_key,
+                                  void              *filter_context,
+                                  merge_iterator   **out_itor)
+{
    int             i;
    platform_status rc = STATUS_OK;
    merge_iterator *merge_itor;
@@ -589,8 +634,10 @@ merge_iterator_create(platform_heap_id   hid,
    }
    merge_accumulator_init(&merge_itor->merge_buffer, hid);
 
-   merge_itor->super.ops = &merge_ops;
-   merge_itor->num_trees = num_trees;
+   merge_itor->super.ops = keep_key == NULL ? &merge_ops : &merge_filtered_ops;
+   merge_itor->keep_key  = keep_key;
+   merge_itor->filter_context = filter_context;
+   merge_itor->num_trees      = num_trees;
 
    debug_assert(merge_mode == MERGE_RAW || merge_mode == MERGE_INTERMEDIATE
                 || merge_mode == MERGE_FULL);
@@ -782,7 +829,7 @@ merge_curr(iterator *itor, key *curr_key, message *data)
 }
 
 static inline platform_status
-merge_advance_helper(merge_iterator *merge_itor)
+merge_advance_helper(merge_iterator *merge_itor, bool32 filtered)
 {
    platform_status rc = STATUS_OK;
    bool32          retry;
@@ -795,7 +842,7 @@ merge_advance_helper(merge_iterator *merge_itor)
          return rc;
       }
 
-      rc = advance_one_loop(merge_itor, &retry);
+      rc = advance_one_loop(merge_itor, &retry, filtered);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -822,7 +869,7 @@ merge_next(iterator *itor)
    if (!merge_itor->forwards) {
       return merge_iterator_set_direction(merge_itor, TRUE);
    }
-   return merge_advance_helper(merge_itor);
+   return merge_advance_helper(merge_itor, FALSE);
 }
 
 /*
@@ -843,7 +890,27 @@ merge_prev(iterator *itor)
    if (merge_itor->forwards) {
       return merge_iterator_set_direction(merge_itor, FALSE);
    }
-   return merge_advance_helper(merge_itor);
+   return merge_advance_helper(merge_itor, FALSE);
+}
+
+static platform_status
+merge_filtered_next(iterator *itor)
+{
+   merge_iterator *merge_itor = (merge_iterator *)itor;
+   if (!merge_itor->forwards) {
+      return merge_iterator_set_direction(merge_itor, TRUE);
+   }
+   return merge_advance_helper(merge_itor, TRUE);
+}
+
+static platform_status
+merge_filtered_prev(iterator *itor)
+{
+   merge_iterator *merge_itor = (merge_iterator *)itor;
+   if (merge_itor->forwards) {
+      return merge_iterator_set_direction(merge_itor, FALSE);
+   }
+   return merge_advance_helper(merge_itor, TRUE);
 }
 
 void

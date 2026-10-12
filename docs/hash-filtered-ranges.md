@@ -10,27 +10,37 @@ does not have to outlive that call.
 Bounds, inclusive/exclusive starts, forward/reverse traversal, updates, deletes,
 and errors follow the ordinary iterator contract. Filtering does not provide
 additional snapshot isolation. All active memtables participate. The routing
-filters select immutable candidate branches, then each source iterator discards
+filters select immutable candidate branches, then the merge iterator discards
 nonmatching keys **before merging messages**. That order matters: a skipped
 branch can hold part of a nonmatching key's update history. Routing-filter
 fingerprint collisions therefore cannot expose an incomplete history to an
 application's merge callback.
 
-The existing API and on-disk format are unchanged. No adapter allocation or
-per-key hash is added to ordinary unfiltered scans. Empty trunk spans are
+The predicate runs when a source reaches the front of the ordered merge. It
+does not eagerly advance every source to its next matching key: that could
+scan an unrelated source's entire tail before returning an earlier result.
+Rejected copies advance individually without invoking application callbacks.
+
+The existing API and on-disk format are unchanged. No per-source adapter is
+allocated. Ordinary unfiltered scans use separate iterator operations with no
+per-key predicate or hash. Empty trunk spans are
 crossed iteratively to avoid stack growth when a hash is sparse or absent.
 
 When integrating the separate persisted-configuration project, a routing filter
 built with a different seed must be treated as unpruned. Exact matching is
 defined using the query seed; rehashing the hash key using an old filter's seed
 does not preserve collisions between distinct keys under the query seed and
-could incorrectly skip a matching key. Source filtering still uses the query
+could incorrectly skip a matching key. Exact filtering still uses the query
 seed. This independent branch retains the existing single-seed format.
+
+The independent lazy-merge experiment also changes `merge.c`. When combining
+the branches, its deferred initial ordering must preserve this predicate's
+position before message merging and retain the filtered movement operations.
 
 ## Validation
 
-Based on `db3047a8`. All 49 debug `splinterdb_quick_test` cases and all 31
-`splinter_test` core cases pass, including:
+Based on `db3047a8`. All 9 debug merge tests, 49 `splinterdb_quick_test` cases,
+and 31 `splinter_test` core cases pass, including:
 
 - Deliberate routing-fingerprint collisions between different full hashes;
   a merge callback rejects any nonmatching key it sees.
@@ -38,11 +48,15 @@ Based on `db3047a8`. All 49 debug `splinterdb_quick_test` cases and all 31
   close/reopen, exclusive bounds, reversals, and `NULL_SLICE` opt-out.
 - A multi-level trunk with only one matching hash per 2,048 keys; both
   directions cross empty leaves, and a hash absent from every branch terminates.
+- A merge regression checks that a nonmatching source advances only as far as
+  the first result requires, that its update finalizer is never called, and
+  that reversals across both bounds preserve those properties.
 
 Reproduce from the worktree after building the debug unit test:
 
 ```sh
 build/debug/bin/unit/splinterdb_quick_test
+build/debug/bin/unit/merge_test
 build/debug/bin/unit/splinter_test --db-location /REAL_DISK/filtered-core.db \
   --cache-capacity-mib 128 --db-capacity-gib 4
 ```
@@ -50,7 +64,7 @@ build/debug/bin/unit/splinter_test --db-location /REAL_DISK/filtered-core.db \
 ## Performance reproduction
 
 `benchmarks/hash_range_benchmark.c` compares application-side filtering on the
-base library with branch selection and source filtering on this library.
+base library with branch selection and exact pre-merge filtering on this library.
 Compile the identical source against each static archive; define
 `HASH_RANGE_FILTER_API` only for this branch:
 
@@ -83,7 +97,7 @@ linked against each release archive. These public-API runs disable logging
 `manifest.json`; `results.csv` retains latency, CPU, I/O, and correctness fields.
 The campaign root is `.cache/projects-20261011` in the original checkout.
 
-## Existing API, resident results
+## Initial prototype results (superseded implementation)
 
 The unfiltered API used one identical 200,000-key image, a 128 MiB cache,
 24-byte keys, 100-byte values, five seconds per phase, and ABBA order (two
@@ -99,3 +113,10 @@ All correctness counters were zero. Long scans were neutral in this run;
 the short eight-thread scan showed a small loss. The sample count is too small
 to claim that every workload has zero overhead. Raw results are under
 `.cache/projects-20261011/benchmarks/filtered-ranges/resident-log0-fixed-image/`.
+
+The original per-source adapter design failed the positive hash-filtered probe:
+it took 21.2x, 23.0x, 17.9x, and 2.94x the application-filtering time for range
+lengths 1, 2, 10, and 100. A candidate branch could contain matching hashes only
+before the requested start key, causing eager filtering to exhaust its entire
+unrelated tail. The final implementation moves filtering into ordered merge
+selection; the focused regression above captures that failure mode.

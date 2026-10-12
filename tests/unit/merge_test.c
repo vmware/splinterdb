@@ -494,3 +494,60 @@ CTEST(merge, random_direction_changes_match_merged_sequence)
    }
    platform_deregister_thread();
 }
+
+static bool32
+merge_test_keep_one_key(void *context, key tuple_key)
+{
+   return *(const char *)key_data(tuple_key) == *(const char *)context;
+}
+
+CTEST(merge, filtering_does_not_eagerly_drain_nonmatching_sources)
+{
+   platform_register_thread();
+   data_config cfg;
+   default_data_config_init(&cfg);
+   // Every update belongs to a rejected key. No finalizer may see it.
+   cfg.merge_tuples_final = merge_test_fail_finalize;
+   for (bool32 forwards = FALSE; forwards <= TRUE; forwards++) {
+      char                selected   = forwards ? 'b' : 'y';
+      merge_test_iterator children[] = {
+         {.super = {.ops = &merge_test_ops}, .keys = forwards ? "ab" : "yz"},
+         {.super   = {.ops = &merge_test_ops},
+          .keys    = "acdefghijklmnopqrstuvwxz",
+          .updates = TRUE},
+      };
+      iterator *inputs[] = {&children[0].super, &children[1].super};
+      for (uint64 i = 0; i < ARRAY_SIZE(children); i++) {
+         children[i].pos = forwards ? 0 : merge_test_num_keys(&children[i]) - 1;
+      }
+      merge_iterator *merge = NULL;
+      ASSERT_TRUE(
+         SUCCESS(merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
+                                                   &cfg,
+                                                   ARRAY_SIZE(inputs),
+                                                   inputs,
+                                                   MERGE_FULL,
+                                                   forwards,
+                                                   merge_test_keep_one_key,
+                                                   &selected,
+                                                   &merge)));
+      merge_test_check_curr(merge, selected, "v");
+      ASSERT_EQUAL(1, children[1].steps);
+      // Cross each bound and reverse; rejected update histories stay hidden.
+      ASSERT_TRUE(SUCCESS(forwards ? iterator_prev(&merge->super)
+                                   : iterator_next(&merge->super)));
+      merge_test_check_curr(merge, 0, NULL);
+      ASSERT_TRUE(SUCCESS(forwards ? iterator_next(&merge->super)
+                                   : iterator_prev(&merge->super)));
+      merge_test_check_curr(merge, selected, "v");
+      ASSERT_TRUE(SUCCESS(forwards ? iterator_next(&merge->super)
+                                   : iterator_prev(&merge->super)));
+      merge_test_check_curr(merge, 0, NULL);
+      ASSERT_TRUE(SUCCESS(forwards ? iterator_prev(&merge->super)
+                                   : iterator_next(&merge->super)));
+      merge_test_check_curr(merge, selected, "v");
+      ASSERT_TRUE(
+         SUCCESS(merge_iterator_destroy(PROCESS_PRIVATE_HEAP_ID, &merge)));
+   }
+   platform_deregister_thread();
+}

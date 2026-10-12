@@ -2047,76 +2047,15 @@ core_range_iterator_has_next_leaf(core_range_iterator *range_itor)
               && range_itor->max_key_comparison == less_than_or_equal);
 }
 
-/* Per-source filtering must happen before message merging: skipped branches
+/* Key filtering must happen before message merging: skipped branches
  * may hold part of the update history of a nonmatching key. */
-typedef struct core_hash_iterator {
-   iterator              super;
-   iterator             *child;
-   const routing_config *cfg;
-   uint32                hash;
-} core_hash_iterator;
-
-static void
-core_hash_iterator_curr(iterator *base, key *k, message *msg)
-{
-   iterator_curr(((core_hash_iterator *)base)->child, k, msg);
-}
-
 static bool32
-core_hash_iterator_can_next(iterator *base)
+core_range_iterator_hash_matches(void *context, key tuple_key)
 {
-   return iterator_can_next(((core_hash_iterator *)base)->child);
+   core_range_iterator  *itor = context;
+   const routing_config *cfg  = itor->spl->trunk_context.cfg->filter_cfg;
+   return data_key_hash(cfg->data_cfg, tuple_key, cfg->seed) == itor->hash;
 }
-
-static bool32
-core_hash_iterator_can_prev(iterator *base)
-{
-   return iterator_can_prev(((core_hash_iterator *)base)->child);
-}
-
-static platform_status
-core_hash_iterator_skip(core_hash_iterator *itor, bool32 forwards)
-{
-   while (iterator_can_curr(itor->child)) {
-      key     k;
-      message msg;
-      iterator_curr(itor->child, &k, &msg);
-      if (data_key_hash(itor->cfg->data_cfg, k, itor->cfg->seed) == itor->hash)
-      {
-         return STATUS_OK;
-      }
-      platform_status rc =
-         forwards ? iterator_next(itor->child) : iterator_prev(itor->child);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-   }
-   return STATUS_OK;
-}
-
-static platform_status
-core_hash_iterator_next(iterator *base)
-{
-   core_hash_iterator *itor = (core_hash_iterator *)base;
-   platform_status     rc   = iterator_next(itor->child);
-   return SUCCESS(rc) ? core_hash_iterator_skip(itor, TRUE) : rc;
-}
-
-static platform_status
-core_hash_iterator_prev(iterator *base)
-{
-   core_hash_iterator *itor = (core_hash_iterator *)base;
-   platform_status     rc   = iterator_prev(itor->child);
-   return SUCCESS(rc) ? core_hash_iterator_skip(itor, FALSE) : rc;
-}
-
-static const iterator_ops core_hash_iterator_ops = {
-   .curr     = core_hash_iterator_curr,
-   .can_next = core_hash_iterator_can_next,
-   .can_prev = core_hash_iterator_can_prev,
-   .next     = core_hash_iterator_next,
-   .prev     = core_hash_iterator_prev,
-};
 
 platform_status
 core_range_iterator_init(core_handle         *spl,
@@ -2163,7 +2102,6 @@ restart:
    debug_assert(max_key_comparison == less_than
                 || max_key_comparison == less_than_or_equal);
 
-   range_itor->hash_itor          = NULL;
    range_itor->filter_by_hash     = hash != NULL;
    range_itor->hash               = hash == NULL ? 0 : *hash;
    range_itor->spl                = spl;
@@ -2413,38 +2351,16 @@ restart:
       return rc;
    }
 
-   if (hash != NULL && range_itor->num_branches != 0) {
-      range_itor->hash_itor = TYPED_ARRAY_ZALLOC(PROCESS_PRIVATE_HEAP_ID,
-                                                 range_itor->hash_itor,
-                                                 range_itor->num_branches);
-      if (range_itor->hash_itor == NULL) {
-         core_range_iterator_deinit(range_itor);
-         return STATUS_NO_MEMORY;
-      }
-      for (uint64 i = 0; i < range_itor->num_branches; i++) {
-         core_hash_iterator *filtered = &range_itor->hash_itor[i];
-         *filtered                    = (core_hash_iterator){
-                               .super = {.ops = &core_hash_iterator_ops},
-                               .child = range_itor->itor[i],
-                               .cfg   = spl->trunk_context.cfg->filter_cfg,
-                               .hash  = *hash,
-         };
-         rc = core_hash_iterator_skip(filtered, forward_start);
-         if (!SUCCESS(rc)) {
-            core_range_iterator_deinit(range_itor);
-            return rc;
-         }
-         range_itor->itor[i] = &filtered->super;
-      }
-   }
-
-   rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
-                              spl->cfg.data_cfg,
-                              range_itor->num_branches,
-                              range_itor->itor,
-                              MERGE_FULL,
-                              greater_than <= start_key_comparison,
-                              &range_itor->merge_itor);
+   rc = merge_iterator_create_with_filter(
+      PROCESS_PRIVATE_HEAP_ID,
+      spl->cfg.data_cfg,
+      range_itor->num_branches,
+      range_itor->itor,
+      MERGE_FULL,
+      greater_than <= start_key_comparison,
+      hash == NULL ? NULL : core_range_iterator_hash_matches,
+      range_itor,
+      &range_itor->merge_itor);
    if (!SUCCESS(rc)) {
       core_range_iterator_deinit(range_itor);
       return rc;
@@ -2671,8 +2587,6 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
          core_memtable_dec_ref(spl, range_itor->branch[i].addr);
       }
    }
-   platform_free(PROCESS_PRIVATE_HEAP_ID, range_itor->hash_itor);
-   range_itor->hash_itor = NULL;
    // Failed initialization also calls deinit; its caller may clean up again.
    range_itor->num_branches = 0;
    range_itor->can_prev     = FALSE;
