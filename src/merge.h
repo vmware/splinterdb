@@ -70,8 +70,6 @@ typedef struct merge_iterator {
    key                curr_key;      // current key
    message            curr_data;     // current data
    bool32             forwards;
-   merge_key_filter   keep_key;
-   void              *filter_context;
 
    // Sentinel used as the predecessor of ordered_iterators[0].
    ordered_iterator  ordered_iterator_stored_pad;

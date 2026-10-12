@@ -2351,16 +2351,26 @@ restart:
       return rc;
    }
 
-   rc = merge_iterator_create_with_filter(
-      PROCESS_PRIVATE_HEAP_ID,
-      spl->cfg.data_cfg,
-      range_itor->num_branches,
-      range_itor->itor,
-      MERGE_FULL,
-      greater_than <= start_key_comparison,
-      hash == NULL ? NULL : core_range_iterator_hash_matches,
-      range_itor,
-      &range_itor->merge_itor);
+   if (hash == NULL) {
+      rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+                                 spl->cfg.data_cfg,
+                                 range_itor->num_branches,
+                                 range_itor->itor,
+                                 MERGE_FULL,
+                                 greater_than <= start_key_comparison,
+                                 &range_itor->merge_itor);
+   } else {
+      rc =
+         merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
+                                           spl->cfg.data_cfg,
+                                           range_itor->num_branches,
+                                           range_itor->itor,
+                                           MERGE_FULL,
+                                           greater_than <= start_key_comparison,
+                                           core_range_iterator_hash_matches,
+                                           range_itor,
+                                           &range_itor->merge_itor);
+   }
    if (!SUCCESS(rc)) {
       core_range_iterator_deinit(range_itor);
       return rc;

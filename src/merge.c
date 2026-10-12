@@ -54,6 +54,14 @@ static const iterator_ops merge_filtered_ops = {
    .prev     = merge_filtered_prev,
 };
 
+/* Keep the ordinary iterator's layout and allocation unchanged. Only an
+ * explicitly filtered iterator owns the predicate and its context. */
+typedef struct {
+   merge_iterator   super;
+   merge_key_filter keep_key;
+   void            *context;
+} filtered_merge_iterator;
+
 /*
  * bsearch which returns insertion position
  *
@@ -426,14 +434,16 @@ advance_one_loop(merge_iterator *merge_itor, bool32 *retry, bool32 filtered)
    merge_itor->curr_key = merge_itor->ordered_iterators[0]->curr_key;
    debug_assert(key_is_user_key(merge_itor->curr_key));
    merge_itor->curr_data = merge_itor->ordered_iterators[0]->curr_data;
-   if (filtered
-       && !merge_itor->keep_key(merge_itor->filter_context,
-                                merge_itor->curr_key))
-   {
-      // Discard this source's tuple without invoking application callbacks.
-      // Other copies are skipped as they reach the front of the merge.
-      *retry = TRUE;
-      return STATUS_OK;
+   if (filtered) {
+      filtered_merge_iterator *filtered_itor = (void *)merge_itor;
+      if (!filtered_itor->keep_key(filtered_itor->context,
+                                   merge_itor->curr_key))
+      {
+         // Discard this source's tuple without invoking application callbacks.
+         // Other copies are skipped as they reach the front of the merge.
+         *retry = TRUE;
+         return STATUS_OK;
+      }
    }
    if (!merge_itor->merge_messages) {
       /*
@@ -541,7 +551,8 @@ setup_ordered_iterators(merge_iterator *merge_itor)
    }
 
    bool32 retry;
-   rc = advance_one_loop(merge_itor, &retry, merge_itor->keep_key != NULL);
+   rc = advance_one_loop(
+      merge_itor, &retry, merge_itor->super.ops == &merge_filtered_ops);
 
    if (retry && SUCCESS(rc)) {
       if (merge_itor->forwards) {
@@ -628,16 +639,26 @@ merge_iterator_create_with_filter(platform_heap_id   hid,
                      == ARRAY_SIZE(merge_itor->ordered_iterators),
                   "size mismatch");
 
-   merge_itor = TYPED_ZALLOC(PROCESS_PRIVATE_HEAP_ID, merge_itor);
-   if (merge_itor == NULL) {
-      return STATUS_NO_MEMORY;
+   if (keep_key == NULL) {
+      merge_itor = TYPED_ZALLOC(PROCESS_PRIVATE_HEAP_ID, merge_itor);
+      if (merge_itor == NULL) {
+         return STATUS_NO_MEMORY;
+      }
+      merge_itor->super.ops = &merge_ops;
+   } else {
+      filtered_merge_iterator *filtered_itor =
+         TYPED_ZALLOC(PROCESS_PRIVATE_HEAP_ID, filtered_itor);
+      if (filtered_itor == NULL) {
+         return STATUS_NO_MEMORY;
+      }
+      filtered_itor->keep_key = keep_key;
+      filtered_itor->context  = filter_context;
+      merge_itor              = &filtered_itor->super;
+      merge_itor->super.ops   = &merge_filtered_ops;
    }
    merge_accumulator_init(&merge_itor->merge_buffer, hid);
 
-   merge_itor->super.ops = keep_key == NULL ? &merge_ops : &merge_filtered_ops;
-   merge_itor->keep_key  = keep_key;
-   merge_itor->filter_context = filter_context;
-   merge_itor->num_trees      = num_trees;
+   merge_itor->num_trees = num_trees;
 
    debug_assert(merge_mode == MERGE_RAW || merge_mode == MERGE_INTERMEDIATE
                 || merge_mode == MERGE_FULL);

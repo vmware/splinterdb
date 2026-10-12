@@ -293,8 +293,6 @@ typedef struct core_range_iterator {
    iterator          super;
    core_handle      *spl;
    uint64            num_branches;
-   bool32            filter_by_hash;
-   uint32            hash;
    uint64            num_memtable_branches;
    uint64            memtable_start_gen;
    uint64            memtable_end_gen;
@@ -317,6 +315,10 @@ typedef struct core_range_iterator {
 
    // used for merge iterator construction
    iterator *itor[CORE_RANGE_ITOR_MAX_BRANCHES];
+
+   // Keep the ordinary iterator fields at their original offsets.
+   bool32 filter_by_hash;
+   uint32 hash;
 } core_range_iterator;
 
 /*
