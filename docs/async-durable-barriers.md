@@ -283,3 +283,26 @@ performance neutral for optimize.
 Raw CSVs, manifests, exact measured harness snapshots, compiler provenance and
 runtime-source hashes are retained in
 `benchmarks/results-notification-sentinels-20261012/`.
+
+# Integration with main on 2026-10-13
+
+Merged `origin/main` at `7bb5fab305b9c6179e31f75998dabea833537a08`,
+including caller-owned, fallible, transferable cache handles and multilevel
+blobs. Both parents' tests remain present; new blob durability/recovery calls
+use the two-argument barrier API with `NULL` for blocking completion. Notification
+sentinel and ownership behavior is unchanged.
+
+Debug and release builds passed. Each mode passed 119 tests: notification
+ownership (6 each on private/shared heaps), optimize (9 each on private/shared
+heaps), public quick tests (50), and core tests (39). The allocation-failure
+notification case is skipped in ordinary builds. An ASan build with allocation
+fault injection passed all 32 notification/optimize cases across both heap
+modes (`detect_leaks=0:abort_on_error=1`). Core/public coverage includes async
+barrier submission and device failures, nested waits, concurrent durability,
+cache read errors, three-level blobs, transferred blob iterators, and crash
+recovery of pointer trees.
+
+Commands, binary/source hashes, test counts and raw logs are retained in the
+collection's `coordination/main-7bb5fab/async-durable-barrier` directory. Previous
+performance results above describe their original revisions; they do not
+measure this merge.

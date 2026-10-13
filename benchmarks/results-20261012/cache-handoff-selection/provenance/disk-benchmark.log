@@ -1,0 +1,11 @@
+handoff-selection disk 1 / 4 before
+handoff-selection disk 2 / 4 selected
+handoff-selection disk 3 / 4 selected
+handoff-selection disk 4 / 4 before
+point:uniform@8 before 197623.3 ops/s [195968.9,199277.8], +0.00%, CPUeff +0.00%
+point:uniform@8 selected 196062.8 ops/s [193675.3,198450.4], -0.79%, CPUeff -0.99%
+range:uniform:1@8 before 69522.9 ops/s [68421.8,70624.0], +0.00%, CPUeff +0.00%
+range:uniform:1@8 selected 68965.8 ops/s [68137.0,69794.6], -0.80%, CPUeff -0.76%
+range:uniform:10000@8 before 789.2 ops/s [779.0,799.4], +0.00%, CPUeff +0.00%
+range:uniform:10000@8 selected 783.4 ops/s [774.6,792.2], -0.73%, CPUeff -0.48%
+Completed /home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk

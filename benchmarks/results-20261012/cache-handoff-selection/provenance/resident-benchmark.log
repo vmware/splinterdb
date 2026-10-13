@@ -1,0 +1,13 @@
+handoff-selection resident 1 / 4 before
+handoff-selection resident 2 / 4 selected
+handoff-selection resident 3 / 4 selected
+handoff-selection resident 4 / 4 before
+point:uniform@1 before 1220894.1 ops/s [1181761.3,1260026.9], +0.00%, CPUeff +0.00%
+point:uniform@1 selected 1199970.4 ops/s [1185802.8,1214137.9], -1.71%, CPUeff -1.70%
+point:uniform@8 before 6158485.4 ops/s [5889479.3,6427491.5], +0.00%, CPUeff +0.00%
+point:uniform@8 selected 5707122.8 ops/s [5556227.0,5858018.7], -7.33%, CPUeff -7.33%
+range:uniform:1@1 before 113993.6 ops/s [113374.3,114612.9], +0.00%, CPUeff +0.00%
+range:uniform:1@1 selected 111887.8 ops/s [110632.8,113142.7], -1.85%, CPUeff -1.85%
+range:uniform:1@8 before 570800.1 ops/s [543266.7,598333.4], +0.00%, CPUeff +0.00%
+range:uniform:1@8 selected 553964.2 ops/s [537590.1,570338.3], -2.95%, CPUeff -2.93%
+Completed /home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident
