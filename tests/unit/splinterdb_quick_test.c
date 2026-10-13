@@ -2952,12 +2952,14 @@ custom_key_comparator(const data_config *cfg, user_key key1, user_key key2)
 
 static bool32 hash_range_reject_unmatched_merge;
 
-/* All groups collide in the routing filter's truncated fingerprint. */
+/* Different tenants deliberately collide in the full 32-bit hash, at every
+ * seed. Only the predicate may decide whether a tuple belongs in the result. */
 static uint32
 hash_range_key_hash(const data_config *cfg, user_key k, uint32 seed)
 {
-   const uint8 *bytes = slice_data(k.key);
-   return seed ^ bytes[slice_length(k.key) - 1];
+   const uint8 *bytes  = slice_data(k.key);
+   uint8        tenant = bytes[slice_length(k.key) - 1];
+   return seed ^ (tenant == 'b' ? 'a' : tenant);
 }
 
 static int
@@ -2980,16 +2982,38 @@ hash_range_add(const data_config *cfg,
 static int
 hash_range_finalize(const data_config *cfg, slice k, merge_accumulator *msg)
 {
+   const char *bytes = slice_data(k);
+   if (hash_range_reject_unmatched_merge && bytes[slice_length(k) - 1] != 'a') {
+      return EINVAL;
+   }
    merge_accumulator_set_class(msg, MESSAGE_TYPE_INSERT);
    return 0;
 }
 
-CTEST2(splinterdb_quick, test_hash_filtered_range_merges_only_matching_keys)
+typedef struct range_tenant_context {
+   char     tenant;
+   uint64   calls;
+   threadid last_tid;
+} range_tenant_context;
+
+static bool
+range_tenant_matches(void *context, slice k)
+{
+   range_tenant_context *tenant = context;
+   tenant->calls++;
+   tenant->last_tid = platform_get_tid();
+   return slice_length(k) != 0
+          && ((const char *)slice_data(k))[slice_length(k) - 1]
+                == tenant->tenant;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_merges_only_matching_keys)
 {
    data->default_data_cfg.super.key_hash           = hash_range_key_hash;
    data->default_data_cfg.super.merge_tuples       = hash_range_add;
    data->default_data_cfg.super.merge_tuples_final = hash_range_finalize;
-   const char *keys[] = {"0a", "0b", "1a", "1b", "2a", "2b"};
+   range_tenant_context tenant                     = {.tenant = 'a'};
+   const char          *keys[] = {"0a", "0b", "1a", "1b", "2a", "2b"};
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
       insert_string_kv(data->kvsb, keys[i], "1");
    }
@@ -3002,15 +3026,22 @@ CTEST2(splinterdb_quick, test_hash_filtered_range_merges_only_matching_keys)
    }
    ASSERT_EQUAL(0, splinterdb_delete(data->kvsb, slice_create(2, "1a"), NULL));
    insert_string_kv(data->kvsb, "3a", "3");
+   /* A rejected update-only key also must not reach finalization. */
+   ASSERT_EQUAL(
+      0,
+      splinterdb_update(
+         data->kvsb, slice_create(2, "4b"), slice_create(1, "2"), NULL));
    hash_range_reject_unmatched_merge = TRUE;
    for (int forwards = 0; forwards < 2; forwards++) {
       splinterdb_iterator *it = NULL;
       ASSERT_EQUAL(0,
-                   splinterdb_iterator_init_with_hash(
+                   splinterdb_iterator_init_with_filter(
                       data->kvsb,
                       &it,
                       forwards ? greater_than_or_equal : less_than_or_equal,
                       NULL_SLICE,
+                      range_tenant_matches,
+                      &tenant,
                       slice_create(1, "a")));
       const char *expected[] = {"0a", "2a", "3a"};
       for (int i = 0; i < 3; i++) {
@@ -3049,15 +3080,17 @@ CTEST2(splinterdb_quick, test_hash_filtered_range_merges_only_matching_keys)
    splinterdb_iterator *it = NULL;
    ASSERT_EQUAL(
       0,
-      splinterdb_iterator_init_with_bounds_and_hash(data->kvsb,
-                                                    &it,
-                                                    greater_than,
-                                                    slice_create(2, "0a"),
-                                                    less_than,
-                                                    slice_create(2, "3a"),
-                                                    greater_than_or_equal,
-                                                    NULL_SLICE,
-                                                    slice_create(1, "a")));
+      splinterdb_iterator_init_with_bounds_and_filter(data->kvsb,
+                                                      &it,
+                                                      greater_than,
+                                                      slice_create(2, "0a"),
+                                                      less_than,
+                                                      slice_create(2, "3a"),
+                                                      greater_than_or_equal,
+                                                      NULL_SLICE,
+                                                      range_tenant_matches,
+                                                      &tenant,
+                                                      slice_create(1, "a")));
    check_current_string_kv(it, "2a", "3");
    splinterdb_iterator_next(it);
    ASSERT_FALSE(splinterdb_iterator_valid(it));
@@ -3065,19 +3098,26 @@ CTEST2(splinterdb_quick, test_hash_filtered_range_merges_only_matching_keys)
    check_current_string_kv(it, "2a", "3");
    ASSERT_EQUAL(0, splinterdb_iterator_status(it));
    splinterdb_iterator_deinit(it);
+   tenant.tenant = 'z';
    ASSERT_EQUAL(0,
-                splinterdb_iterator_init_with_hash(data->kvsb,
-                                                   &it,
-                                                   greater_than_or_equal,
-                                                   NULL_SLICE,
-                                                   slice_create(1, "z")));
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_tenant_matches,
+                                                     &tenant,
+                                                     slice_create(1, "z")));
    ASSERT_FALSE(splinterdb_iterator_valid(it));
    ASSERT_EQUAL(0, splinterdb_iterator_status(it));
    splinterdb_iterator_deinit(it);
-   ASSERT_EQUAL(
-      0,
-      splinterdb_iterator_init_with_hash(
-         data->kvsb, &it, greater_than_or_equal, NULL_SLICE, NULL_SLICE));
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     NULL,
+                                                     NULL,
+                                                     NULL_SLICE));
    check_current_string_kv(it, "0a", "3");
    splinterdb_iterator_next(it);
    check_current_string_kv(it, "0b", "3");
@@ -3101,7 +3141,16 @@ hash_range_sparse_hash(const data_config *cfg, user_key k, uint32 seed)
              | 1);
 }
 
-CTEST2(splinterdb_quick, test_hash_filtered_range_crosses_empty_trunk_leaves)
+static bool
+range_sparse_matches(void *context, slice k)
+{
+   uint64 encoded;
+   memcpy(&encoded, slice_data(k), sizeof(encoded));
+   uint64 id = __builtin_bswap64(encoded);
+   return *(bool *)context ? id == UINT64_MAX : id % 2048 == 0;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_crosses_empty_trunk_leaves)
 {
    ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
    data->default_data_cfg.super.key_hash = hash_range_sparse_hash;
@@ -3128,15 +3177,21 @@ CTEST2(splinterdb_quick, test_hash_filtered_range_crosses_empty_trunk_leaves)
    ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
    ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
    for (int forwards = 0; forwards < 2; forwards++) {
+      bool                 no_match = false;
       uint64               hash_key = 0;
       splinterdb_iterator *it       = NULL;
       ASSERT_EQUAL(0,
-                   splinterdb_iterator_init_with_hash(
+                   splinterdb_iterator_init_with_filter(
                       data->kvsb,
                       &it,
                       forwards ? greater_than_or_equal : less_than_or_equal,
                       NULL_SLICE,
+                      range_sparse_matches,
+                      &no_match,
                       slice_create(sizeof(hash_key), &hash_key)));
+      /* Later trunk spans must use the copied pruning key. Its original
+       * storage may be reused immediately after initialization. */
+      hash_key = UINT64_MAX;
       for (int i = 0; i < 16; i++) {
          ASSERT_TRUE(splinterdb_iterator_valid(it));
          slice k, v;
@@ -3155,17 +3210,317 @@ CTEST2(splinterdb_quick, test_hash_filtered_range_crosses_empty_trunk_leaves)
       ASSERT_EQUAL(0, splinterdb_iterator_status(it));
       splinterdb_iterator_deinit(it);
 
+      no_match = true;
       hash_key = UINT64_MAX;
       ASSERT_EQUAL(0,
-                   splinterdb_iterator_init_with_hash(
+                   splinterdb_iterator_init_with_filter(
                       data->kvsb,
                       &it,
                       forwards ? greater_than_or_equal : less_than_or_equal,
                       NULL_SLICE,
+                      range_sparse_matches,
+                      &no_match,
                       slice_create(sizeof(hash_key), &hash_key)));
       ASSERT_FALSE(splinterdb_iterator_valid(it));
       ASSERT_EQUAL(0, splinterdb_iterator_status(it));
       splinterdb_iterator_deinit(it);
+   }
+}
+
+typedef struct range_digit_context {
+   uint8  modulus;
+   uint8  remainder;
+   uint64 calls;
+} range_digit_context;
+
+static bool
+range_digit_matches(void *context, slice k)
+{
+   range_digit_context *digits = context;
+   digits->calls++;
+   return slice_length(k) == 1
+          && (*(const uint8 *)slice_data(k) - '0') % digits->modulus
+                == digits->remainder;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_predicate_only_and_bounds)
+{
+   range_digit_context  digits = {.modulus = 2, .remainder = 1};
+   splinterdb_iterator *it     = NULL;
+   /* No callback is needed on an empty database. */
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_digit_matches,
+                                                     &digits,
+                                                     NULL_SLICE));
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   ASSERT_EQUAL_U(0, digits.calls);
+   splinterdb_iterator_deinit(it);
+
+   for (char key = '0'; key <= '9'; key++) {
+      ASSERT_EQUAL(
+         0,
+         splinterdb_insert(
+            data->kvsb, slice_create(1, &key), slice_create(1, "v"), NULL));
+      if (key == '4') {
+         force_flush_current_memtable(data->kvsb);
+      }
+   }
+   /* Odd numbers have unrelated ordinary hashes. Without a pruning key the
+    * predicate must visit every branch, including the current memtable. */
+   for (int forwards = 0; forwards < 2; forwards++) {
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_filter(
+                      data->kvsb,
+                      &it,
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      range_digit_matches,
+                      &digits,
+                      NULL_SLICE));
+      for (int i = 0; i < 5; i++) {
+         char expected[] = {(forwards ? 1 + 2 * i : 9 - 2 * i) + '0', 0};
+         check_current_string_kv(it, expected, "v");
+         if (forwards) {
+            splinterdb_iterator_next(it);
+         } else {
+            splinterdb_iterator_prev(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_bounds_and_filter(
+                      data->kvsb,
+                      &it,
+                      greater_than,
+                      slice_create(1, "1"),
+                      less_than,
+                      slice_create(1, "9"),
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      range_digit_matches,
+                      &digits,
+                      NULL_SLICE));
+      for (int i = 0; i < 3; i++) {
+         char expected[] = {(forwards ? 3 + 2 * i : 7 - 2 * i) + '0', 0};
+         check_current_string_kv(it, expected, "v");
+         if (forwards) {
+            splinterdb_iterator_next(it);
+         } else {
+            splinterdb_iterator_prev(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      if (forwards) {
+         splinterdb_iterator_prev(it);
+         check_current_string_kv(it, "7", "v");
+         splinterdb_iterator_prev(it);
+      } else {
+         splinterdb_iterator_next(it);
+         check_current_string_kv(it, "3", "v");
+         splinterdb_iterator_next(it);
+      }
+      check_current_string_kv(it, "5", "v");
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_filter(data->kvsb,
+                                                        &it,
+                                                        forwards ? greater_than
+                                                                 : less_than,
+                                                        slice_create(1, "5"),
+                                                        range_digit_matches,
+                                                        &digits,
+                                                        NULL_SLICE));
+      check_current_string_kv(it, forwards ? "7" : "3", "v");
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+   }
+   ASSERT_TRUE(digits.calls > 0);
+
+   /* Context remains caller-owned; each iterator borrows its current value. */
+   digits.remainder = 2;
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_digit_matches,
+                                                     &digits,
+                                                     NULL_SLICE));
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+
+   it = NULL;
+   ASSERT_EQUAL(EINVAL,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     NULL,
+                                                     NULL,
+                                                     slice_create(1, "1")));
+   ASSERT_NULL(it);
+   ASSERT_EQUAL(
+      EINVAL,
+      splinterdb_iterator_init_with_bounds_and_filter(data->kvsb,
+                                                      &it,
+                                                      greater_than_or_equal,
+                                                      NULL_SLICE,
+                                                      less_than_or_equal,
+                                                      NULL_SLICE,
+                                                      greater_than_or_equal,
+                                                      NULL_SLICE,
+                                                      NULL,
+                                                      NULL,
+                                                      slice_create(1, "1")));
+   ASSERT_NULL(it);
+}
+
+static int
+range_fail_finalize(const data_config *cfg, slice k, merge_accumulator *msg)
+{
+   return ENOMEM;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_propagates_matching_merge_errors)
+{
+   data->default_data_cfg.super.merge_tuples       = hash_range_add;
+   data->default_data_cfg.super.merge_tuples_final = range_fail_finalize;
+   range_tenant_context tenant                     = {.tenant = 'a'};
+   ASSERT_EQUAL(
+      0,
+      splinterdb_update(
+         data->kvsb, slice_create(2, "0b"), slice_create(1, "v"), NULL));
+   insert_string_kv(data->kvsb, "1a", "v");
+   ASSERT_EQUAL(
+      0,
+      splinterdb_update(
+         data->kvsb, slice_create(2, "2a"), slice_create(1, "v"), NULL));
+   splinterdb_iterator *it = NULL;
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_tenant_matches,
+                                                     &tenant,
+                                                     NULL_SLICE));
+   check_current_string_kv(it, "1a", "v");
+   splinterdb_iterator_next(it);
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_EQUAL(ENOMEM, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+
+   it = NULL;
+   ASSERT_EQUAL(ENOMEM,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     less_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_tenant_matches,
+                                                     &tenant,
+                                                     NULL_SLICE));
+   ASSERT_NULL(it);
+   /* Restore a successful finalizer before the fixture closes the database. */
+   data->default_data_cfg.super.merge_tuples_final = hash_range_finalize;
+}
+
+typedef struct filtered_iterator_handoff {
+   splinterdb          *db;
+   splinterdb_iterator *itor;
+   range_tenant_context tenant;
+   int                  rc;
+} filtered_iterator_handoff;
+
+static void *
+filtered_iterator_handoff_create(void *context)
+{
+   filtered_iterator_handoff *handoff       = context;
+   char                       pruning_key[] = "a";
+   handoff->rc =
+      splinterdb_iterator_init_with_filter(handoff->db,
+                                           &handoff->itor,
+                                           greater_than_or_equal,
+                                           NULL_SLICE,
+                                           range_tenant_matches,
+                                           &handoff->tenant,
+                                           slice_create(1, pruning_key));
+   return NULL;
+}
+
+static void *
+filtered_iterator_handoff_consume(void *context)
+{
+   filtered_iterator_handoff *handoff = context;
+   uint64                     calls   = handoff->tenant.calls;
+   for (char digit = '0'; digit <= '9'; digit++) {
+      char expected[] = {digit, 'a', 0};
+      check_current_string_kv(handoff->itor, expected, "v");
+      splinterdb_iterator_next(handoff->itor);
+   }
+   ASSERT_FALSE(splinterdb_iterator_valid(handoff->itor));
+   splinterdb_iterator_prev(handoff->itor);
+   check_current_string_kv(handoff->itor, "9a", "v");
+   splinterdb_iterator_prev(handoff->itor);
+   check_current_string_kv(handoff->itor, "8a", "v");
+   ASSERT_TRUE(handoff->tenant.calls > calls);
+   ASSERT_EQUAL_U(platform_get_tid(), handoff->tenant.last_tid);
+   handoff->rc = splinterdb_iterator_status(handoff->itor);
+   splinterdb_iterator_deinit(handoff->itor);
+   handoff->itor = NULL;
+   return NULL;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_context_survives_thread_handoff)
+{
+   data->default_data_cfg.super.key_hash = hash_range_key_hash;
+   for (char digit = '0'; digit <= '9'; digit++) {
+      char key[] = {digit, 'a', 0};
+      insert_string_kv(data->kvsb, key, "v");
+      key[1] = 'b';
+      insert_string_kv(data->kvsb, key, "v");
+   }
+   for (unsigned persisted = 0; persisted < 2; persisted++) {
+      if (persisted) {
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+         ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+      }
+      filtered_iterator_handoff handoff = {
+         .db     = data->kvsb,
+         .tenant = {.tenant = 'a'},
+      };
+      pthread_t producer;
+      ASSERT_EQUAL(
+         0,
+         pthread_create(
+            &producer, NULL, filtered_iterator_handoff_create, &handoff));
+      ASSERT_EQUAL(0, pthread_join(producer, NULL));
+      ASSERT_EQUAL(0, handoff.rc);
+      ASSERT_TRUE(handoff.tenant.calls > 0);
+      ASSERT_NOT_EQUAL(platform_get_tid(), handoff.tenant.last_tid);
+      filtered_iterator_handoff_consume(&handoff);
+      ASSERT_EQUAL(0, handoff.rc);
+
+      filtered_iterator_handoff_create(&handoff);
+      ASSERT_EQUAL(0, handoff.rc);
+      pthread_t receiver;
+      ASSERT_EQUAL(
+         0,
+         pthread_create(
+            &receiver, NULL, filtered_iterator_handoff_consume, &handoff));
+      ASSERT_EQUAL(0, pthread_join(receiver, NULL));
+      ASSERT_EQUAL(0, handoff.rc);
+      ASSERT_NOT_EQUAL(platform_get_tid(), handoff.tenant.last_tid);
    }
 }
 

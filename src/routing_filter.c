@@ -1460,6 +1460,41 @@ routing_filter_lookup(cache                *cc,
       found_values);
 }
 
+static uint32
+routing_filter_query_hash(const routing_config *cfg,
+                          routing_filter_query *query,
+                          uint32                seed)
+{
+   for (uint32 i = 0; i < query->num_hashes; i++) {
+      if (query->hashes[i].seed == seed) {
+         return query->hashes[i].hash;
+      }
+   }
+   uint32 slot              = query->next_hash;
+   uint32 hash              = data_key_hash(cfg->data_cfg, query->target, seed);
+   query->hashes[slot].seed = seed;
+   query->hashes[slot].hash = hash;
+   query->num_hashes = MIN(query->num_hashes + 1, ROUTING_FILTER_QUERY_HASHES);
+   query->next_hash  = (slot + 1) % ROUTING_FILTER_QUERY_HASHES;
+   return hash;
+}
+
+platform_status
+routing_filter_lookup_with_query(cache                *cc,
+                                 const routing_config *cfg,
+                                 routing_filter       *filter,
+                                 routing_filter_query *query,
+                                 uint64               *found_values)
+{
+   if (query == NULL || key_is_null(query->target)) {
+      return STATUS_BAD_PARAM;
+   }
+   /* This format has one database-wide seed. Keep seed selection here when
+    * integrating formats that persist a different seed in each descriptor. */
+   uint32 hash = routing_filter_query_hash(cfg, query, cfg->seed);
+   return routing_filter_lookup_hash(cc, cfg, filter, hash, found_values);
+}
+
 platform_status
 routing_filter_lookup_hash(cache                *cc,
                            const routing_config *cfg,

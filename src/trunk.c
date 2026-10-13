@@ -7560,12 +7560,12 @@ cleanup:
 
 
 static platform_status
-trunk_collect_bundle_branches(const trunk_context *context,
-                              trunk_ondisk_bundle *bndl,
-                              const uint32        *hash,
-                              uint64               capacity,
-                              uint64              *num_branches,
-                              trunk_branch_info   *branches)
+trunk_collect_bundle_branches(const trunk_context  *context,
+                              trunk_ondisk_bundle  *bndl,
+                              routing_filter_query *filter_query,
+                              uint64                capacity,
+                              uint64               *num_branches,
+                              trunk_branch_info    *branches)
 {
    if (bndl == NULL || bndl->num_branches > MAX_FILTERS
        || *num_branches > capacity)
@@ -7574,18 +7574,18 @@ trunk_collect_bundle_branches(const trunk_context *context,
    }
    uint64 found_values =
       bndl->num_branches == 0 ? 0 : (1ULL << bndl->num_branches) - 1;
-   if (hash != NULL) {
+   if (filter_query != NULL) {
       if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
          if (bndl->num_branches > 1) {
             return STATUS_INVALID_STATE;
          }
       } else {
          platform_status rc =
-            routing_filter_lookup_hash(context->cc,
-                                       context->cfg->filter_cfg,
-                                       &bndl->maplet,
-                                       *hash,
-                                       &found_values);
+            routing_filter_lookup_with_query(context->cc,
+                                             context->cfg->filter_cfg,
+                                             &bndl->maplet,
+                                             filter_query,
+                                             &found_values);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -7616,7 +7616,7 @@ trunk_collect_branches(const trunk_context            *context,
                        const trunk_ondisk_node_handle *inhandle,
                        key                             tgt,
                        comparison                      start_type,
-                       const uint32                   *hash,
+                       routing_filter_query           *filter_query,
                        uint64                          capacity,
                        uint64                         *num_branches,
                        trunk_branch_info              *branches,
@@ -7672,7 +7672,7 @@ trunk_collect_branches(const trunk_context            *context,
       }
       for (uint64 i = 0; i < num_inflight_bundles; i++) {
          rc = trunk_collect_bundle_branches(
-            context, bndl, hash, capacity, num_branches, branches);
+            context, bndl, filter_query, capacity, num_branches, branches);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_collect_branches: "
                                "trunk_collect_bundle_branches failed: %d\n",
@@ -7697,7 +7697,7 @@ trunk_collect_branches(const trunk_context            *context,
          goto cleanup;
       }
       rc = trunk_collect_bundle_branches(
-         context, bndl, hash, capacity, num_branches, branches);
+         context, bndl, filter_query, capacity, num_branches, branches);
       if (!SUCCESS(rc)) {
          platform_error_log("trunk_collect_branches: "
                             "trunk_collect_bundle_branches failed: %d\n",

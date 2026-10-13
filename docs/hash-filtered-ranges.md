@@ -1,50 +1,68 @@
-# Hash-filtered range queries
+# Predicate-filtered range queries
 
-`splinterdb_iterator_init_with_hash()` and
-`splinterdb_iterator_init_with_bounds_and_hash()` accept an optional hash key.
-The iterator returns only keys with the same full 32-bit `data_config.key_hash`
-value as that key, using the configured routing-filter seed. `NULL_SLICE`
-disables filtering. The hash key is consumed during initialization; its storage
-does not have to outlive that call.
+`splinterdb_iterator_init_with_filter()` and
+`splinterdb_iterator_init_with_bounds_and_filter()` append three separate
+arguments to the corresponding ordinary initializer: a
+`splinterdb_key_predicate`, its `void *` context, and a `slice`
+`routing_filter_key`. There is no new `data_config` callback.
 
-Bounds, inclusive/exclusive starts, forward/reverse traversal, updates, deletes,
-and errors follow the ordinary iterator contract. Filtering does not provide
-additional snapshot isolation. All active memtables participate. The routing
-filters select immutable candidate branches, then the merge iterator discards
-nonmatching keys **before merging messages**. That order matters: a skipped
-branch can hold part of a nonmatching key's update history. Routing-filter
-fingerprint collisions therefore cannot expose an incomplete history to an
-application's merge callback.
+| Predicate | Routing-filter key | Behavior |
+| --- | --- | --- |
+| NULL | NULL_SLICE | Ordinary iterator |
+| Supplied | NULL_SLICE | Exact key predicate, with all relevant branches searched |
+| Supplied | Supplied | Exact key predicate with routing-filter branch pruning |
+| NULL | Supplied | EINVAL |
 
-The predicate runs when a source reaches the front of the ordered merge. It
-does not eagerly advance every source to its next matching key: that could
-scan an unrelated source's entire tail before returning an earlier result.
-Rejected copies advance individually without invoking application callbacks.
+The predicate receives `(context, stored_key)` and returns a boolean. It may
+run repeatedly, including on keys with delete messages. It must remain stable
+for the iterator lifetime, agree for comparator-equivalent keys, and must not
+mutate the database. Its context remains caller-owned and must outlive the
+iterator, including use after thread handoff. Key slices passed to the callback
+are borrowed only for that invocation. Bounds, inclusive/exclusive starts,
+forward/reverse movement, errors and isolation follow the ordinary iterator.
 
-The existing API and on-disk format are unchanged. No per-source adapter is
-allocated. Ordinary unfiltered scans use separate iterator operations that skip
-predicate and hash calls. The filter callback lives in a derived merge iterator,
-so an ordinary merge iterator retains its original size and field offsets. The
-new range-iterator fields follow the existing fields. These layout choices do
-not make the generated machine code identical to the baseline. Empty trunk
-spans are crossed iteratively to avoid stack growth when a hash is sparse or
-absent.
+A supplied routing-filter key asserts this application contract for EVERY seed:
 
-When integrating the separate persisted-configuration project, a routing filter
-built with a different seed must be treated as unpruned. Exact matching is
-defined using the query seed; rehashing the hash key using an old filter's seed
-does not preserve collisions between distinct keys under the query seed and
-could incorrectly skip a matching key. Exact filtering still uses the query
-seed. This independent branch retains the existing single-seed format.
+```
+predicate(key) => key_hash(key, seed) == key_hash(routing_filter_key, seed)
+```
 
-The independent lazy-merge experiment also changes `merge.c`. When combining
-the branches, its deferred initial ordering must preserve this predicate's
-position before message merging and retain the filtered movement operations.
-Its initial operations must also preserve identification of the derived filter
-object; replacing its operations with the lazy iterator's initial operations
-without that distinction would lose the predicate.
+The routing key uses the query-key representation accepted by `key_hash`.
+Initialization copies its bytes; the caller may immediately reuse its original
+buffer. Violating hash compatibility can omit matching keys or portions of
+their update histories. Predicates spanning different hash classes must omit
+the routing key. The database's hash definition must remain compatible with
+existing filters across reopen; changing a seed does not change membership.
 
-## Validation
+For example, keys sorted by `(time, tenant)` can use a predicate comparing the
+tenant, and a hash function hashing only the tenant. The query supplies time
+bounds and a representative key for the desired tenant. Additional predicate
+conditions are allowed if every accepted key still has that tenant hash.
+
+The merge iterator rejects nonmatching keys BEFORE merging or finalizing
+messages. Routing-filter collisions can select unrelated keys with incomplete
+update histories, so this ordering is required. The predicate runs at the
+ordered merge front; sources are not eagerly advanced to their next match.
+All active memtables participate. Ordinary scans retain their ordinary merge
+operations without predicate calls or filter-state allocation.
+
+The iterator's private state retains the copied routing key across trunk spans,
+seeks and reversals. A routing-filter query caches four seed/hash pairs; more
+seeds merely replace cached entries and cause rehashing. Hash selection belongs
+to the routing-filter module. This standalone branch uses the existing global
+seed; its combination with disk-format selects each descriptor's saved seed.
+Under the compatibility contract above, different saved seeds do not require
+disabling branch pruning. Exact predicate checks do not hash candidates under
+all encountered seeds.
+
+The independent lazy-merge experiment also changes `merge.c`. Integration must
+preserve predicate evaluation before message merging and keep the filtered
+iterator operations when restoring deferred ordering.
+
+The following earlier validation and measurements describe the superseded
+single-hash API. New predicate implementation results are recorded separately.
+
+## Historical single-hash validation
 
 Based on `db3047a8`. The final implementation (`f30ebdf`) passes all 9 debug
 merge tests and 49 `splinterdb_quick_test` cases. The preceding ordered-merge
@@ -70,7 +88,7 @@ build/debug/bin/unit/splinter_test --db-location /REAL_DISK/filtered-core.db \
   --cache-capacity-mib 128 --db-capacity-gib 4
 ```
 
-## Performance reproduction
+## Historical single-hash performance reproduction
 
 `benchmarks/hash_range_benchmark.c` compares application-side filtering on the
 base library with branch selection and exact pre-merge filtering on this library.
@@ -222,3 +240,20 @@ measurement of merge cost. Main controls drifted; observed range overlap is
 descriptive, not a statistical confidence interval. Exact samples, build/source
 hashes, commands, verification scope and fresh correctness evidence are in
 [the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
+
+## Predicate API implementation (2026-10-13)
+
+The single-hash initializer has been replaced by the predicate/context/routing-key
+API described above. Debug and release each pass 69 unit cases (54 public quick,
+10 merge, one core cache-read-error and four blob cases) and the four functional
+routing-filter cases. Focused ASan passes all ten merge cases and five predicate
+API cases, with `detect_leaks=0:abort_on_error=1`. Coverage includes deliberate
+full-width hash collisions, exclusion before user merge/finalize callbacks,
+predicate-only scans, bounds, reversals, empty results, invalid combinations,
+owned routing keys across trunk leaves, accepted-key error propagation and
+iterator/context transfer to another thread. One initial test fixture omitted
+its required update callback; corrected runs pass and both logs are retained.
+
+Exact commands, logs, source and binary hashes are in the campaign's
+`coordination/filter-predicate-20261013/tests/` directory. These checks precede
+the latest-main merge and the separate mixed-seed integration validation.

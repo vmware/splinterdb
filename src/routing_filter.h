@@ -109,6 +109,37 @@ routing_filter_lookup(cache                *cc,
                       key                   target,
                       uint64               *found_values);
 
+/* A query retains borrowed key bytes and a small cache of hashes. The caller
+ * keeps target alive and must not change the data configuration while using it.
+ * Eviction merely recomputes a hash if a scan encounters many distinct seeds.
+ */
+#define ROUTING_FILTER_QUERY_HASHES 4
+
+typedef struct routing_filter_query {
+   key target;
+   struct {
+      uint32 seed;
+      uint32 hash;
+   } hashes[ROUTING_FILTER_QUERY_HASHES];
+   uint32 num_hashes;
+   uint32 next_hash;
+} routing_filter_query;
+
+static inline void
+routing_filter_query_init(routing_filter_query *query, key target)
+{
+   *query = (routing_filter_query){.target = target};
+}
+
+/* The routing-filter module selects the seed, so callers do not depend on
+ * where a filter's hash configuration is stored. */
+platform_status
+routing_filter_lookup_with_query(cache                *cc,
+                                 const routing_config *cfg,
+                                 routing_filter       *filter,
+                                 routing_filter_query *query,
+                                 uint64               *found_values);
+
 /* Lookup a full-width hash produced with cfg->seed. */
 platform_status
 routing_filter_lookup_hash(cache                *cc,

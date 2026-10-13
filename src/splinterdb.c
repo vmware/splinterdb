@@ -1147,47 +1147,57 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
                                      slice      user_start_key        // IN
 )
 {
-   return splinterdb_iterator_init_with_bounds_and_hash(kvs,
-                                                        iter,
-                                                        min_key_comparison,
-                                                        user_min_key,
-                                                        max_key_comparison,
-                                                        user_max_key,
-                                                        start_key_comparison,
-                                                        user_start_key,
-                                                        NULL_SLICE);
+   return splinterdb_iterator_init_with_bounds_and_filter(kvs,
+                                                          iter,
+                                                          min_key_comparison,
+                                                          user_min_key,
+                                                          max_key_comparison,
+                                                          user_max_key,
+                                                          start_key_comparison,
+                                                          user_start_key,
+                                                          NULL,
+                                                          NULL,
+                                                          NULL_SLICE);
 }
 
 int
-splinterdb_iterator_init_with_hash(splinterdb           *kvs,
-                                   splinterdb_iterator **iter,
-                                   comparison            start_key_comparison,
-                                   slice                 user_start_key,
-                                   slice                 hash_key)
+splinterdb_iterator_init_with_filter(splinterdb           *kvs,
+                                     splinterdb_iterator **iter,
+                                     comparison            start_key_comparison,
+                                     slice                 user_start_key,
+                                     splinterdb_key_predicate predicate,
+                                     void                    *predicate_context,
+                                     slice routing_filter_key)
 {
-   return splinterdb_iterator_init_with_bounds_and_hash(kvs,
-                                                        iter,
-                                                        greater_than_or_equal,
-                                                        NULL_SLICE,
-                                                        less_than,
-                                                        NULL_SLICE,
-                                                        start_key_comparison,
-                                                        user_start_key,
-                                                        hash_key);
+   return splinterdb_iterator_init_with_bounds_and_filter(kvs,
+                                                          iter,
+                                                          greater_than_or_equal,
+                                                          NULL_SLICE,
+                                                          less_than,
+                                                          NULL_SLICE,
+                                                          start_key_comparison,
+                                                          user_start_key,
+                                                          predicate,
+                                                          predicate_context,
+                                                          routing_filter_key);
 }
 
 int
-splinterdb_iterator_init_with_bounds_and_hash(splinterdb           *kvs,
-                                              splinterdb_iterator **iter,
-                                              comparison min_key_comparison,
-                                              slice      user_min_key,
-                                              comparison max_key_comparison,
-                                              slice      user_max_key,
-                                              comparison start_key_comparison,
-                                              slice      user_start_key,
-                                              slice      hash_key)
+splinterdb_iterator_init_with_bounds_and_filter(
+   splinterdb              *kvs,
+   splinterdb_iterator    **iter,
+   comparison               min_key_comparison,
+   slice                    user_min_key,
+   comparison               max_key_comparison,
+   slice                    user_max_key,
+   comparison               start_key_comparison,
+   slice                    user_start_key,
+   splinterdb_key_predicate predicate,
+   void                    *predicate_context,
+   slice                    routing_filter_key)
 {
-   if (!splinterdb_iterator_min_comparison_is_valid(min_key_comparison)
+   if ((predicate == NULL && !slice_is_null(routing_filter_key))
+       || !splinterdb_iterator_min_comparison_is_valid(min_key_comparison)
        || !splinterdb_iterator_max_comparison_is_valid(max_key_comparison))
    {
       return platform_status_to_int(STATUS_BAD_PARAM);
@@ -1230,23 +1240,18 @@ splinterdb_iterator_init_with_bounds_and_hash(splinterdb           *kvs,
       start_key = key_create_from_slice(TRUE, user_start_key);
    }
 
-   uint32        hash        = 0;
-   const uint32 *filter_hash = NULL;
-   if (!slice_is_null(hash_key)) {
-      hash        = data_key_hash(kvs->spl.cfg.data_cfg,
-                           key_create_from_slice(TRUE, hash_key),
-                           kvs->filter_cfg.seed);
-      filter_hash = &hash;
-   }
-   platform_status rc = core_range_iterator_init_with_hash(&kvs->spl,
-                                                           range_itor,
-                                                           min_key_comparison,
-                                                           min_key,
-                                                           max_key_comparison,
-                                                           max_key,
-                                                           start_key_comparison,
-                                                           start_key,
-                                                           filter_hash);
+   platform_status rc = core_range_iterator_init_with_filter(
+      &kvs->spl,
+      range_itor,
+      min_key_comparison,
+      min_key,
+      max_key_comparison,
+      max_key,
+      start_key_comparison,
+      start_key,
+      predicate,
+      predicate_context,
+      key_create_from_slice(TRUE, routing_filter_key));
    if (!SUCCESS(rc)) {
       merge_accumulator_deinit(&it->materialized_message);
       platform_free(kvs->spl.heap_id, it);
