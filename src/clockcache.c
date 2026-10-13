@@ -993,10 +993,9 @@ clockcache_writeback_page_sync(clockcache *cc, uint32 entry_number)
  *----------------------------------------------------------------------
  */
 static void
-clockcache_get_write(clockcache *cc, uint32 entry_number)
+clockcache_get_write(clockcache *cc, uint32 entry_number, threadid tid)
 {
-   const threadid tid       = platform_get_tid();
-   const uint64   rc_number = clockcache_get_ref_internal(cc, entry_number);
+   const uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
 
    debug_assert(clockcache_test_flag(cc, entry_number, CC_CLAIMED));
    debug_only uint32 was_writing =
@@ -1005,15 +1004,9 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
    debug_assert(!clockcache_test_flag(cc, entry_number, CC_LOADING));
 
    /*
-    * If the thread that wants a write lock holds > 1 refs, it means
-    * it has some async lookups which have yielded after taking refs.
-    * This is currently not allowed; because such a thread would
-    * easily be able to upgrade to write lock and modify the page
-    * under it's own yielded lookup.
-    *
-    * If threads do async lookups, they must leave the
-    * compaction+incorporation (that needs write locking) to
-    * background threads.
+    * The handle owns one reference in its acquisition thread's stripe. The
+    * thread upgrading it may differ. Wait for every other reference, including
+    * those acquired by a thread that reused the original registration id.
     */
    debug_assert(clockcache_get_ref_by_number(cc, rc_number, tid) >= 1);
    /*
@@ -2054,7 +2047,8 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type, page_handle *page)
                   "alloc: entry %u addr %lu\n",
                   entry_no,
                   clockcache_entry_addr(entry));
-   page->page = &entry->page;
+   page->page         = &entry->page;
+   page->read_ref_tid = platform_get_tid();
    return page;
 }
 
@@ -2128,7 +2122,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
                      addr);
 
       /* 4. write lock */
-      clockcache_get_write(cc, entry_number);
+      clockcache_get_write(cc, entry_number, tid);
 
       /* 5. clear lookup and disk addr; set status to CC_FREE_STATUS */
       uint64 lookup_no = clockcache_lookup_number(cc, addr);
@@ -2211,7 +2205,7 @@ clockcache_get_in_cache(clockcache      *cc,           // IN
       }
    } else {
       get_rc result = clockcache_try_get_read(cc, entry_number, TRUE);
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
       if (cc->after_candidate_ref_attempt != NULL) {
          cc->after_candidate_ref_attempt(cc,
                                          addr,
@@ -2439,7 +2433,7 @@ clockcache_get_internal(clockcache      *cc,       // IN
    }
 
    if (entry_number != CC_UNMAPPED_ENTRY) {
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
       if (cc->before_candidate_ref != NULL) {
          cc->before_candidate_ref(
             cc, addr, entry_number, cc->before_candidate_ref_arg);
@@ -2494,7 +2488,8 @@ clockcache_get(clockcache  *cc,
       retry = clockcache_get_internal(cc, addr, blocking, type, &handle, &rc);
       if (!retry) {
          if (SUCCESS(rc)) {
-            page->page = handle;
+            page->page         = handle;
+            page->read_ref_tid = platform_get_tid();
          }
          return rc;
       }
@@ -2766,7 +2761,7 @@ void
 clockcache_unget(clockcache *cc, page_handle *page)
 {
    uint32         entry_number = clockcache_page_to_entry_number(cc, page);
-   const threadid tid          = platform_get_tid();
+   const threadid tid          = page->read_ref_tid;
 
    clockcache_record_backtrace(cc, entry_number);
 
@@ -2853,7 +2848,7 @@ clockcache_lock(clockcache *cc, page_handle *page)
                   "lock: entry %u addr %lu\n",
                   entry_number,
                   page_handle_addr(page));
-   clockcache_get_write(cc, entry_number);
+   clockcache_get_write(cc, entry_number, page->read_ref_tid);
    // A write lock marks the page dirty (and stamps its dirty generation). The
    // CC_WRITEBACK exclusion in clockcache_get_write guarantees this cannot race
    // a writeback completion.
@@ -3549,7 +3544,7 @@ clockcache_prefetch_pages(clockcache *cc,
             clockcache_entry_set_addr(entry, addr);
             entry->type      = type;
             uint64 lookup_no = clockcache_lookup_number(cc, addr);
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
             if (cc->before_prefetch_publish != NULL) {
                cc->before_prefetch_publish(
                   cc, addr, free_entry_no, cc->before_prefetch_publish_arg);
@@ -4116,7 +4111,8 @@ clockcache_get_async_state_result_virtual(void *payload, page_handle *page)
 {
    clockcache_get_async_state *state = (clockcache_get_async_state *)payload;
    if (SUCCESS(state->result_status)) {
-      page->page = state->__async_result;
+      page->page         = state->__async_result;
+      page->read_ref_tid = state->tid;
    }
    return state->result_status;
 }

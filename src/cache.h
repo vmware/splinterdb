@@ -24,6 +24,8 @@ typedef struct cache_page {
  * it does not acquire another reference. cache_unget() clears this receipt. */
 typedef struct page_handle {
    cache_page *page;
+   /* Stripe receipt, independent of the thread that later owns the handle. */
+   threadid read_ref_tid;
 } page_handle;
 
 static inline bool32
@@ -320,7 +322,8 @@ struct cache {
  * and statistical accounting purposes.
  *
  * Fills the caller-owned handle and returns it with the write lock held.
- * On failure returns NULL and clears the handle.
+ * On failure returns NULL and clears the handle. The handle can be moved to
+ * another registered thread with ordinary synchronization, like cache_get().
  *----------------------------------------------------------------------
  */
 static inline page_handle *
@@ -361,7 +364,10 @@ cache_extent_discard(cache *cc, uint64 addr, page_type type)
  *
  * Acquires the page at addr into caller-owned storage. On success, page holds
  * one read reference. The handle may be moved, but copying it does not acquire
- * another reference. Release it exactly once with cache_unget().
+ * another reference. Release it exactly once with cache_unget(). Ownership
+ * may move to another registered thread using ordinary synchronization; the
+ * acquiring thread may deregister after handing off the handle. Concurrent
+ * use of the same handle still requires the caller's synchronization.
  *
  * If blocking is TRUE, waits for the page to become readable. If blocking is
  * FALSE and the page is absent or write-locked, returns STATUS_BUSY. A resident
@@ -425,8 +431,8 @@ cache_get_async_state_result(page_get_async_state_buffer *buffer,
  * cache_unget
  *
  * Drop a reference to a page.
- * The page must be read-locked by the calling thread (and not claimed or
- * write-locked) before making this call.
+ * The caller must own the handle's read reference, which may have been
+ * acquired on another thread. It must not be claimed or write-locked.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -490,7 +496,8 @@ cache_unclaim(cache *cc, page_handle *page)
  * The handle must hold a claim when making this call.
  * The handle is changed to the write-locked state.
  *
- * Blocks until outstanding read locks are released by other threads.
+ * Blocks until every read reference other than this handle is released,
+ * including references acquired by the same thread.
  *
  * Acquiring the write lock marks the page dirty.
  *----------------------------------------------------------------------

@@ -130,3 +130,31 @@ were checked against the committed implementation.
 records commands, counts, logs, and hashes for the debug, release, and ASan runs.
 The campaign serialization audit found zero benchmark overlaps with other
 benchmarks, builds, or tests.
+## Main integration (2026-10-13)
+
+Merged main `7bb5fab`, which contains the selected compact cache-error and
+handoff implementation. To resolve the duplicated history from the squash,
+the runtime and tests were taken from main, then the exact invalid-address
+extension was reapplied to `cache.h`, `clockcache.c`, and `writeback_set_test.c`.
+This retains main's acquiring-thread reference ownership, error paths,
+prefetch admission protection and multilevel blob support.
+
+Debug and release each pass 72 cases: 18 writeback/cache tests, 49 public API
+tests, the core error-propagation test and four blob tests. Invalid synchronous,
+nonblocking, asynchronous and prefetch inputs are covered together with
+cross-thread claim/lock/unget and handles whose acquiring thread has exited.
+Commands, logs and hashes are in
+`.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/`.
+The first core invocation used the wrong test-filter argument order and was
+rejected; the corrected invocation passed. Earlier measurements above remain
+historical; fresh integration measurements are tracked under
+`benchmarks/main-7bb5fab/` in the campaign.
+
+The deterministic prefetch-admission driver passes. One concurrent async
+stress run at 32 MiB cache and 96% working set stalled: all 8,192 slots were
+referenced, with no free or loading pages, and all eight readers were inside
+blocking free-page acquisition before their next old-window release. Exact
+serial repeats passed twice on both main and this branch. This does not
+establish absence of a progress problem; captures and further controls are
+retained in the integration evidence's `stall/` directory. No unrelated cache
+allocation redesign is included in this merge.

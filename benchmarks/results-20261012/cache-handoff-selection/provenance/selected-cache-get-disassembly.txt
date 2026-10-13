@@ -1,0 +1,322 @@
+
+/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-selected/release/bin/kvbench:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+000000000003be50 <clockcache_get_virtual>:
+   3be50:	41 57                	push   %r15
+   3be52:	8d 41 ff             	lea    -0x1(%rcx),%eax
+   3be55:	41 56                	push   %r14
+   3be57:	41 55                	push   %r13
+   3be59:	41 54                	push   %r12
+   3be5b:	55                   	push   %rbp
+   3be5c:	53                   	push   %rbx
+   3be5d:	48 89 f3             	mov    %rsi,%rbx
+   3be60:	48 83 ec 48          	sub    $0x48,%rsp
+   3be64:	89 4c 24 0c          	mov    %ecx,0xc(%rsp)
+   3be68:	4c 89 44 24 20       	mov    %r8,0x20(%rsp)
+   3be6d:	83 f8 07             	cmp    $0x7,%eax
+   3be70:	0f 87 5a 04 00 00    	ja     3c2d0 <clockcache_get_virtual+0x480>
+   3be76:	49 89 ff             	mov    %rdi,%r15
+   3be79:	41 89 d5             	mov    %edx,%r13d
+   3be7c:	49 8b 4f 08          	mov    0x8(%r15),%rcx
+   3be80:	31 d2                	xor    %edx,%edx
+   3be82:	48 8b 41 08          	mov    0x8(%rcx),%rax
+   3be86:	4c 8b 60 08          	mov    0x8(%rax),%r12
+   3be8a:	48 89 d8             	mov    %rbx,%rax
+   3be8d:	49 f7 f4             	div    %r12
+   3be90:	48 85 d2             	test   %rdx,%rdx
+   3be93:	0f 85 9d 04 00 00    	jne    3c336 <clockcache_get_virtual+0x4e6>
+   3be99:	48 8b 89 20 01 00 00 	mov    0x120(%rcx),%rcx
+   3bea0:	49 8b 47 28          	mov    0x28(%r15),%rax
+   3bea4:	48 89 da             	mov    %rbx,%rdx
+   3bea7:	48 d3 ea             	shr    %cl,%rdx
+   3beaa:	48 c1 e8 02          	shr    $0x2,%rax
+   3beae:	48 39 c2             	cmp    %rax,%rdx
+   3beb1:	0f 83 4b 04 00 00    	jae    3c302 <clockcache_get_virtual+0x4b2>
+   3beb7:	49 8b 47 30          	mov    0x30(%r15),%rax
+   3bebb:	8b 2c 90             	mov    (%rax,%rdx,4),%ebp
+   3bebe:	83 fd ff             	cmp    $0xffffffff,%ebp
+   3bec1:	75 25                	jne    3bee8 <clockcache_get_virtual+0x98>
+   3bec3:	45 85 ed             	test   %r13d,%r13d
+   3bec6:	0f 85 64 01 00 00    	jne    3c030 <clockcache_get_virtual+0x1e0>
+   3becc:	41 be 0b 00 00 00    	mov    $0xb,%r14d
+   3bed2:	48 83 c4 48          	add    $0x48,%rsp
+   3bed6:	44 89 f0             	mov    %r14d,%eax
+   3bed9:	5b                   	pop    %rbx
+   3beda:	5d                   	pop    %rbp
+   3bedb:	41 5c                	pop    %r12
+   3bedd:	41 5d                	pop    %r13
+   3bedf:	41 5e                	pop    %r14
+   3bee1:	41 5f                	pop    %r15
+   3bee3:	c3                   	ret
+   3bee4:	0f 1f 40 00          	nopl   0x0(%rax)
+   3bee8:	64 48 8b 04 25 f8 ff ff ff 	mov    %fs:0xfffffffffffffff8,%rax
+   3bef1:	89 ee                	mov    %ebp,%esi
+   3bef3:	4c 89 ff             	mov    %r15,%rdi
+   3bef6:	48 89 44 24 10       	mov    %rax,0x10(%rsp)
+   3befb:	45 85 ed             	test   %r13d,%r13d
+   3befe:	0f 84 3c 02 00 00    	je     3c140 <clockcache_get_virtual+0x2f0>
+   3bf04:	e8 37 30 02 00       	call   5ef40 <clockcache_try_get_read.constprop.0>
+   3bf09:	83 f8 01             	cmp    $0x1,%eax
+   3bf0c:	75 4f                	jne    3bf5d <clockcache_get_virtual+0x10d>
+   3bf0e:	41 be 01 00 00 00    	mov    $0x1,%r14d
+   3bf14:	48 b8 cd cc cc cc cc cc cc cc 	movabs $0xcccccccccccccccd,%rax
+   3bf1e:	49 f7 e6             	mul    %r14
+   3bf21:	31 c0                	xor    %eax,%eax
+   3bf23:	48 c1 ea 02          	shr    $0x2,%rdx
+   3bf27:	49 89 d4             	mov    %rdx,%r12
+   3bf2a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+   3bf30:	f3 90                	pause
+   3bf32:	48 89 c1             	mov    %rax,%rcx
+   3bf35:	48 83 c0 01          	add    $0x1,%rax
+   3bf39:	4c 39 e1             	cmp    %r12,%rcx
+   3bf3c:	75 f2                	jne    3bf30 <clockcache_get_virtual+0xe0>
+   3bf3e:	49 81 fe 00 04 00 00 	cmp    $0x400,%r14
+   3bf45:	0f 87 b5 00 00 00    	ja     3c000 <clockcache_get_virtual+0x1b0>
+   3bf4b:	89 ee                	mov    %ebp,%esi
+   3bf4d:	4c 89 ff             	mov    %r15,%rdi
+   3bf50:	4d 01 f6             	add    %r14,%r14
+   3bf53:	e8 e8 2f 02 00       	call   5ef40 <clockcache_try_get_read.constprop.0>
+   3bf58:	83 f8 01             	cmp    $0x1,%eax
+   3bf5b:	74 b7                	je     3bf14 <clockcache_get_virtual+0xc4>
+   3bf5d:	85 c0                	test   %eax,%eax
+   3bf5f:	0f 85 17 ff ff ff    	jne    3be7c <clockcache_get_virtual+0x2c>
+   3bf65:	89 e8                	mov    %ebp,%eax
+   3bf67:	48 89 44 24 18       	mov    %rax,0x18(%rsp)
+   3bf6c:	49 89 c4             	mov    %rax,%r12
+   3bf6f:	49 8b 47 48          	mov    0x48(%r15),%rax
+   3bf73:	49 c1 e4 06          	shl    $0x6,%r12
+   3bf77:	4a 8b 54 20 08       	mov    0x8(%rax,%r12,1),%rdx
+   3bf7c:	48 39 d3             	cmp    %rdx,%rbx
+   3bf7f:	74 22                	je     3bfa3 <clockcache_get_virtual+0x153>
+   3bf81:	e9 b7 02 00 00       	jmp    3c23d <clockcache_get_virtual+0x3ed>
+   3bf86:	66 2e 0f 1f 84 00 00 00 00 00 	cs nopw 0x0(%rax,%rax,1)
+   3bf90:	49 8b 7f 18          	mov    0x18(%r15),%rdi
+   3bf94:	be 01 00 00 00       	mov    $0x1,%esi
+   3bf99:	48 8b 07             	mov    (%rdi),%rax
+   3bf9c:	ff 50 20             	call   *0x20(%rax)
+   3bf9f:	49 8b 47 48          	mov    0x48(%r15),%rax
+   3bfa3:	42 8b 44 20 10       	mov    0x10(%rax,%r12,1),%eax
+   3bfa8:	a8 10                	test   $0x10,%al
+   3bfaa:	75 e4                	jne    3bf90 <clockcache_get_virtual+0x140>
+   3bfac:	4d 03 67 48          	add    0x48(%r15),%r12
+   3bfb0:	45 8b 74 24 14       	mov    0x14(%r12),%r14d
+   3bfb5:	45 85 f6             	test   %r14d,%r14d
+   3bfb8:	0f 85 d2 02 00 00    	jne    3c290 <clockcache_get_virtual+0x440>
+   3bfbe:	41 8b 44 24 20       	mov    0x20(%r12),%eax
+   3bfc3:	39 44 24 0c          	cmp    %eax,0xc(%rsp)
+   3bfc7:	0f 85 d1 02 00 00    	jne    3c29e <clockcache_get_virtual+0x44e>
+   3bfcd:	49 8b 47 08          	mov    0x8(%r15),%rax
+   3bfd1:	8b 70 18             	mov    0x18(%rax),%esi
+   3bfd4:	85 f6                	test   %esi,%esi
+   3bfd6:	0f 85 3b 02 00 00    	jne    3c217 <clockcache_get_virtual+0x3c7>
+   3bfdc:	4d 89 e5             	mov    %r12,%r13
+   3bfdf:	48 8b 5c 24 20       	mov    0x20(%rsp),%rbx
+   3bfe4:	45 31 f6             	xor    %r14d,%r14d
+   3bfe7:	4c 89 2b             	mov    %r13,(%rbx)
+   3bfea:	64 48 8b 04 25 f8 ff ff ff 	mov    %fs:0xfffffffffffffff8,%rax
+   3bff3:	48 89 43 08          	mov    %rax,0x8(%rbx)
+   3bff7:	e9 d6 fe ff ff       	jmp    3bed2 <clockcache_get_virtual+0x82>
+   3bffc:	0f 1f 40 00          	nopl   0x0(%rax)
+   3c000:	89 ee                	mov    %ebp,%esi
+   3c002:	4c 89 ff             	mov    %r15,%rdi
+   3c005:	e8 36 2f 02 00       	call   5ef40 <clockcache_try_get_read.constprop.0>
+   3c00a:	83 f8 01             	cmp    $0x1,%eax
+   3c00d:	0f 85 4a ff ff ff    	jne    3bf5d <clockcache_get_virtual+0x10d>
+   3c013:	31 c0                	xor    %eax,%eax
+   3c015:	66 66 2e 0f 1f 84 00 00 00 00 00 	data16 cs nopw 0x0(%rax,%rax,1)
+   3c020:	f3 90                	pause
+   3c022:	48 89 c2             	mov    %rax,%rdx
+   3c025:	48 83 c0 01          	add    $0x1,%rax
+   3c029:	49 39 d4             	cmp    %rdx,%r12
+   3c02c:	75 f2                	jne    3c020 <clockcache_get_virtual+0x1d0>
+   3c02e:	eb d0                	jmp    3c000 <clockcache_get_virtual+0x1b0>
+   3c030:	64 48 8b 04 25 f8 ff ff ff 	mov    %fs:0xfffffffffffffff8,%rax
+   3c039:	8b 54 24 0c          	mov    0xc(%rsp),%edx
+   3c03d:	48 89 de             	mov    %rbx,%rsi
+   3c040:	4c 89 ff             	mov    %r15,%rdi
+   3c043:	48 89 44 24 10       	mov    %rax,0x10(%rsp)
+   3c048:	e8 43 fb ff ff       	call   3bb90 <clockcache_acquire_entry_for_load.lto_priv.0>
+   3c04d:	48 89 c5             	mov    %rax,%rbp
+   3c050:	b8 ff ff ff ff       	mov    $0xffffffff,%eax
+   3c055:	48 39 c5             	cmp    %rax,%rbp
+   3c058:	0f 84 1e fe ff ff    	je     3be7c <clockcache_get_virtual+0x2c>
+   3c05e:	49 8b 47 08          	mov    0x8(%r15),%rax
+   3c062:	49 89 ed             	mov    %rbp,%r13
+   3c065:	49 c1 e5 06          	shl    $0x6,%r13
+   3c069:	4d 03 6f 48          	add    0x48(%r15),%r13
+   3c06d:	8b 48 18             	mov    0x18(%rax),%ecx
+   3c070:	85 c9                	test   %ecx,%ecx
+   3c072:	0f 85 78 01 00 00    	jne    3c1f0 <clockcache_get_virtual+0x3a0>
+   3c078:	49 8b 7f 18          	mov    0x18(%r15),%rdi
+   3c07c:	49 8b 75 00          	mov    0x0(%r13),%rsi
+   3c080:	48 89 d9             	mov    %rbx,%rcx
+   3c083:	4c 89 e2             	mov    %r12,%rdx
+   3c086:	48 8b 07             	mov    (%rdi),%rax
+   3c089:	ff 10                	call   *(%rax)
+   3c08b:	41 89 c6             	mov    %eax,%r14d
+   3c08e:	85 c0                	test   %eax,%eax
+   3c090:	0f 85 23 01 00 00    	jne    3c1b9 <clockcache_get_virtual+0x369>
+   3c096:	49 8b 47 08          	mov    0x8(%r15),%rax
+   3c09a:	8b 50 18             	mov    0x18(%rax),%edx
+   3c09d:	85 d2                	test   %edx,%edx
+   3c09f:	0f 85 b7 00 00 00    	jne    3c15c <clockcache_get_virtual+0x30c>
+   3c0a5:	44 89 f1             	mov    %r14d,%ecx
+   3c0a8:	89 ea                	mov    %ebp,%edx
+   3c0aa:	48 89 de             	mov    %rbx,%rsi
+   3c0ad:	4c 89 ff             	mov    %r15,%rdi
+   3c0b0:	e8 5b ea ff ff       	call   3ab10 <clockcache_finish_load.lto_priv.0>
+   3c0b5:	45 85 f6             	test   %r14d,%r14d
+   3c0b8:	0f 84 21 ff ff ff    	je     3bfdf <clockcache_get_virtual+0x18f>
+   3c0be:	49 8b 4f 08          	mov    0x8(%r15),%rcx
+   3c0c2:	48 89 e8             	mov    %rbp,%rax
+   3c0c5:	31 d2                	xor    %edx,%edx
+   3c0c7:	48 8b 7c 24 10       	mov    0x10(%rsp),%rdi
+   3c0cc:	48 f7 b1 40 01 00 00 	divq   0x140(%rcx)
+   3c0d3:	83 e7 03             	and    $0x3,%edi
+   3c0d6:	c1 e2 06             	shl    $0x6,%edx
+   3c0d9:	8d 34 02             	lea    (%rdx,%rax,1),%esi
+   3c0dc:	8b 81 30 01 00 00    	mov    0x130(%rcx),%eax
+   3c0e2:	49 8b 97 88 00 00 00 	mov    0x88(%r15),%rdx
+   3c0e9:	b9 ff ff ff ff       	mov    $0xffffffff,%ecx
+   3c0ee:	48 0f af c7          	imul   %rdi,%rax
+   3c0f2:	48 01 f0             	add    %rsi,%rax
+   3c0f5:	66 f0 0f c1 0c 42    	lock xadd %cx,(%rdx,%rax,2)
+   3c0fb:	66 85 c9             	test   %cx,%cx
+   3c0fe:	0f 85 ce fd ff ff    	jne    3bed2 <clockcache_get_virtual+0x82>
+   3c104:	50                   	push   %rax
+   3c105:	45 31 c9             	xor    %r9d,%r9d
+   3c108:	31 c0                	xor    %eax,%eax
+   3c10a:	4c 8d 05 d7 01 06 00 	lea    0x601d7(%rip),%r8        # 9c2e8 <_IO_stdin_used+0x52e8>
+   3c111:	57                   	push   %rdi
+   3c112:	48 8d 0d 25 bd 05 00 	lea    0x5bd25(%rip),%rcx        # 97e3e <_IO_stdin_used+0xe3e>
+   3c119:	48 8d 15 10 83 06 00 	lea    0x68310(%rip),%rdx        # a4430 <__func__.28.lto_priv.1>
+   3c120:	56                   	push   %rsi
+   3c121:	48 8d 3d bf bb 05 00 	lea    0x5bbbf(%rip),%rdi        # 97ce7 <_IO_stdin_used+0xce7>
+   3c128:	be 61 02 00 00       	mov    $0x261,%esi
+   3c12d:	ff 74 24 28          	push   0x28(%rsp)
+   3c131:	e8 6a ac fc ff       	call   6da0 <platform_assert_false>
+   3c136:	66 2e 0f 1f 84 00 00 00 00 00 	cs nopw 0x0(%rax,%rax,1)
+   3c140:	e8 fb 2d 02 00       	call   5ef40 <clockcache_try_get_read.constprop.0>
+   3c145:	83 f8 01             	cmp    $0x1,%eax
+   3c148:	0f 84 7e fd ff ff    	je     3becc <clockcache_get_virtual+0x7c>
+   3c14e:	83 f8 02             	cmp    $0x2,%eax
+   3c151:	0f 84 25 fd ff ff    	je     3be7c <clockcache_get_virtual+0x2c>
+   3c157:	e9 09 fe ff ff       	jmp    3bf65 <clockcache_get_virtual+0x115>
+   3c15c:	48 8d 74 24 30       	lea    0x30(%rsp),%rsi
+   3c161:	bf 01 00 00 00       	mov    $0x1,%edi
+   3c166:	e8 b5 6f fc ff       	call   3120 <clock_gettime@plt>
+   3c16b:	48 8b 44 24 28       	mov    0x28(%rsp),%rax
+   3c170:	48 8b 74 24 10       	mov    0x10(%rsp),%rsi
+   3c175:	48 69 54 24 30 00 ca 9a 3b 	imul   $0x3b9aca00,0x30(%rsp),%rdx
+   3c17e:	48 03 54 24 38       	add    0x38(%rsp),%rdx
+   3c183:	48 29 c2             	sub    %rax,%rdx
+   3c186:	8b 4c 24 0c          	mov    0xc(%rsp),%ecx
+   3c18a:	48 8d 04 f5 00 00 00 00 	lea    0x0(,%rsi,8),%rax
+   3c192:	48 29 f0             	sub    %rsi,%rax
+   3c195:	48 8d 04 c1          	lea    (%rcx,%rax,8),%rax
+   3c199:	49 8d 04 c7          	lea    (%r15,%rax,8),%rax
+   3c19d:	48 83 80 48 11 00 00 01 	addq   $0x1,0x1148(%rax)
+   3c1a5:	48 83 80 20 12 00 00 01 	addq   $0x1,0x1220(%rax)
+   3c1ad:	48 01 90 90 11 00 00 	add    %rdx,0x1190(%rax)
+   3c1b4:	e9 ec fe ff ff       	jmp    3c0a5 <clockcache_get_virtual+0x255>
+   3c1b9:	89 c7                	mov    %eax,%edi
+   3c1bb:	e8 a0 71 fc ff       	call   3360 <strerror@plt>
+   3c1c0:	8b 4c 24 0c          	mov    0xc(%rsp),%ecx
+   3c1c4:	48 89 da             	mov    %rbx,%rdx
+   3c1c7:	48 8b 3d fa 64 07 00 	mov    0x764fa(%rip),%rdi        # b26c8 <Platform_error_log_handle>
+   3c1ce:	49 89 c0             	mov    %rax,%r8
+   3c1d1:	48 8d 35 58 0c 06 00 	lea    0x60c58(%rip),%rsi        # 9ce30 <_IO_stdin_used+0x5e30>
+   3c1d8:	31 c0                	xor    %eax,%eax
+   3c1da:	e8 31 74 fc ff       	call   3610 <fprintf@plt>
+   3c1df:	48 8b 3d e2 64 07 00 	mov    0x764e2(%rip),%rdi        # b26c8 <Platform_error_log_handle>
+   3c1e6:	e8 e5 74 fc ff       	call   36d0 <fflush@plt>
+   3c1eb:	e9 a6 fe ff ff       	jmp    3c096 <clockcache_get_virtual+0x246>
+   3c1f0:	48 8d 74 24 30       	lea    0x30(%rsp),%rsi
+   3c1f5:	bf 01 00 00 00       	mov    $0x1,%edi
+   3c1fa:	e8 21 6f fc ff       	call   3120 <clock_gettime@plt>
+   3c1ff:	48 69 44 24 30 00 ca 9a 3b 	imul   $0x3b9aca00,0x30(%rsp),%rax
+   3c208:	48 03 44 24 38       	add    0x38(%rsp),%rax
+   3c20d:	48 89 44 24 28       	mov    %rax,0x28(%rsp)
+   3c212:	e9 61 fe ff ff       	jmp    3c078 <clockcache_get_virtual+0x228>
+   3c217:	48 8b 5c 24 10       	mov    0x10(%rsp),%rbx
+   3c21c:	8b 54 24 0c          	mov    0xc(%rsp),%edx
+   3c220:	48 8d 04 dd 00 00 00 00 	lea    0x0(,%rbx,8),%rax
+   3c228:	48 29 d8             	sub    %rbx,%rax
+   3c22b:	48 8d 84 c2 20 02 00 00 	lea    0x220(%rdx,%rax,8),%rax
+   3c233:	49 83 04 c7 01       	addq   $0x1,(%r15,%rax,8)
+   3c238:	e9 9f fd ff ff       	jmp    3bfdc <clockcache_get_virtual+0x18c>
+   3c23d:	49 8b 4f 08          	mov    0x8(%r15),%rcx
+   3c241:	48 8b 44 24 18       	mov    0x18(%rsp),%rax
+   3c246:	31 d2                	xor    %edx,%edx
+   3c248:	48 8b 7c 24 10       	mov    0x10(%rsp),%rdi
+   3c24d:	48 f7 b1 40 01 00 00 	divq   0x140(%rcx)
+   3c254:	83 e7 03             	and    $0x3,%edi
+   3c257:	c1 e2 06             	shl    $0x6,%edx
+   3c25a:	8d 34 02             	lea    (%rdx,%rax,1),%esi
+   3c25d:	8b 81 30 01 00 00    	mov    0x130(%rcx),%eax
+   3c263:	49 8b 97 88 00 00 00 	mov    0x88(%r15),%rdx
+   3c26a:	b9 ff ff ff ff       	mov    $0xffffffff,%ecx
+   3c26f:	48 0f af c7          	imul   %rdi,%rax
+   3c273:	48 01 f0             	add    %rsi,%rax
+   3c276:	66 f0 0f c1 0c 42    	lock xadd %cx,(%rdx,%rax,2)
+   3c27c:	66 85 c9             	test   %cx,%cx
+   3c27f:	0f 85 f7 fb ff ff    	jne    3be7c <clockcache_get_virtual+0x2c>
+   3c285:	e9 7a fe ff ff       	jmp    3c104 <clockcache_get_virtual+0x2b4>
+   3c28a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+   3c290:	49 8b 4f 08          	mov    0x8(%r15),%rcx
+   3c294:	48 8b 44 24 18       	mov    0x18(%rsp),%rax
+   3c299:	e9 27 fe ff ff       	jmp    3c0c5 <clockcache_get_virtual+0x275>
+   3c29e:	8b 5c 24 0c          	mov    0xc(%rsp),%ebx
+   3c2a2:	41 89 e9             	mov    %ebp,%r9d
+   3c2a5:	4c 8d 05 ac be 05 00 	lea    0x5beac(%rip),%r8        # 98158 <_IO_stdin_used+0x1158>
+   3c2ac:	48 8d 0d bc be 05 00 	lea    0x5bebc(%rip),%rcx        # 9816f <_IO_stdin_used+0x116f>
+   3c2b3:	48 8d 15 76 7f 06 00 	lea    0x67f76(%rip),%rdx        # a4230 <__func__.19>
+   3c2ba:	be b6 08 00 00       	mov    $0x8b6,%esi
+   3c2bf:	48 8d 3d 21 ba 05 00 	lea    0x5ba21(%rip),%rdi        # 97ce7 <_IO_stdin_used+0xce7>
+   3c2c6:	53                   	push   %rbx
+   3c2c7:	50                   	push   %rax
+   3c2c8:	31 c0                	xor    %eax,%eax
+   3c2ca:	e8 d1 aa fc ff       	call   6da0 <platform_assert_false>
+   3c2cf:	90                   	nop
+   3c2d0:	48 83 ec 08          	sub    $0x8,%rsp
+   3c2d4:	4c 8d 05 2d 0b 06 00 	lea    0x60b2d(%rip),%r8        # 9ce08 <_IO_stdin_used+0x5e08>
+   3c2db:	31 c0                	xor    %eax,%eax
+   3c2dd:	56                   	push   %rsi
+   3c2de:	44 8b 4c 24 1c       	mov    0x1c(%rsp),%r9d
+   3c2e3:	48 8d 0d 5e 00 06 00 	lea    0x6005e(%rip),%rcx        # 9c348 <_IO_stdin_used+0x5348>
+   3c2ea:	48 8d 15 0f 7f 06 00 	lea    0x67f0f(%rip),%rdx        # a4200 <__func__.23.lto_priv.1>
+   3c2f1:	be af 01 00 00       	mov    $0x1af,%esi
+   3c2f6:	48 8d 3d ea b9 05 00 	lea    0x5b9ea(%rip),%rdi        # 97ce7 <_IO_stdin_used+0xce7>
+   3c2fd:	e8 9e aa fc ff       	call   6da0 <platform_assert_false>
+   3c302:	49 0f af c4          	imul   %r12,%rax
+   3c306:	48 83 ec 08          	sub    $0x8,%rsp
+   3c30a:	49 89 d9             	mov    %rbx,%r9
+   3c30d:	be 95 01 00 00       	mov    $0x195,%esi
+   3c312:	4c 8d 05 df f9 05 00 	lea    0x5f9df(%rip),%r8        # 9bcf8 <_IO_stdin_used+0x4cf8>
+   3c319:	48 8d 0d d8 b9 05 00 	lea    0x5b9d8(%rip),%rcx        # 97cf8 <_IO_stdin_used+0xcf8>
+   3c320:	48 8d 15 e9 80 06 00 	lea    0x680e9(%rip),%rdx        # a4410 <__func__.33.lto_priv.0>
+   3c327:	48 8d 3d b9 b9 05 00 	lea    0x5b9b9(%rip),%rdi        # 97ce7 <_IO_stdin_used+0xce7>
+   3c32e:	50                   	push   %rax
+   3c32f:	31 c0                	xor    %eax,%eax
+   3c331:	e8 6a aa fc ff       	call   6da0 <platform_assert_false>
+   3c336:	48 83 ec 08          	sub    $0x8,%rsp
+   3c33a:	49 89 d9             	mov    %rbx,%r9
+   3c33d:	4c 8d 05 7c f9 05 00 	lea    0x5f97c(%rip),%r8        # 9bcc0 <_IO_stdin_used+0x4cc0>
+   3c344:	31 c0                	xor    %eax,%eax
+   3c346:	41 54                	push   %r12
+   3c348:	48 8d 0d 82 b9 05 00 	lea    0x5b982(%rip),%rcx        # 97cd1 <_IO_stdin_used+0xcd1>
+   3c34f:	48 8d 15 ba 80 06 00 	lea    0x680ba(%rip),%rdx        # a4410 <__func__.33.lto_priv.0>
+   3c356:	be 8e 01 00 00       	mov    $0x18e,%esi
+   3c35b:	48 8d 3d 85 b9 05 00 	lea    0x5b985(%rip),%rdi        # 97ce7 <_IO_stdin_used+0xce7>
+   3c362:	e8 39 aa fc ff       	call   6da0 <platform_assert_false>
+
+Disassembly of section .fini:

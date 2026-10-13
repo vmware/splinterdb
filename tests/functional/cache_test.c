@@ -2371,7 +2371,7 @@ test_cache_idle_batches(clockcache *main_cc, platform_heap_id hid)
       "cache_test: idle and exited batch owners test passed\n");
 }
 
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
 typedef struct {
    clockcache      *clock;
    platform_heap_id hid;
@@ -2718,7 +2718,7 @@ cache_test(int argc, char *argv[])
    cache *ccp = (cache *)cc;
 
    if (prefetch_admission) {
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
       test_cache_prefetch_unpublished_admission(cc, hid);
 #else
       platform_error_log("--prefetch-admission requires SPLINTER_DEBUG\n");

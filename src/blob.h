@@ -12,6 +12,7 @@
 
 #define BLOB_FORMAT        UINT16_C(1)
 #define BLOB_CHECKSUM_SEED UINT64_C(0x424C4F424353554D)
+#define BLOB_MAX_HEIGHT    64
 
 typedef struct ONDISK blob {
    uint64      length;
@@ -34,7 +35,12 @@ typedef struct parsed_blob_entry {
 } parsed_blob_entry;
 
 typedef struct parsed_blob {
-   const blob       *base;
+   const blob *base;
+   /* Height one is the legacy flat layout. num_extents counts root entries;
+    * each covers at most extent_span data extents. Neither depends on the
+    * encoder's descriptor-size limit. */
+   uint64            height;
+   uint64            extent_span;
    uint64            num_extents;
    parsed_blob_entry leftovers[3];
 } parsed_blob;
@@ -49,6 +55,7 @@ typedef enum blob_page_iterator_mode {
    BLOB_PAGE_ITERATOR_MODE_PREFETCH,
    BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH,
    BLOB_PAGE_ITERATOR_MODE_ALLOC,
+   BLOB_PAGE_ITERATOR_MODE_VERIFY,
 } blob_page_iterator_mode;
 
 typedef struct blob_page_iterator {
@@ -58,19 +65,22 @@ typedef struct blob_page_iterator {
    uint64                  page_size;
    parsed_blob             pblob;
 
-   uint64        offset;
-   page_fragment fragment;
-   page_handle   page;
+   uint64          offset;
+   page_fragment   fragment;
+   page_handle     page;
+   platform_status status;
+   uint64          data_extent;
+   uint64          data_extent_addr;
+   page_handle     index_pages[BLOB_MAX_HEIGHT];
 } blob_page_iterator;
 
 bool
 can_round_up(uint64 rounded_size, uint64 length);
 
 /*
- * Decode and validate the complete on-disk descriptor before any address is
- * dereferenced.  In particular, the descriptor must contain exactly the
- * address entries implied by its logical length, and every referenced byte
- * must be inside the allocator's configured address space.
+ * Validate the inline descriptor without I/O. Infer the minimum height whose
+ * address count matches its size. Pointer pages are checked when traversed.
+ * Legacy packed tails are always height one; redundant tree levels are illegal.
  */
 platform_status
 blob_parse_descriptor(cache *cc, slice sblob, parsed_blob *pblobby);
@@ -123,7 +133,7 @@ platform_status
 blob_materialize_full(cache *cc, slice sblob, writable_buffer *result);
 
 /*
- * Issue writeback of every page of the blob, recording each in `set` so the
+ * Issue writeback of all data and pointer pages, recording them in `set` so the
  * caller can later wait for them.  Does not wait and does not make anything
  * durable; `set` may be NULL to issue and forget.
  *
@@ -134,15 +144,30 @@ blob_materialize_full(cache *cc, slice sblob, writable_buffer *result);
 platform_status
 blob_writeback(cache *cc, slice sblob, writeback_set *set);
 
+/* Preorder walk of whole extents, including intermediate pointer extents.
+ * The callback runs before an extent is read, permitting recovery to mark it.
+ * Packed tails are excluded. disk_only checks pointer-page readability before
+ * strict reads. Child counts and depth come only from the descriptor's shape.
+ */
+typedef platform_status (*blob_extent_callback)(cache *cc,
+                                                uint64 addr,
+                                                void  *arg);
+
+platform_status
+blob_walk_extents(cache               *cc,
+                  slice                sblob,
+                  bool32               disk_only,
+                  blob_extent_callback visit,
+                  void                *arg);
+
 /*
  * Record the allocator references this blob's storage holds, for a crash-
  * recovery rebuild.  Call between allocator_recovery_begin() and
  * allocator_recovery_finish().
  *
- * Reads nothing.  A blob carries the addresses of its own storage inline (see
- * struct blob), so the extents can be named without touching a page -- which is
- * what makes this usable during a rebuild, when reading a page whose extent is
- * not yet marked allocated is exactly what is forbidden.
+ * Marks each intermediate extent before reading it, then follows its children.
+ * Stops at the first bad address or absent pointer page. References recorded
+ * before failure remain conservative reservations until the root-only rebuild.
  *
  * Records at most one reference per extent, skipping any that already has one.
  * That is the correct count and not merely deduplication: an extent gets a
