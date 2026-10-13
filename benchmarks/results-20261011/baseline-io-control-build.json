@@ -1,0 +1,28 @@
+{
+  "command": [
+    "cc",
+    "-D_GNU_SOURCE",
+    "-ggdb",
+    "-Wall",
+    "-pthread",
+    "-Werror",
+    "-DXXH_STATIC_LINKING_ONLY",
+    "-fPIC",
+    "-DSPLINTERDB_PLATFORM_DIR=platform_linux",
+    "-O3",
+    "-flto",
+    "-march=native",
+    "-I",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/baseline/include",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/barrier_bench.c",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/baseline/build/release/lib/libsplinterdb.a",
+    "-laio",
+    "-lxxhash",
+    "-lm",
+    "-lpthread",
+    "-o",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/baseline/build/release/bin/barrier_bench"
+  ],
+  "source_sha256": "066025336ab3d83a56dd73c70ada61688c6cfff022277c4c06e805ec53e66436",
+  "binary_sha256": "2a709851480a7c5bdf6257ccb1f6107a22f2cd8e97c474602cdc437759815ead"
+}

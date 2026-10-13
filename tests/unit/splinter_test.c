@@ -363,6 +363,58 @@ typedef struct core_log_prepare_fault {
 
 static core_log_prepare_fault *active_core_log_prepare_fault;
 
+/* Model a wait that drives the normal queue, as checkpoint publication and
+ * non-WAL durability do. A nested barrier must defer before entering its
+ * own blocking wait. This makes the nesting deterministic with zero workers. */
+typedef struct nested_barrier_wait {
+   core_handle             *spl;
+   const log_ops           *saved_ops;
+   splinterdb_notification *second;
+   uint64                   depth;
+   uint64                   max_depth;
+   bool32                   dispatched;
+   bool32                   second_deferred;
+   bool32                   fail_requeue;
+   task_fn                  nested_callback;
+} nested_barrier_wait;
+
+static nested_barrier_wait *active_nested_barrier_wait;
+
+static void
+core_nested_barrier_hold_queue(task *work)
+{
+   nested_barrier_wait *gate = active_nested_barrier_wait;
+   pthread_mutex_t     *lock = &gate->spl->ts->group[TASK_TYPE_NORMAL].cv.lock;
+   platform_assert(pthread_mutex_lock(lock) == 0);
+   gate->nested_callback(work);
+   /* The nested callback may have freed work. Only gate remains ours. */
+   platform_assert(pthread_mutex_unlock(lock) == 0);
+}
+
+static platform_status
+core_nested_barrier_wait(log_handle *log, log_durable_ticket ticket)
+{
+   nested_barrier_wait *gate = active_nested_barrier_wait;
+   gate->depth++;
+   gate->max_depth = MAX(gate->max_depth, gate->depth);
+   if (!gate->dispatched) {
+      gate->dispatched = TRUE;
+      if (gate->fail_requeue) {
+         /* No workers exist in this fixture. Wrap the queued callback so
+          * dequeue succeeds, then its attempted requeue gets EDEADLK. */
+         task *next = gate->spl->ts->group[TASK_TYPE_NORMAL].tq.head;
+         platform_assert(next != NULL);
+         gate->nested_callback = next->func;
+         next->func            = core_nested_barrier_hold_queue;
+      }
+      platform_assert_status_ok(task_perform_one(gate->spl->ts));
+      gate->second_deferred = !splinterdb_notification_poll(gate->second, NULL);
+   }
+   platform_status rc = gate->saved_ops->make_durable_wait(log, ticket);
+   gate->depth--;
+   return rc;
+}
+
 static platform_status
 core_log_write_prepare_invalid_blob(log_handle         *log,
                                     key                 tuple_key,
@@ -549,6 +601,14 @@ core_durable_barrier_test_thread(void *arg)
    core_durable_barrier_thread_args *args = arg;
    __atomic_store_n(&args->started, TRUE, __ATOMIC_RELEASE);
    args->rc = core_durable_barrier(args->spl);
+   __atomic_store_n(&args->done, TRUE, __ATOMIC_RELEASE);
+}
+
+static void
+core_durable_barrier_task_test_thread(void *arg)
+{
+   core_durable_barrier_thread_args *args = arg;
+   args->rc                               = task_perform_one(args->spl->ts);
    __atomic_store_n(&args->done, TRUE, __ATOMIC_RELEASE);
 }
 
@@ -2759,6 +2819,199 @@ CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
 }
 
 /* Without a WAL, the barrier must fold its frontier into a durable COW root. */
+CTEST2(splinter, test_async_durable_barrier_reports_device_failure)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &data->system_cfg->splinter_cfg,
+                                 alp,
+                                 (cache *)data->clock_cache,
+                                 data->io,
+                                 &data->tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                   key_buffer_key(&keybuf),
+                                   merge_accumulator_to_message(&msg),
+                                   NULL)));
+   shard_log *live = (shard_log *)spl.log;
+   uint64     refs = __atomic_load_n(&live->handle_refs, __ATOMIC_ACQUIRE);
+   /* A valid error-checking queue mutex gives a deterministic enqueue error
+    * before publication, without corrupting the queue or adding a test hook.
+    * This fixture has no workers; hold the mutex on this thread so its next
+    * lock returns EDEADLK. */
+   task_group *normal = &spl.ts->group[TASK_TYPE_NORMAL];
+   ASSERT_EQUAL(0, normal->bg.num_threads);
+   ASSERT_EQUAL(0, normal->current_waiting_tasks);
+   pthread_mutexattr_t attr;
+   ASSERT_EQUAL(0, pthread_mutexattr_init(&attr));
+   ASSERT_EQUAL(0, pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED));
+   ASSERT_EQUAL(0, pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK));
+   ASSERT_EQUAL(0, pthread_mutex_destroy(&normal->cv.lock));
+   ASSERT_EQUAL(0, pthread_mutex_init(&normal->cv.lock, &attr));
+   ASSERT_EQUAL(0, pthread_mutex_lock(&normal->cv.lock));
+   splinterdb_notification rejected;
+   splinterdb_notification_init_polling(&rejected, NULL);
+   platform_status launch_rc = core_durable_barrier_async(&spl, &rejected);
+   ASSERT_EQUAL(EDEADLK, launch_rc.r);
+   ASSERT_FALSE(splinterdb_notification_poll(&rejected, NULL));
+   ASSERT_EQUAL(0, normal->current_waiting_tasks);
+   ASSERT_EQUAL(refs, __atomic_load_n(&live->handle_refs, __ATOMIC_ACQUIRE));
+   splinterdb_notification_deinit(&rejected);
+   ASSERT_EQUAL(0, pthread_mutex_unlock(&normal->cv.lock));
+   ASSERT_EQUAL(0, pthread_mutex_destroy(&normal->cv.lock));
+   ASSERT_EQUAL(0, pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_DEFAULT));
+   ASSERT_EQUAL(0, pthread_mutex_init(&normal->cv.lock, &attr));
+   ASSERT_EQUAL(0, pthread_mutexattr_destroy(&attr));
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   checkpoint_barrier_fault_arm(&data->checkpoint_fault, 0);
+   splinterdb_notification note;
+   splinterdb_notification_init_polling(&note, NULL);
+   ASSERT_TRUE(SUCCESS(core_durable_barrier_async(&spl, &note)));
+   ASSERT_FALSE(splinterdb_notification_poll(&note, NULL));
+   ASSERT_EQUAL(0, data->checkpoint_fault.barriers);
+   ASSERT_EQUAL(refs + 1,
+                __atomic_load_n(&live->handle_refs, __ATOMIC_ACQUIRE));
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(spl.ts)));
+   int status = 0;
+   ASSERT_TRUE(splinterdb_notification_poll(&note, &status));
+   ASSERT_EQUAL(EIO, status);
+   ASSERT_EQUAL(refs, __atomic_load_n(&live->handle_refs, __ATOMIC_ACQUIRE));
+   splinterdb_notification_deinit(&note);
+   checkpoint_barrier_fault_disable(&data->checkpoint_fault);
+   ASSERT_TRUE(SUCCESS(core_durable_barrier(&spl)));
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+}
+
+CTEST2(splinter, test_async_durable_barrier_defers_nested_wait)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &data->system_cfg->splinter_cfg,
+                                 alp,
+                                 (cache *)data->clock_cache,
+                                 data->io,
+                                 &data->tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   ASSERT_EQUAL(0, spl.ts->group[TASK_TYPE_NORMAL].bg.num_threads);
+   pthread_mutex_t    *lock = &spl.ts->group[TASK_TYPE_NORMAL].cv.lock;
+   pthread_mutexattr_t attr;
+   ASSERT_EQUAL(0, pthread_mutexattr_init(&attr));
+   ASSERT_EQUAL(0, pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED));
+   ASSERT_EQUAL(0, pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK));
+   ASSERT_EQUAL(0, pthread_mutex_destroy(lock));
+   ASSERT_EQUAL(0, pthread_mutex_init(lock, &attr));
+   ASSERT_EQUAL(0, pthread_mutexattr_destroy(&attr));
+   for (uint64 fail = 0; fail < 2; fail++) {
+      splinterdb_notification notes[2];
+      nested_barrier_wait     gate      = {.spl          = &spl,
+                                           .saved_ops    = spl.log->ops,
+                                           .second       = &notes[1],
+                                           .fail_requeue = fail};
+      log_ops                 gated_ops = *spl.log->ops;
+      gated_ops.make_durable_wait       = core_nested_barrier_wait;
+      active_nested_barrier_wait        = &gate;
+      spl.log->ops                      = &gated_ops;
+      for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
+         splinterdb_notification_init_polling(&notes[i], NULL);
+         ASSERT_TRUE(SUCCESS(core_durable_barrier_async(&spl, &notes[i])));
+      }
+      ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(spl.ts)));
+      spl.log->ops               = gate.saved_ops;
+      active_nested_barrier_wait = NULL;
+      ASSERT_TRUE(gate.dispatched);
+      ASSERT_EQUAL(!fail, gate.second_deferred);
+      ASSERT_EQUAL(1, gate.max_depth);
+      ASSERT_EQUAL(1, ((shard_log *)spl.log)->handle_refs);
+      for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
+         int status = -1;
+         ASSERT_TRUE(splinterdb_notification_poll(&notes[i], &status));
+         ASSERT_EQUAL(fail && i == 1 ? EDEADLK : 0, status);
+         splinterdb_notification_deinit(&notes[i]);
+      }
+   }
+   core_destroy(&spl);
+}
+
+CTEST2(splinter, test_async_durable_barrier_launches_with_blocked_device)
+{
+   allocator *alp                         = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = 0;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &data->system_cfg->splinter_cfg,
+                                 alp,
+                                 (cache *)data->clock_cache,
+                                 data->io,
+                                 &data->tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   ASSERT_EQUAL(0, spl.ts->group[TASK_TYPE_NORMAL].bg.num_threads);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                   key_buffer_key(&keybuf),
+                                   merge_accumulator_to_message(&msg),
+                                   NULL)));
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   checkpoint_barrier_fault_block(&data->checkpoint_fault, 0);
+   splinterdb_notification notes[2];
+   for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
+      splinterdb_notification_init_polling(&notes[i], NULL);
+   }
+   ASSERT_TRUE(SUCCESS(core_durable_barrier_async(&spl, &notes[0])));
+   core_durable_barrier_thread_args worker = {.spl = &spl};
+   platform_thread                  thread;
+   ASSERT_TRUE(
+      SUCCESS(platform_thread_create(&thread,
+                                     FALSE,
+                                     core_durable_barrier_task_test_thread,
+                                     &worker,
+                                     data->hid)));
+   bool32 blocked =
+      core_durable_barrier_test_wait(&data->checkpoint_fault.block_entered);
+   bool32 pending = !splinterdb_notification_poll(&notes[0], NULL);
+   /* The first wait is parked inside fdatasync's injected gate. A polling
+    * launch for the same durability cut must still return to this thread. */
+   platform_status launch_rc = core_durable_barrier_async(&spl, &notes[1]);
+   bool32 second_pending     = !splinterdb_notification_poll(&notes[1], NULL);
+   checkpoint_barrier_fault_release(&data->checkpoint_fault);
+   ASSERT_TRUE(SUCCESS(platform_thread_join(&thread)));
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(spl.ts)));
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+   ASSERT_TRUE(blocked);
+   ASSERT_TRUE(pending);
+   ASSERT_TRUE(SUCCESS(launch_rc));
+   ASSERT_TRUE(second_pending);
+   ASSERT_TRUE(SUCCESS(worker.rc));
+   for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
+      int status = -1;
+      ASSERT_TRUE(splinterdb_notification_poll(&notes[i], &status));
+      ASSERT_EQUAL(0, status);
+      splinterdb_notification_deinit(&notes[i]);
+   }
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+}
+
 CTEST2(splinter, test_durable_barrier_without_log_publishes_root)
 {
    allocator *alp                         = (allocator *)&data->al;

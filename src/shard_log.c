@@ -1893,6 +1893,12 @@ shard_log_make_durable_wait(log_handle *logh, log_durable_ticket ticket)
    return rc;
 }
 
+static void
+shard_log_make_durable_release(log_handle *logh, log_durable_ticket ticket)
+{
+   shard_log_handle_ref_release((shard_log *)logh);
+}
+
 platform_status
 shard_log_seal(log_handle *logh)
 {
@@ -2316,6 +2322,7 @@ static log_ops shard_log_ops = {
    .write_finish           = shard_log_write_finish,
    .make_durable_begin     = shard_log_make_durable_begin,
    .make_durable_wait      = shard_log_make_durable_wait,
+   .make_durable_release   = shard_log_make_durable_release,
    .seal                   = shard_log_seal,
    .deinit                 = shard_log_deinit,
    .head                   = shard_log_get_head,
