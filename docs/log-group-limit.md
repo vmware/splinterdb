@@ -119,3 +119,13 @@ in the collection's `coordination/main-7bb5fab/log-group-limit` directory.
 
 The earlier performance table describes the pre-merge revision. It does not
 measure this integration or establish that the 64-page default is neutral.
+
+## Fresh benchmarks after main integration (2026-10-13)
+
+The default 64-page threshold reduced short-run WAL insertion throughput by 42.70% versus main without automatic barriers. This is the cost of added durability. With the threshold disabled, throughput changed -1.34% and sample ranges overlapped main. The merge also validates automatic durability of multilevel-blob pointer pages.
+
+These are updated-feature comparisons against main `7bb5fab`, not an isolated
+measurement of merge cost. Main controls drifted; observed range overlap is
+descriptive, not a statistical confidence interval. Exact samples, build/source
+hashes, commands, verification scope and fresh correctness evidence are in
+[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
