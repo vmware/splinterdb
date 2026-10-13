@@ -1,0 +1,11 @@
+handoff-mainmerge disk 1 / 4 before
+handoff-mainmerge disk 2 / 4 merged
+handoff-mainmerge disk 3 / 4 merged
+handoff-mainmerge disk 4 / 4 before
+point:uniform@8 before 198613.1 ops/s [197570.4,199655.9], +0.00%, CPUeff +0.00%
+point:uniform@8 merged 197716.2 ops/s [197019.9,198412.5], -0.45%, CPUeff -2.02%
+range:uniform:1@8 before 67885.3 ops/s [66668.3,69102.3], +0.00%, CPUeff +0.00%
+range:uniform:1@8 merged 67643.6 ops/s [67077.8,68209.5], -0.36%, CPUeff -0.33%
+range:uniform:10000@8 before 776.5 ops/s [773.3,779.7], +0.00%, CPUeff +0.00%
+range:uniform:10000@8 merged 767.1 ops/s [759.9,774.3], -1.21%, CPUeff -2.20%
+Completed /home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-mainmerge/disk

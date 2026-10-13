@@ -61,13 +61,13 @@ blob_extent_is_valid(cache *cc, uint64 addr)
           && blob_range_is_valid(capacity, extent_size, addr, extent_size);
 }
 
-/* Cache reads assert on unallocated addresses and short reads. Recovery must
- * turn missing pointer pages into truncation before reaching that interface. */
+/* Validate allocation state before reading pointer pages. Recovery also checks
+ * disk readability so missing pages become ordinary log truncation. */
 static platform_status
-blob_get_pointer_page(cache        *cc,
-                      uint64        addr,
-                      bool32        disk_only,
-                      page_handle **page)
+blob_get_pointer_page(cache       *cc,
+                      uint64       addr,
+                      bool32       disk_only,
+                      page_handle *page)
 {
    if (!allocator_page_valid(cache_get_allocator(cc), addr)) {
       return STATUS_INVALID_STATE;
@@ -83,8 +83,7 @@ blob_get_pointer_page(cache        *cc,
          return STATUS_IO_ERROR;
       }
    }
-   *page = cache_get(cc, addr, TRUE, PAGE_TYPE_BLOB);
-   return *page == NULL ? STATUS_IO_ERROR : STATUS_OK;
+   return cache_get(cc, addr, TRUE, PAGE_TYPE_BLOB, page);
 }
 
 platform_status
@@ -275,13 +274,13 @@ blob_fragment_for_offset(blob_page_iterator *iter)
          span /= fanout;
          uint64 slot = within / span;
          within %= span;
-         uint64 byte        = slot * sizeof(uint64);
-         uint64 page_addr   = addr + byte / iter->page_size * iter->page_size;
-         page_handle **page = &iter->index_pages[level];
-         if (*page == NULL || (*page)->disk_addr != page_addr) {
-            if (*page != NULL) {
-               cache_unget(iter->cc, *page);
-               *page = NULL;
+         uint64 byte       = slot * sizeof(uint64);
+         uint64 page_addr  = addr + byte / iter->page_size * iter->page_size;
+         page_handle *page = &iter->index_pages[level];
+         if (page_handle_is_null(page) || page_handle_addr(page) != page_addr) {
+            if (!page_handle_is_null(page)) {
+               cache_unget(iter->cc, page);
+               *page = (page_handle){0};
             }
             platform_status rc = blob_get_pointer_page(
                iter->cc,
@@ -292,7 +291,9 @@ blob_fragment_for_offset(blob_page_iterator *iter)
                return rc;
             }
          }
-         memcpy(&addr, (*page)->data + byte % iter->page_size, sizeof(addr));
+         memcpy(&addr,
+                page_handle_data(page) + byte % iter->page_size,
+                sizeof(addr));
          if (!blob_extent_is_valid(iter->cc, addr)) {
             return STATUS_INVALID_STATE;
          }
@@ -345,7 +346,7 @@ blob_page_iterator_init(cache                  *cc,
    iter->extent_size      = cache_extent_size(cc);
    iter->page_size        = cache_page_size(cc);
    iter->offset           = offset;
-   iter->page             = NULL;
+   iter->page             = (page_handle){0};
    iter->status           = STATUS_OK;
    iter->data_extent_addr = 0;
 
@@ -358,7 +359,7 @@ blob_page_iterator_init(cache                  *cc,
    }
 
    for (uint64 level = 1; level < iter->pblob.height; level++) {
-      iter->index_pages[level] = NULL;
+      iter->index_pages[level] = (page_handle){0};
    }
    if (offset < iter->pblob.base->length) {
       rc = blob_fragment_for_offset(iter);
@@ -399,13 +400,13 @@ should_alloc(blob_page_iterator *iter)
 static void
 blob_page_iterator_release_page(blob_page_iterator *iter)
 {
-   if (iter->page) {
+   if (!page_handle_is_null(&iter->page)) {
       if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
-         cache_unlock(iter->cc, iter->page);
-         cache_unclaim(iter->cc, iter->page);
+         cache_unlock(iter->cc, &iter->page);
+         cache_unclaim(iter->cc, &iter->page);
       }
-      cache_unget(iter->cc, iter->page);
-      iter->page = NULL;
+      cache_unget(iter->cc, &iter->page);
+      iter->page = (page_handle){0};
    }
 }
 
@@ -414,9 +415,9 @@ blob_page_iterator_deinit(blob_page_iterator *iter)
 {
    blob_page_iterator_release_page(iter);
    for (uint64 level = 1; level < iter->pblob.height; level++) {
-      if (iter->index_pages[level] != NULL) {
-         cache_unget(iter->cc, iter->index_pages[level]);
-         iter->index_pages[level] = NULL;
+      if (!page_handle_is_null(&iter->index_pages[level])) {
+         cache_unget(iter->cc, &iter->index_pages[level]);
+         iter->index_pages[level] = (page_handle){0};
       }
    }
 }
@@ -448,30 +449,40 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
    {
       return STATUS_INVALID_STATE;
    }
-   if (iter->page == NULL) {
+   if (page_handle_is_null(&iter->page)) {
       if (should_alloc(iter)) {
-         iter->page =
-            cache_alloc(iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB);
+         cache_alloc(
+            iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB, &iter->page);
       } else {
-         iter->page =
-            cache_get(iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
+         platform_status rc = cache_get(
+            iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB, &iter->page);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
             uint64 wait = 1;
-            while (!cache_try_claim(iter->cc, iter->page)) {
-               cache_unget(iter->cc, iter->page);
+            while (!cache_try_claim(iter->cc, &iter->page)) {
+               cache_unget(iter->cc, &iter->page);
                platform_sleep_ns(wait);
-               wait       = MIN(2 * wait, 2048);
-               iter->page = cache_get(
-                  iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
+               wait = MIN(2 * wait, 2048);
+               rc   = cache_get(iter->cc,
+                              iter->fragment.addr,
+                              TRUE,
+                              PAGE_TYPE_BLOB,
+                              &iter->page);
+               if (!SUCCESS(rc)) {
+                  return rc;
+               }
             }
-            cache_lock(iter->cc, iter->page);
+            cache_lock(iter->cc, &iter->page);
          }
       }
    }
 
    *offset = iter->offset;
-   *result = slice_create(iter->fragment.length,
-                          iter->page->data + iter->fragment.offset);
+   *result =
+      slice_create(iter->fragment.length,
+                   page_handle_data(&iter->page) + iter->fragment.offset);
    return STATUS_OK;
 }
 
@@ -530,9 +541,9 @@ blob_validate(cache *cc, slice sblob)
    /*
     * Recovery can encounter a descriptor whose log page reached disk while
     * one of the blob pages did not.  Do not prefetch ahead of the readability
-    * check below: cache_get() is deliberately strict and a short read is a
-    * cache invariant violation, whereas an incomplete blob is ordinary crash
-    * truncation that validation must report to the log iterator.
+    * check below: an incomplete blob is ordinary crash truncation. Report it
+    * to the log iterator without issuing speculative reads past the file's
+    * readable range.
     */
    rc = blob_page_iterator_init(
       cc, &iter, sblob, 0, BLOB_PAGE_ITERATOR_MODE_VERIFY);
@@ -651,23 +662,25 @@ blob_walk_extent(cache               *cc,
    uint64 child_span = span / fanout;
    uint64 children =
       data_extents / child_span + (data_extents % child_span != 0);
-   uint64       per_page = cache_page_size(cc) / sizeof(uint64);
-   page_handle *page     = NULL;
+   uint64       per_page     = cache_page_size(cc) / sizeof(uint64);
+   page_handle  page_storage = {0};
+   page_handle *page         = &page_storage;
    for (uint64 i = 0; i < children; i++) {
       if (i % per_page == 0) {
-         if (page != NULL) {
+         if (!page_handle_is_null(page)) {
             cache_unget(cc, page);
-            page = NULL;
+            *page = (page_handle){0};
          }
          rc = blob_get_pointer_page(
-            cc, addr + i * sizeof(uint64), disk_only, &page);
+            cc, addr + i * sizeof(uint64), disk_only, page);
          if (!SUCCESS(rc)) {
             break;
          }
       }
       uint64 child;
-      memcpy(
-         &child, page->data + (i % per_page) * sizeof(uint64), sizeof(child));
+      memcpy(&child,
+             page_handle_data(page) + (i % per_page) * sizeof(uint64),
+             sizeof(child));
       uint64 count = MIN(data_extents, child_span);
       rc           = blob_walk_extent(
          cc, child, height - 1, child_span, count, disk_only, visit, arg);
@@ -676,7 +689,7 @@ blob_walk_extent(cache               *cc,
       }
       data_extents -= count;
    }
-   if (page != NULL) {
+   if (!page_handle_is_null(page)) {
       cache_unget(cc, page);
    }
    return rc;
@@ -800,9 +813,11 @@ blob_writeback(cache *cc, slice sblob, writeback_set *set)
          uint64 page_addr     = byte_addr - page_offset;
          uint64 bytes_on_page = MIN(remaining, page_size - page_offset);
 
-         page_handle *page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_BLOB);
-         if (page == NULL) {
-            return STATUS_IO_ERROR;
+         page_handle  page_storage;
+         page_handle *page = &page_storage;
+         rc = cache_get(cc, page_addr, TRUE, PAGE_TYPE_BLOB, page);
+         if (!SUCCESS(rc)) {
+            return rc;
          }
 
          if (set != NULL) {

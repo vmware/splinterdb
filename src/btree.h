@@ -92,9 +92,9 @@ typedef struct btree_config {
 typedef struct ONDISK btree_hdr btree_hdr;
 
 typedef struct btree_node {
-   uint64       addr;
-   page_handle *page;
-   btree_hdr   *hdr;
+   uint64      addr;
+   page_handle page;
+   btree_hdr  *hdr;
 } btree_node;
 
 typedef struct {
@@ -513,7 +513,7 @@ btree_count_in_range(cache              *cc,
                      key                 max_key,
                      btree_pivot_stats  *stats);
 
-void
+platform_status
 btree_count_in_range_by_iterator(cache             *cc,
                                  btree_config      *cfg,
                                  uint64             root_addr,
@@ -569,11 +569,12 @@ btree_verify_tree(cache *cc, btree_config *cfg, uint64 addr, page_type type);
 uint64
 btree_extent_count(cache *cc, btree_config *cfg, uint64 root_addr);
 
-uint64
+platform_status
 btree_space_use_bytes(cache              *cc,
                       const btree_config *cfg,
                       uint64              root_addr,
-                      page_type           type);
+                      page_type           type,
+                      uint64             *bytes);
 
 void
 btree_config_init(btree_config *btree_cfg,

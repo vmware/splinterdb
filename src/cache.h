@@ -12,10 +12,47 @@
 #include "allocator.h"
 #include "async.h"
 
-typedef struct page_handle {
+/* Shared page identity, immutable while a successful handle owns a reference.
+ * Cache implementations keep this object alive until the reference is released.
+ * Callers access it through page_handle_data()/page_handle_addr(). */
+typedef struct cache_page {
    char  *data;
    uint64 disk_addr;
+} cache_page;
+
+/* Caller-owned receipt for one cache reference. Copying it transfers ownership;
+ * it does not acquire another reference. cache_unget() clears this receipt. */
+typedef struct page_handle {
+   cache_page *page;
+   /* Stripe receipt, independent of the thread that later owns the handle. */
+   threadid read_ref_tid;
 } page_handle;
+
+static inline bool32
+page_handle_is_null(const page_handle *page)
+{
+   return page->page == NULL;
+}
+
+static inline bool32
+page_handle_same_page(const page_handle *a, const page_handle *b)
+{
+   return a->page == b->page;
+}
+
+/* These accessors require a live, successful handle. Neither the identity
+ * pointer nor the returned data pointer may be retained after cache_unget(). */
+static inline char *
+page_handle_data(const page_handle *page)
+{
+   return page->page->data;
+}
+
+static inline uint64
+page_handle_addr(const page_handle *page)
+{
+   return page->page->disk_addr;
+}
 
 typedef struct cache_config cache_config;
 typedef struct cache        cache;
@@ -119,14 +156,19 @@ typedef void (*page_get_async_state_init_fn)(void             *payload,
                                              async_callback_fn callback,
                                              void             *callback_arg);
 typedef async_status (*page_get_async_fn)(void *payload);
-typedef page_handle *(*page_get_async_state_result_fn)(void *payload);
+typedef platform_status (*page_get_async_state_result_fn)(void        *payload,
+                                                          page_handle *page);
 
-typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
+typedef page_handle *(*page_alloc_fn)(cache       *cc,
+                                      uint64       addr,
+                                      page_type    type,
+                                      page_handle *page);
 typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
-typedef page_handle *(*page_get_fn)(cache    *cc,
-                                    uint64    addr,
-                                    bool32    blocking,
-                                    page_type type);
+typedef platform_status (*page_get_fn)(cache       *cc,
+                                       uint64       addr,
+                                       bool32       blocking,
+                                       page_type    type,
+                                       page_handle *page);
 typedef bool32 (*page_try_claim_fn)(cache *cc, page_handle *page);
 
 /*
@@ -279,14 +321,19 @@ struct cache {
  * `type` marks the page as being used for the given purpose for debugging
  * and statistical accounting purposes.
  *
- * Returns a pointer to the page_handle for the page with address addr,
- * with thread holding the write lock on the page.
+ * Fills the caller-owned handle and returns it with the write lock held.
+ * On failure returns NULL and clears the handle. The handle can be moved to
+ * another registered thread with ordinary synchronization, like cache_get().
  *----------------------------------------------------------------------
  */
 static inline page_handle *
-cache_alloc(cache *cc, uint64 addr, page_type type)
+cache_alloc(cache *cc, uint64 addr, page_type type, page_handle *page)
 {
-   return cc->ops->page_alloc(cc, addr, type);
+   page_handle *result = cc->ops->page_alloc(cc, addr, type, page);
+   if (result == NULL) {
+      ZERO_CONTENTS(page);
+   }
+   return result;
 }
 
 /*
@@ -315,21 +362,34 @@ cache_extent_discard(cache *cc, uint64 addr, page_type type)
  *----------------------------------------------------------------------
  * cache_get
  *
- * Returns a pointer to the page_handle for the page with address addr.
+ * Acquires the page at addr into caller-owned storage. On success, page holds
+ * one read reference. The handle may be moved, but copying it does not acquire
+ * another reference. Release it exactly once with cache_unget(). Ownership
+ * may move to another registered thread using ordinary synchronization; the
+ * acquiring thread may deregister after handing off the handle. Concurrent
+ * use of the same handle still requires the caller's synchronization.
  *
- * If blocking is set, then it blocks until the page is unlocked as well.
- * If blocking is TRUE, always returns with a read lock held.
- * If blocking is FALSE, returns non-NULL if and only if the thread now holds a
- * read lock on the page at addr.
+ * If blocking is TRUE, waits for the page to become readable. If blocking is
+ * FALSE and the page is absent or write-locked, returns STATUS_BUSY. A resident
+ * page whose read is already in flight may still wait for that read.
+ * On any failure, page is cleared and the caller owns no reference.
  *
  * addr is a byte offset from the beginning of the disk. It should be aligned
  * to cache_page_size().
  *----------------------------------------------------------------------
  */
-static inline page_handle *
-cache_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
+static inline platform_status
+cache_get(cache       *cc,
+          uint64       addr,
+          bool32       blocking,
+          page_type    type,
+          page_handle *page)
 {
-   return cc->ops->page_get(cc, addr, blocking, type);
+   platform_status rc = cc->ops->page_get(cc, addr, blocking, type, page);
+   if (!SUCCESS(rc)) {
+      *page = (page_handle){0};
+   }
+   return rc;
 }
 
 static inline void
@@ -351,10 +411,16 @@ cache_get_async(page_get_async_state_buffer *buffer)
    return buffer->cc->ops->page_get_async(&buffer->payload);
 }
 
-static inline page_handle *
-cache_get_async_state_result(page_get_async_state_buffer *buffer)
+static inline platform_status
+cache_get_async_state_result(page_get_async_state_buffer *buffer,
+                             page_handle                 *page)
 {
-   return buffer->cc->ops->page_get_async_result(&buffer->payload);
+   platform_status rc =
+      buffer->cc->ops->page_get_async_result(&buffer->payload, page);
+   if (!SUCCESS(rc)) {
+      *page = (page_handle){0};
+   }
+   return rc;
 }
 
 /*
@@ -362,14 +428,15 @@ cache_get_async_state_result(page_get_async_state_buffer *buffer)
  * cache_unget
  *
  * Drop a reference to a page.
- * The page must be read-locked by the calling thread (and not claimed or
- * write-locked) before making this call.
+ * The caller must own the handle's read reference, which may have been
+ * acquired on another thread. It must not be claimed or write-locked.
  *----------------------------------------------------------------------
  */
 static inline void
 cache_unget(cache *cc, page_handle *page)
 {
-   return cc->ops->page_unget(cc, page);
+   cc->ops->page_unget(cc, page);
+   ZERO_CONTENTS(page);
 }
 
 /*
@@ -426,7 +493,8 @@ cache_unclaim(cache *cc, page_handle *page)
  * The handle must hold a claim when making this call.
  * The handle is changed to the write-locked state.
  *
- * Blocks until outstanding read locks are released by other threads.
+ * Blocks until every read reference other than this handle is released,
+ * including references acquired by the same thread.
  *
  * Acquiring the write lock marks the page dirty.
  *----------------------------------------------------------------------

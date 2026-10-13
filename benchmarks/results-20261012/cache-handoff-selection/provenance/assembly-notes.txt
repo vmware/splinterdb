@@ -1,0 +1,19 @@
+Read-only audit of the preserved handoff before/selected release binaries.
+
+clockcache_get_virtual shrinks from 0x5c0 to 0x517 bytes. The successful,
+blocking, resident path still loads the thread ID twice in this wrapper plus
+the same load in try_get_read; it fills the same pointer+tid receipt and checks
+the same read_status. Both versions use a 72-byte stack frame.
+
+Register allocation changes: selected spills the entry number at get+0x117,
+while retaining the blocking flag in r13 where before spills/reloads it.
+Selected removes the hook load/test/branch and avoids the old unconditional
+delay-constant setup. A static walk of the no-conflict/no-loading/stats-off path
+has 93 instruction lines before and 83 selected, counting calls once and
+including padding. This is not a dynamic instruction or cycle measurement.
+
+try_get_read and unget retain their instruction sequences except for the
+refcount-pointer field offset changing from 0xb8 to 0x88 as hook fields vanish.
+Atomic operations are unchanged. No obvious added read-reference/TLS work
+explains the initial resident point/8 result. Code layout/branch alignment and
+measurement variation remain possible explanations, not demonstrated causes.

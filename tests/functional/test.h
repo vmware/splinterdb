@@ -10,6 +10,27 @@
 #pragma once
 
 #include "clockcache.h"
+
+/* Positive-test convenience: acquisition failures are test failures. Returning
+ * the handle by value keeps the read reference in caller-owned storage. */
+static inline page_handle
+test_cache_get_page(cache *cc, uint64 addr, bool32 blocking, page_type type)
+{
+   page_handle     page;
+   platform_status rc = cache_get(cc, addr, blocking, type, &page);
+   platform_assert_status_ok(rc);
+   return page;
+}
+
+static inline page_handle
+test_cache_get_async_page(page_get_async_state_buffer *state)
+{
+   page_handle     page;
+   platform_status rc = cache_get_async_state_result(state, &page);
+   platform_assert_status_ok(rc);
+   return page;
+}
+
 #include "../config.h"
 #include "splinterdb/data.h"
 #include "shard_log.h"

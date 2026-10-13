@@ -1,0 +1,7 @@
+Starting handoff-mainmerge-functional-tests test
+Running btree-functional-512m
+btree-functional-512m {'name': 'btree-functional-512m', 'command': ['/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test', 'btree_test', '--cache-capacity-mib', '512', '--db-capacity-gib', '2'], 'cwd': '/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-btree-functional-512m', 'started': 1791873050.4390786, 'returncode': 0, 'finished': 1791873154.6158526}
+Running log-functional
+log-functional {'name': 'log-functional', 'command': ['/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test', 'log_test', '--cache-capacity-mib', '64', '--db-capacity-gib', '2'], 'cwd': '/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-log-functional', 'started': 1791873154.6163955, 'returncode': 0, 'finished': 1791873155.333414}
+Running functionality
+functionality {'name': 'functionality', 'command': ['/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test', 'splinter_test', '--functionality', '100000', '100', '--cache-capacity-mib', '64', '--db-capacity-gib', '2'], 'cwd': '/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-functionality', 'started': 1791873155.3338234, 'returncode': 0, 'finished': 1791873155.9503615}

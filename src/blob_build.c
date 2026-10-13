@@ -76,7 +76,9 @@ allocate_leftover_entries(const blob_build_config *cfg,
       platform_assert(alloced_pages[1] == 0);
 
       if (alloced_pages[0] % page_size == 0) {
-         page_handle *page = cache_alloc(cc, alloced_pages[0], PAGE_TYPE_BLOB);
+         page_handle  storage;
+         page_handle *page =
+            cache_alloc(cc, alloced_pages[0], PAGE_TYPE_BLOB, &storage);
          cache_unlock(cc, page);
          cache_unclaim(cc, page);
          cache_unget(cc, page);
@@ -85,7 +87,9 @@ allocate_leftover_entries(const blob_build_config *cfg,
       {
          uint64 next_page_addr =
             (alloced_pages[0] + remainder - 1) / page_size * page_size;
-         page_handle *page = cache_alloc(cc, next_page_addr, PAGE_TYPE_BLOB);
+         page_handle  storage;
+         page_handle *page =
+            cache_alloc(cc, next_page_addr, PAGE_TYPE_BLOB, &storage);
          cache_unlock(cc, page);
          cache_unclaim(cc, page);
          cache_unget(cc, page);
@@ -192,19 +196,20 @@ build_blob_extent(const blob_build_config *cfg,
    if (!SUCCESS(rc) || height == 0) {
       return rc;
    }
-   uint64       child_span = span / (cache_extent_size(cc) / sizeof(uint64));
-   uint64       children   = count / child_span + (count % child_span != 0);
-   uint64       per_page   = cache_page_size(cc) / sizeof(uint64);
-   page_handle *page       = NULL;
+   uint64       child_span   = span / (cache_extent_size(cc) / sizeof(uint64));
+   uint64       children     = count / child_span + (count % child_span != 0);
+   uint64       per_page     = cache_page_size(cc) / sizeof(uint64);
+   page_handle  page_storage = {0};
+   page_handle *page         = &page_storage;
    for (uint64 i = 0; i < children; i++) {
       if (i % per_page == 0) {
-         if (page != NULL) {
+         if (!page_handle_is_null(page)) {
             cache_unlock(cc, page);
             cache_unclaim(cc, page);
             cache_unget(cc, page);
          }
-         page = cache_alloc(cc, *addr + i * sizeof(uint64), PAGE_TYPE_BLOB);
-         memset(page->data, 0, cache_page_size(cc));
+         cache_alloc(cc, *addr + i * sizeof(uint64), PAGE_TYPE_BLOB, page);
+         memset(page_handle_data(page), 0, cache_page_size(cc));
       }
       uint64 child;
       uint64 child_count = MIN(count, child_span);
@@ -213,11 +218,12 @@ build_blob_extent(const blob_build_config *cfg,
       if (!SUCCESS(rc)) {
          break;
       }
-      memcpy(
-         page->data + (i % per_page) * sizeof(uint64), &child, sizeof(child));
+      memcpy(page_handle_data(page) + (i % per_page) * sizeof(uint64),
+             &child,
+             sizeof(child));
       count -= child_count;
    }
-   if (page != NULL) {
+   if (!page_handle_is_null(page)) {
       cache_unlock(cc, page);
       cache_unclaim(cc, page);
       cache_unget(cc, page);
@@ -309,7 +315,7 @@ blob_build(const blob_build_config *cfg,
       }
 
       debug_assert(offset + slice_length(dst) <= slice_length(data));
-      memcpy(iter.page->data + iter.fragment.offset,
+      memcpy(page_handle_data(&iter.page) + iter.fragment.offset,
              raw_data + offset,
              slice_length(dst));
 
@@ -465,7 +471,7 @@ blob_clone(const blob_build_config *cfg,
          platform_assert(src_offset == dst_offset);
          uint64 amount_to_copy =
             MIN(slice_length(src_data), slice_length(dst_data));
-         memcpy(dst_iter.page->data + dst_iter.fragment.offset,
+         memcpy(page_handle_data(&dst_iter.page) + dst_iter.fragment.offset,
                 slice_data(src_data),
                 amount_to_copy);
 

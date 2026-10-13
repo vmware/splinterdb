@@ -67,11 +67,11 @@ typedef struct blob_page_iterator {
 
    uint64          offset;
    page_fragment   fragment;
-   page_handle    *page;
+   page_handle     page;
    platform_status status;
    uint64          data_extent;
    uint64          data_extent_addr;
-   page_handle    *index_pages[BLOB_MAX_HEIGHT];
+   page_handle     index_pages[BLOB_MAX_HEIGHT];
 } blob_page_iterator;
 
 bool

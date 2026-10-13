@@ -2950,6 +2950,91 @@ custom_key_comparator(const data_config *cfg, user_key key1, user_key key2)
    return r;
 }
 
+typedef struct iterator_handoff {
+   splinterdb          *db;
+   splinterdb_iterator *itor;
+   int                  rc;
+   threadid             tid;
+} iterator_handoff;
+
+static void *
+iterator_handoff_create_and_exit(void *arg)
+{
+   iterator_handoff *handoff = arg;
+   handoff->rc               = splinterdb_iterator_init(
+      handoff->db, &handoff->itor, greater_than_or_equal, NULL_SLICE);
+   handoff->tid = platform_get_tid();
+   return NULL;
+}
+
+static void *
+iterator_handoff_advance_and_deinit(void *arg)
+{
+   iterator_handoff *handoff = arg;
+   /* next/get_current/deinit perform the normal public auto-registration. */
+   for (int i = 0; i < 500; i++) {
+      if (check_current_tuple(handoff->itor, i) != 0) {
+         handoff->rc = -1;
+         break;
+      }
+      splinterdb_iterator_next(handoff->itor);
+   }
+   if (handoff->rc == 0) {
+      for (int i = 499; i >= 490; i--) {
+         splinterdb_iterator_prev(handoff->itor);
+         if (check_current_tuple(handoff->itor, i) != 0) {
+            handoff->rc = -1;
+            break;
+         }
+      }
+   }
+   if (handoff->rc == 0) {
+      handoff->rc = splinterdb_iterator_status(handoff->itor);
+   }
+   handoff->tid = platform_get_tid();
+   splinterdb_iterator_deinit(handoff->itor);
+   handoff->itor = NULL;
+   return NULL;
+}
+
+CTEST2(splinterdb_quick, test_iterator_thread_handoff)
+{
+   ASSERT_EQUAL(0, insert_some_keys(2000, data->kvsb));
+   /* Exercise live memtable leaves, then persisted branch leaves. */
+   for (unsigned persisted = 0; persisted < 2; persisted++) {
+      if (persisted) {
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+         ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+      }
+      iterator_handoff handoff = {.db = data->kvsb};
+      ASSERT_EQUAL(
+         0,
+         splinterdb_iterator_init(
+            data->kvsb, &handoff.itor, greater_than_or_equal, NULL_SLICE));
+      pthread_t receiver;
+      ASSERT_EQUAL(
+         0,
+         pthread_create(
+            &receiver, NULL, iterator_handoff_advance_and_deinit, &handoff));
+      ASSERT_EQUAL(0, pthread_join(receiver, NULL));
+      ASSERT_EQUAL(0, handoff.rc);
+      ASSERT_NOT_EQUAL(platform_get_tid(), handoff.tid);
+
+      /* Reverse direction: the producer exits and its registration is released
+       * before the main thread advances/deinitializes the iterator. */
+      pthread_t producer;
+      ASSERT_EQUAL(
+         0,
+         pthread_create(
+            &producer, NULL, iterator_handoff_create_and_exit, &handoff));
+      ASSERT_EQUAL(0, pthread_join(producer, NULL));
+      ASSERT_EQUAL(0, handoff.rc);
+      ASSERT_NOT_EQUAL(platform_get_tid(), handoff.tid);
+      iterator_handoff_advance_and_deinit(&handoff);
+      ASSERT_EQUAL(0, handoff.rc);
+   }
+}
+
 /* The child exits without closing the database. In the damaged variant, a
  * later group's second pointer page is invalid, after hundreds of data extents
  * have already been discovered. Recovery must keep the preceding group and
@@ -3023,19 +3108,21 @@ CTEST2(splinterdb_quick, test_blob_tree_crash_recovery)
          log_iterator_deinit(iter);
          if (pointer_page == 0)
             _exit(21);
-         page_handle *page = cache_get(cc, pointer_page, TRUE, PAGE_TYPE_BLOB);
-         if (!cache_try_claim(cc, page))
+         page_handle page;
+         if (!SUCCESS(cache_get(cc, pointer_page, TRUE, PAGE_TYPE_BLOB, &page)))
+            _exit(27);
+         if (!cache_try_claim(cc, &page))
             _exit(22);
-         cache_lock(cc, page);
+         cache_lock(cc, &page);
          uint64 invalid = data->cfg.disk_size;
-         memcpy(page->data, &invalid, sizeof(invalid));
-         cache_unlock(cc, page);
-         cache_unclaim(cc, page);
+         memcpy(page_handle_data(&page), &invalid, sizeof(invalid));
+         cache_unlock(cc, &page);
+         cache_unclaim(cc, &page);
          writeback_set set;
          writeback_set_init(&set, cc, data->cfg.heap_id);
-         if (!SUCCESS(writeback_set_add_page(&set, page, PAGE_TYPE_BLOB)))
+         if (!SUCCESS(writeback_set_add_page(&set, &page, PAGE_TYPE_BLOB)))
             _exit(23);
-         cache_unget(cc, page);
+         cache_unget(cc, &page);
          if (!SUCCESS(writeback_set_wait(&set)))
             _exit(24);
          if (!SUCCESS(writeback_set_make_durable(&set)))

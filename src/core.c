@@ -4404,6 +4404,20 @@ core_unmount(core_handle *spl, bool32 force)
       spl->allocator_map_needs_rebuild = TRUE;
    }
 
+   /* Reclamation may first fail during the destructive teardown above. Its
+    * external references were consumed, so retrying would double-decrement.
+    * Part A and normal mount/checkpoint publications leave the allocation
+    * state invalid; suppress the only clean-marker publication below. */
+   platform_status reclamation_rc = allocator_reclamation_status(spl->al);
+   if (!SUCCESS(reclamation_rc)) {
+      spl->allocator_map_needs_rebuild = TRUE;
+      platform_error_log(
+         "WARNING: core_unmount: reclamation failed (%s); remaining space "
+         "was retained. Shutdown requires recovery and the next open will "
+         "rebuild allocation state.\n",
+         platform_status_to_string(reclamation_rc));
+   }
+
    /*
     * Part B is only an optimization for the next mount.  Publish the map after
     * a complete-root Part A only when every reference release was accounted

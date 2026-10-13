@@ -49,7 +49,7 @@ typedef struct gc_cache {
    cache          super;
    gc_allocator   al;
    trunk_context *context;
-   page_handle    pages[GC_NUM_NODES];
+   cache_page     pages[GC_NUM_NODES];
    uint64         words[GC_NUM_NODES][GC_PAGE_SIZE / sizeof(uint64)];
    uint64         readers[GC_NUM_NODES];
    bool32         busy[GC_NUM_NODES];
@@ -110,8 +110,12 @@ gc_dec_ref(allocator *al, uint64 addr, page_type type)
    return --test_al->refs[index];
 }
 
-static page_handle *
-gc_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
+static platform_status
+gc_get(cache       *cc,
+       uint64       addr,
+       bool32       blocking,
+       page_type    type,
+       page_handle *page)
 {
    gc_cache *test_cc = (gc_cache *)cc;
    uint64    index   = node_index(addr);
@@ -120,14 +124,15 @@ gc_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
    platform_assert(test_cc->context->pending_gcs_lock == 0);
    platform_assert(type == PAGE_TYPE_TRUNK && !test_cc->discarded[index]);
    test_cc->readers[index]++;
-   return &test_cc->pages[index];
+   page->page = &test_cc->pages[index];
+   return STATUS_OK;
 }
 
 static void
 gc_unget(cache *cc, page_handle *page)
 {
    gc_cache *test_cc = (gc_cache *)cc;
-   uint64    index   = node_index(page->disk_addr);
+   uint64    index   = node_index(page_handle_addr(page));
    platform_assert(test_cc->readers[index] > 0);
    test_cc->readers[index]--;
 }
@@ -167,17 +172,21 @@ static const cache_ops gc_cache_ops = {
 static void
 gc_init_node(gc_cache *cc, uint64 index, uint64 child_addr)
 {
-   page_handle *page        = &cc->pages[index];
-   page->data               = (char *)cc->words[index];
-   page->disk_addr          = (index + 1) * GC_EXTENT_SIZE;
-   gc_node_header *header   = (gc_node_header *)page->data;
+   cache_page *identity     = &cc->pages[index];
+   identity->data           = (char *)cc->words[index];
+   identity->disk_addr      = (index + 1) * GC_EXTENT_SIZE;
+   page_handle     receipt  = {.page = identity};
+   page_handle    *page     = &receipt;
+   gc_node_header *header   = (gc_node_header *)page_handle_data(page);
    header->height           = child_addr != 0;
    header->num_pivots       = 2;
    header->pivot_offsets[0] = sizeof(*header);
    header->pivot_offsets[1] =
       sizeof(*header) + sizeof(gc_pivot) + sizeof(gc_bundle);
-   gc_pivot *lo   = (gc_pivot *)(page->data + header->pivot_offsets[0]);
-   gc_pivot *hi   = (gc_pivot *)(page->data + header->pivot_offsets[1]);
+   gc_pivot *lo =
+      (gc_pivot *)(page_handle_data(page) + header->pivot_offsets[0]);
+   gc_pivot *hi =
+      (gc_pivot *)(page_handle_data(page) + header->pivot_offsets[1]);
    lo->child_addr = child_addr;
    copy_key_to_ondisk_key(&lo->key, NEGATIVE_INFINITY_KEY);
    copy_key_to_ondisk_key(&hi->key, POSITIVE_INFINITY_KEY);

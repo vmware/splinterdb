@@ -1746,19 +1746,21 @@ test_log_malformed_record_bounds(clockcache        *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   page_handle *page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   page_handle *page = &acquired_page;
    while (!cache_try_claim(cacheh, page)) {
       cache_unget(cacheh, page);
-      page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+      *page = test_cache_get_page(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
    }
    cache_lock(cacheh, page);
-   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   shard_log_hdr *hdr = (shard_log_hdr *)page_handle_data(page);
    platform_assert(hdr->num_entries == 1);
-   ondisk_tuple *tuple =
-      (ondisk_tuple *)(page->data + sizeof(*hdr) + 2 * sizeof(uint64));
-   tuple->key_length = ONDISK_KEY_POSITIVE_INFINITY - 1;
+   ondisk_tuple *tuple = (ondisk_tuple *)(page_handle_data(page) + sizeof(*hdr)
+                                          + 2 * sizeof(uint64));
+   tuple->key_length   = ONDISK_KEY_POSITIVE_INFINITY - 1;
    hdr->checksum =
-      platform_checksum128(page->data + sizeof(checksum128),
+      platform_checksum128(page_handle_data(page) + sizeof(checksum128),
                            cache_page_size(cacheh) - sizeof(checksum128),
                            cfg->seed);
    cache_unlock(cacheh, page);
@@ -1820,20 +1822,22 @@ test_log_group_page_cycle(clockcache        *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   page_handle *page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   page_handle *page = &acquired_page;
    while (!cache_try_claim(cacheh, page)) {
       cache_unget(cacheh, page);
-      page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+      *page = test_cache_get_page(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
    }
    cache_lock(cacheh, page);
-   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   shard_log_hdr *hdr = (shard_log_hdr *)page_handle_data(page);
    platform_assert(hdr->group_id == SHARD_LOG_FIRST_GROUP_ID);
    platform_assert(hdr->page_no == 0);
    platform_assert(hdr->pages_in_group != 0);
    hdr->pages_in_group   = 0;
    hdr->next_extent_addr = sealed.addr;
    hdr->checksum =
-      platform_checksum128(page->data + sizeof(checksum128),
+      platform_checksum128(page_handle_data(page) + sizeof(checksum128),
                            cache_page_size(cacheh) - sizeof(checksum128),
                            cfg->seed);
    cache_unlock(cacheh, page);
@@ -1935,14 +1939,16 @@ test_log_blob_checksum_prefix(clockcache        *cc,
    blob_page_iterator_deinit(&blob_itor);
    log_iterator_deinit(itor);
 
-   page_handle *page =
-      cache_get(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   page_handle *page = &acquired_page;
    while (!cache_try_claim(cacheh, page)) {
       cache_unget(cacheh, page);
-      page = cache_get(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+      *page =
+         test_cache_get_page(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
    }
    cache_lock(cacheh, page);
-   page->data[corrupt_page_offset] ^= 0x80;
+   page_handle_data(page)[corrupt_page_offset] ^= 0x80;
    cache_unlock(cacheh, page);
    cache_unclaim(cacheh, page);
    cache_unget(cacheh, page);
@@ -2121,19 +2127,21 @@ test_log_missing_group_preserves_prefix(clockcache             *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   uint64         missing_addr = segment.addr + cache_page_size(cacheh);
-   page_handle   *page = cache_get(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
-   shard_log_hdr *hdr  = (shard_log_hdr *)page->data;
+   uint64      missing_addr = segment.addr + cache_page_size(cacheh);
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
+   page_handle   *page = &acquired_page;
+   shard_log_hdr *hdr  = (shard_log_hdr *)page_handle_data(page);
    platform_assert(hdr->group_id == SHARD_LOG_FIRST_GROUP_ID + 1);
    platform_assert(hdr->page_no == 0);
    platform_assert((hdr->pages_in_group & SHARD_LOG_PAGES_IN_GROUP_MASK) == 1);
 
    while (!cache_try_claim(cacheh, page)) {
       cache_unget(cacheh, page);
-      page = cache_get(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
+      *page = test_cache_get_page(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
    }
    cache_lock(cacheh, page);
-   memset(page->data, 0, cache_page_size(cacheh));
+   memset(page_handle_data(page), 0, cache_page_size(cacheh));
    cache_unlock(cacheh, page);
    cache_unclaim(cacheh, page);
    cache_unget(cacheh, page);
@@ -2214,8 +2222,10 @@ test_log_recovery_reused_successor(clockcache        *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   page_handle *page = cache_get(cacheh, successor, TRUE, PAGE_TYPE_BLOB);
-   platform_assert(page->data[0] == 'B');
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, successor, TRUE, PAGE_TYPE_BLOB);
+   page_handle *page = &acquired_page;
+   platform_assert(page_handle_data(page)[0] == 'B');
    cache_unget(cacheh, page);
 
    /* Retain the original allocator for normal metadata-based test cleanup. */

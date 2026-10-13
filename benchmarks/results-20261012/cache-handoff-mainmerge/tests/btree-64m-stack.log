@@ -1,0 +1,35 @@
+/home/rob/.gdbinit:2: Error in sourced command file:
+Cannot enable the TUI when output is not a terminal
+[New LWP 563829]
+
+warning: "target:/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test": could not open as an executable file: Input/output error.
+
+warning: `target:/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test': can't open to read symbols: Input/output error.
+
+warning: Could not load vsyscall page because no executable was specified
+
+warning: Target and debugger are in different PID namespaces; thread lists and other data are likely unreliable.  Connect to gdbserver inside the container.
+0x00007fc24d7619ca in ?? ()
+
+Thread 2 (LWP 563829 "laio_cleaner"):
+#0  0x00007fc24d5dc4f9 in ?? ()
+#1  0x00007fc24d3d82a9 in ?? ()
+#2  0x00007fc249095d80 in ?? ()
+#3  0x00007fc24d3d827a in ?? ()
+#4  0x00007fc249095d80 in ?? ()
+#5  0x0000000000000000 in ?? ()
+
+Thread 1 (LWP 563815 "driver_test"):
+#0  0x00007fc24d7619ca in ?? ()
+#1  0x00007ffc9849f200 in ?? ()
+#2  0x00007fc24d763aa1 in ?? ()
+#3  0x00002be620320000 in ?? ()
+#4  0x0000558f38ffc800 in ?? ()
+#5  0x00007fc24d0c4e80 in ?? ()
+#6  0x000000001faee000 in ?? ()
+#7  0x0000000000000018 in ?? ()
+#8  0x000000001faa2000 in ?? ()
+#9  0x000000044d173fc0 in ?? ()
+#10 0x000000000000396b in ?? ()
+#11 0x0000000000000000 in ?? ()
+[Inferior 1 (process 563815) detached]

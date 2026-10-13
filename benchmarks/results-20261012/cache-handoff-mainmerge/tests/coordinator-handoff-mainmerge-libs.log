@@ -1,0 +1,3 @@
+usage: run_job.py [-h] --name NAME [--db-dir DB_DIR]
+                  {build,test,benchmark} ...
+run_job.py: error: the following arguments are required: --name
