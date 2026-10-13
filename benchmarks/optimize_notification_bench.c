@@ -54,13 +54,11 @@ optimize(splinterdb *db, bool empty_range)
 {
    slice bound = empty_range ? slice_create(1, "k") : NULL_SLICE;
 #ifdef HAVE_SENTINEL_NOTIFICATION
-   checked(splinterdb_optimize(db, bound, bound, true, NULL),
-           "optimize");
+   checked(splinterdb_optimize(db, bound, bound, true, NULL), "optimize");
 #else
    splinterdb_notification note;
    splinterdb_notification_init_blocking(&note);
-   checked(splinterdb_optimize(db, bound, bound, true, &note),
-           "optimize");
+   checked(splinterdb_optimize(db, bound, bound, true, &note), "optimize");
    splinterdb_notification_deinit(&note);
 #endif
 }
@@ -76,8 +74,8 @@ main(int argc, char **argv)
    uint64_t count   = strtoull(argv[5], NULL, 10);
    if (workers > 1 || !count || count > 1000000)
       return 2;
-   const char *empty_env = getenv("OPTIMIZE_EMPTY_RANGE");
-   bool empty_range = empty_env && strcmp(empty_env, "1") == 0;
+   const char *empty_env   = getenv("OPTIMIZE_EMPTY_RANGE");
+   bool        empty_range = empty_env && strcmp(empty_env, "1") == 0;
    data_config dcfg;
    default_data_config_init(&dcfg);
    splinterdb_config cfg = {
@@ -97,8 +95,10 @@ main(int argc, char **argv)
       make_key(id, key);
       memset(value, 'v', sizeof(value));
       memcpy(value, &id, sizeof(id));
-      checked(splinterdb_insert(db, slice_create(sizeof(key), key),
-                               slice_create(sizeof(value), value), NULL),
+      checked(splinterdb_insert(db,
+                                slice_create(sizeof(key), key),
+                                slice_create(sizeof(value), value),
+                                NULL),
               "insert");
    }
 #ifdef HAVE_SENTINEL_NOTIFICATION
@@ -124,7 +124,8 @@ main(int argc, char **argv)
    double cpu = (after.ru_utime.tv_sec - before.ru_utime.tv_sec)
                 + (after.ru_stime.tv_sec - before.ru_stime.tv_sec)
                 + ((after.ru_utime.tv_usec - before.ru_utime.tv_usec)
-                   + (after.ru_stime.tv_usec - before.ru_stime.tv_usec)) / 1e6;
+                   + (after.ru_stime.tv_usec - before.ru_stime.tv_usec))
+                     / 1e6;
    checked(splinterdb_close(&db, false), "close");
    checked(splinterdb_open(&cfg, &db), "reopen");
    splinterdb_iterator *it;
@@ -150,19 +151,31 @@ main(int argc, char **argv)
    assert(csv);
    fseek(csv, 0, SEEK_END);
    if (ftell(csv) == 0)
-      fprintf(csv, "label,range,workers,repetitions,keys,seconds,cpu_s,mean_us,p50_us,"
-                   "p99_us,read_bytes,write_bytes,verified\n");
-   fprintf(csv, "%s,%s,%" PRIu64 ",%" PRIu64 ",%" PRIu64
-                ",%.6f,%.6f,%.3f,%.3f,%.3f,%" PRIu64 ",%" PRIu64 ",1\n",
-           argv[3], empty_range ? "empty" : "full", workers, count, keys,
-           elapsed / 1e9, cpu,
-           elapsed / 1e3 / count, latencies[count / 2] / 1e3,
+      fprintf(
+         csv,
+         "label,range,workers,repetitions,keys,seconds,cpu_s,mean_us,p50_us,"
+         "p99_us,read_bytes,write_bytes,verified\n");
+   fprintf(csv,
+           "%s,%s,%" PRIu64 ",%" PRIu64 ",%" PRIu64
+           ",%.6f,%.6f,%.3f,%.3f,%.3f,%" PRIu64 ",%" PRIu64 ",1\n",
+           argv[3],
+           empty_range ? "empty" : "full",
+           workers,
+           count,
+           keys,
+           elapsed / 1e9,
+           cpu,
+           elapsed / 1e3 / count,
+           latencies[count / 2] / 1e3,
            latencies[(count - 1) * 99 / 100] / 1e3,
            (uint64_t)(after.ru_inblock - before.ru_inblock) * 512,
            (uint64_t)(after.ru_oublock - before.ru_oublock) * 512);
    fclose(csv);
    free(latencies);
-   printf("verified %" PRIu64 " keys; %" PRIu64 " optimize calls, %.3f us/call\n",
-          keys, count, elapsed / 1e3 / count);
+   printf("verified %" PRIu64 " keys; %" PRIu64
+          " optimize calls, %.3f us/call\n",
+          keys,
+          count,
+          elapsed / 1e3 / count);
    return 0;
 }
