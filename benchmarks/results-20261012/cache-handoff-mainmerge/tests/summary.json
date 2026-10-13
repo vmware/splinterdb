@@ -1,0 +1,200 @@
+{
+  "previous_head": "23d26d165923d174e4d5d5ea2a4774ece697b9aa",
+  "merged_origin_main": "7d607b118b1f606c51430759adc75b069423afae",
+  "integration": "Merge upstream multi-level blobs while preserving fallible caller-owned compact handles, handoff and reclamation error behavior.",
+  "new_regression": "Five exact STATUS_TIMEDOUT injection points on height-three pointer/data paths; no held references after failure, successful retry; transfer live data and both pointer handles across threads and advance across subtree boundary.",
+  "build_root": "build-mainmerge",
+  "asan_options": "detect_leaks=0:abort_on_error=1",
+  "asan_limitation": "AddressSanitizer enabled; LeakSanitizer disabled under sandbox ptrace restrictions.",
+  "setup_failures": [
+    "Initial coordinator invocation put --name after REMAINDER mode; rejected before build. Corrected command succeeded.",
+    "Initial private-scratch test launch could not load the executable-relative shared library path; added build-mainmerge symlink in each scratch directory and reran.",
+    "64 MiB functional B-tree run timed out in allocation while retaining eight 24 MiB memtables. Symbolized stack captured in btree-64m-symbolic-stack.log. Corrected configuration uses 512 MiB cache; no production source changes."
+  ],
+  "debug_passed": 239,
+  "debug_existing_skips": 3,
+  "release_passed": 65,
+  "asan_passed": 69,
+  "functional_drivers_passed": 5,
+  "validations": [
+    {
+      "name": "unit",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/unit_test"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-unit",
+      "started": 1791872535.689291,
+      "returncode": 0,
+      "finished": 1791872691.0830195,
+      "tests": 206,
+      "passed": 203,
+      "failed": 0,
+      "skipped": 3
+    },
+    {
+      "name": "splinter",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/unit/splinter_test"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-splinter",
+      "started": 1791872691.0836706,
+      "returncode": 0,
+      "finished": 1791872771.7307925,
+      "tests": 36,
+      "passed": 36,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "prefetch",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test",
+        "cache_test",
+        "--prefetch-admission",
+        "--cache-capacity-mib",
+        "64",
+        "--db-capacity-gib",
+        "2"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-prefetch",
+      "started": 1791872771.7312615,
+      "returncode": 0,
+      "finished": 1791872771.8458645
+    },
+    {
+      "name": "async",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--cache-capacity-mib",
+        "64",
+        "--db-capacity-gib",
+        "2"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-async",
+      "started": 1791872771.8462734,
+      "returncode": 0,
+      "finished": 1791872772.562958
+    },
+    {
+      "name": "release-writeback",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/release/bin/unit/writeback_set_test"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-release-writeback",
+      "started": 1791872608.408826,
+      "returncode": 0,
+      "finished": 1791872609.8275616,
+      "tests": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "release-quick",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/release/bin/unit/splinterdb_quick_test"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-release-quick",
+      "started": 1791872609.8280106,
+      "returncode": 0,
+      "finished": 1791872618.969267,
+      "tests": 49,
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "asan-writeback",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug-asan/bin/unit/writeback_set_test"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-asan-writeback",
+      "started": 1791872618.969604,
+      "returncode": 0,
+      "finished": 1791872620.6384993,
+      "tests": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "asan-quick",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug-asan/bin/unit/splinterdb_quick_test"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-asan-quick",
+      "started": 1791872620.6388502,
+      "returncode": 0,
+      "finished": 1791872640.15408,
+      "tests": 49,
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "asan-blob",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug-asan/bin/unit/splinter_test",
+        "test_blob_"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-asan-blob",
+      "started": 1791872640.1545525,
+      "returncode": 0,
+      "finished": 1791872644.1300845,
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "btree-functional-512m",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test",
+        "btree_test",
+        "--cache-capacity-mib",
+        "512",
+        "--db-capacity-gib",
+        "2"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-btree-functional-512m",
+      "started": 1791873050.4390786,
+      "returncode": 0,
+      "finished": 1791873154.6158526
+    },
+    {
+      "name": "log-functional",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test",
+        "log_test",
+        "--cache-capacity-mib",
+        "64",
+        "--db-capacity-gib",
+        "2"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-log-functional",
+      "started": 1791873154.6163955,
+      "returncode": 0,
+      "finished": 1791873155.333414
+    },
+    {
+      "name": "functionality",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test",
+        "splinter_test",
+        "--functionality",
+        "100000",
+        "100",
+        "--cache-capacity-mib",
+        "64",
+        "--db-capacity-gib",
+        "2"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-functionality",
+      "started": 1791873155.3338234,
+      "returncode": 0,
+      "finished": 1791873155.9503615
+    }
+  ]
+}

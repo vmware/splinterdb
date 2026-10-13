@@ -1,0 +1,36 @@
+[New LWP 563829]
+warning: Target and debugger are in different PID namespaces; thread lists and other data are likely unreliable.  Connect to gdbserver inside the container.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+0x00007fc24d762ce9 in clockcache_ok_to_writeback (cc=0x558f38ffc800, entry_number=11048, with_access=1) at src/clockcache.c:1127
+1127	          || (with_access && status == CC_CLEANABLE2_STATUS);
+
+Thread 2 (Thread 0x7fc2490966c0 (LWP 563829) "laio_cleaner"):
+#0  0x00007fc24d5dc4f9 in syscall () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007fc24d3d82a9 in ?? () from /lib/x86_64-linux-gnu/libaio.so.1t64
+#2  0x00007fc24d3d831f in ?? () from /lib/x86_64-linux-gnu/libaio.so.1t64
+#3  0x00007fc24d3d8425 in ?? () from /lib/x86_64-linux-gnu/libaio.so.1t64
+#4  0x00007fc24d3d84ee in io_getevents () from /lib/x86_64-linux-gnu/libaio.so.1t64
+#5  0x00007fc24d788ec7 in laio_cleanup_one (pctx=0x7fc24d6d7050, mincnt=1) at src/platform_linux/laio.c:146
+#6  0x00007fc24d789033 in laio_cleaner (arg=0x7fc24d6d7050) at src/platform_linux/laio.c:189
+#7  0x00007fc24d5608bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#8  0x00007fc24d5de538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 1 (Thread 0x7fc24d3d4740 (LWP 563815) "driver_test"):
+#0  0x00007fc24d762ce9 in clockcache_ok_to_writeback (cc=0x558f38ffc800, entry_number=11048, with_access=1) at src/clockcache.c:1127
+#1  0x00007fc24d762e1d in clockcache_try_claim_writeback (cc=0x558f38ffc800, entry_number=11048, with_access=1) at src/clockcache.c:1215
+#2  0x00007fc24d76343c in clockcache_batch_start_writeback (cc=0x558f38ffc800, batch=172, is_urgent=1) at src/clockcache.c:1401
+#3  0x00007fc24d764089 in clockcache_acquire_batch (cc=0x558f38ffc800, is_urgent=1) at src/clockcache.c:1766
+#4  0x00007fc24d76420c in clockcache_get_free_page (cc=0x558f38ffc800, status=96, type=PAGE_TYPE_MEMTABLE, refcount=1, blocking=1) at src/clockcache.c:1814
+#5  0x00007fc24d7648a2 in clockcache_alloc (cc=0x558f38ffc800, addr=540246016, type=PAGE_TYPE_MEMTABLE, page=0x7ffc9849f4b8) at src/clockcache.c:1998
+#6  0x00007fc24d769829 in clockcache_alloc_virtual (c=0x558f38ffc800, addr=540246016, type=PAGE_TYPE_MEMTABLE, page=0x7ffc9849f4b8) at src/clockcache.c:3940
+#7  0x00007fc24d749199 in cache_alloc (cc=0x558f38ffc800, addr=540246016, type=PAGE_TYPE_MEMTABLE, page=0x7ffc9849f4b8) at src/cache.h:332
+#8  0x00007fc24d74f19d in btree_alloc (cc=0x558f38ffc800, mini=0x558f39015898, height=0, next_extent=0x0, type=PAGE_TYPE_MEMTABLE, node=0x7ffc9849f4b0) at src/btree.c:1207
+#9  0x00007fc24d750364 in btree_split_child_leaf (cc=0x558f38ffc800, cfg=0x7ffc984a7530, mini=0x558f39015898, scratch=0x558f3902b640, root_addr=274071552, parent=0x7ffc9849f610, index_of_child_in_parent=46, child=0x7ffc9849f5f0, spec=0x7ffc9849f660, results=0x7ffc9849f920) at src/btree.c:1829
+#10 0x00007fc24d750cb0 in btree_defragment_or_split_child_leaf (cc=0x558f38ffc800, cfg=0x7ffc984a7530, mini=0x558f39015898, scratch=0x558f3902b640, root_addr=274071552, parent=0x7ffc9849f610, index_of_child_in_parent=46, child=0x7ffc9849f5f0, spec=0x7ffc9849f660, results=0x7ffc9849f920) at src/btree.c:1998
+#11 0x00007fc24d752c6c in btree_insert (cc=0x558f38ffc800, cfg=0x7ffc984a7530, heap_id=0x0, scratch=0x558f3902b640, root_addr=274071552, mini=0x558f39015898, tuple_key=..., msg=..., results=0x7ffc9849f920) at src/btree.c:2621
+#12 0x00007fc24d77e1f6 in memtable_insert (ctxt=0x558f39014c80, mt=0x558f39015880, heap_id=0x0, tuple_key=..., msg=..., results=0x7ffc9849f920) at src/memtable.c:294
+#13 0x0000558f28e53842 in test_btree_insert (ctxt=0x558f39014c40, tuple_key=..., data=...) at tests/functional/btree_test.c:387
+#14 0x0000558f28e59b14 in test_btree_create_packed_trees (cc=0x558f38ffc800, cfg=0x7ffc984a3b00, hid=0x0, num_trees=8, root_addr=0x558f39014bc0) at tests/functional/btree_test.c:2089
+#15 0x0000558f28e5c2c5 in test_btree_rough_iterator (cc=0x558f38ffc800, cfg=0x7ffc984a3b00, hid=0x0, num_trees=8) at tests/functional/btree_test.c:2546
+[Inferior 1 (process 563815) detached]

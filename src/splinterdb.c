@@ -178,6 +178,9 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
       cfg->io_async_queue_depth = IO_DEFAULT_ASYNC_QUEUE_DEPTH;
    }
 
+   if (!cfg->blob_max_descriptor_size) {
+      cfg->blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE;
+   }
    if (!cfg->btree_rough_count_height) {
       cfg->btree_rough_count_height = 1;
    }
@@ -394,7 +397,14 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                           cfg.cache_logfile,
                           cfg.use_stats);
 
+   if (cfg.blob_max_descriptor_size < BLOB_MIN_MAX_DESCRIPTOR_SIZE
+       || cfg.blob_max_descriptor_size > MAX_INLINE_MESSAGE_SIZE(cfg.page_size))
+   {
+      return STATUS_BAD_PARAM;
+   }
    shard_log_config_init(&kvs->log_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
+   kvs->log_cfg.blob_cfg.blob_max_descriptor_size =
+      cfg.blob_max_descriptor_size;
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_MEMTABLE]    = kvs_cfg->num_memtable_bg_threads;
@@ -421,6 +431,8 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    }
 
    btree_config_init(&kvs->btree_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
+   kvs->btree_cfg.blob_cfg.blob_max_descriptor_size =
+      cfg.blob_max_descriptor_size;
 
    trunk_config_init(&kvs->trunk_node_cfg,
                      kvs->data_cfg,

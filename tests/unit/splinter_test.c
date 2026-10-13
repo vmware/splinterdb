@@ -1322,8 +1322,8 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
    merge_accumulator_deinit(&msg);
 }
 
-/* Packed branches persist exact subtree counters in uint32 fields, with
- * INT32_MAX reserved to mean unknown. Reject an unrepresentable total before
+/* Packed branches persist exact subtree counters in up to 64 bits, with
+ * UINT64_MAX reserved to mean unknown. Reject an unrepresentable total before
  * copying the tuple or publishing any part of the output tree. */
 CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
 {
@@ -1334,9 +1334,9 @@ CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
 
    pack_abort_test_iterator itor = {
       .super     = {.ops = &pack_abort_test_ops},
-      .tuple_key = key_create(FALSE, INT32_MAX, &key_byte),
+      .tuple_key = key_create(FALSE, 1, &key_byte),
       .msg       = message_create(
-         MESSAGE_TYPE_INSERT, NULL, slice_create(1, &value_byte)),
+         MESSAGE_TYPE_INSERT, NULL, slice_create(UINT64_MAX, &value_byte)),
    };
    btree_pack_req  req;
    platform_status rc = btree_pack_req_init(&req,
@@ -5419,4 +5419,404 @@ CTEST2(splinter, test_cache_read_errors_reach_core_operations)
    ASSERT_TRUE(lookup_result_found(&result));
    lookup_result_deinit(&result);
    core_destroy(&spl);
+}
+
+/* The reservation bound must remain valid at tree-height transitions, without
+ * allocating or multiplying a rounded capacity past UINT64_MAX. */
+CTEST2(splinter, test_blob_descriptor_sizes)
+{
+   uint64            extent = cache_extent_size((cache *)data->clock_cache);
+   uint64            fanout = extent / sizeof(uint64);
+   uint64            roots  = (512 - sizeof(blob)) / sizeof(uint64);
+   blob_build_config cfg    = {.blob_max_descriptor_size = 512};
+   const struct {
+      uint64 length;
+      uint64 addresses;
+   } cases[] = {
+      {roots * extent, roots},
+      {roots * extent + 1, 1},
+      {fanout * extent + 1, 2},
+      {roots * fanout * extent, roots},
+      {roots * fanout * extent + 1, 1},
+   };
+   for (uint64 i = 0; i < ARRAY_SIZE(cases); i++) {
+      uint64 size;
+      ASSERT_TRUE(SUCCESS(
+         blob_descriptor_size_bound(&cfg, extent, cases[i].length, &size)));
+      ASSERT_EQUAL(sizeof(blob) + cases[i].addresses * sizeof(uint64), size);
+   }
+   uint64 size;
+   ASSERT_TRUE(
+      SUCCESS(blob_descriptor_size_bound(&cfg, extent, UINT64_MAX, &size)));
+   ASSERT_TRUE(size <= 512);
+   cfg.blob_max_descriptor_size = 0;
+   ASSERT_TRUE(
+      SUCCESS(blob_descriptor_size_bound(&cfg, extent, roots * extent, &size)));
+   ASSERT_EQUAL(sizeof(blob) + roots * sizeof(uint64), size);
+   cfg.blob_max_descriptor_size = BLOB_MIN_MAX_DESCRIPTOR_SIZE - 1;
+   ASSERT_TRUE(
+      STATUS_IS_EQ(blob_descriptor_size_bound(&cfg, extent, extent, &size),
+                   STATUS_BAD_PARAM));
+}
+
+/* Exercise both old flat descriptors and pointer trees, including a pointer
+ * page boundary. Releasing the source before reading the clone checks that
+ * the clone owns every level, not just its descriptor's children. */
+CTEST2(splinter, test_blob_trees)
+{
+   cache            *cc        = (cache *)data->clock_cache;
+   uint64            extent    = cache_extent_size(cc);
+   uint64            page      = cache_page_size(cc);
+   blob_build_config cfg       = {.extent_batch             = 0,
+                                  .page_batch               = 1,
+                                  .subpage_batch            = 2,
+                                  .blob_max_descriptor_size = 512};
+   uint64            roots     = (512 - sizeof(blob)) / sizeof(uint64);
+   uint64            lengths[] = {roots * extent - 1,
+                                  roots * extent,
+                                  roots * extent + 1,
+                                  (page / sizeof(uint64) + 1) * extent + 17};
+   for (uint64 trial = 0; trial < ARRAY_SIZE(lengths); trial++) {
+      uint64         length = lengths[trial];
+      mini_allocator source, target;
+      uint64         source_head, target_head;
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_init(cc, &target, &target_head)));
+      writable_buffer bytes, desc, cloned, result;
+      writable_buffer_init(&bytes, data->hid);
+      writable_buffer_init(&desc, data->hid);
+      writable_buffer_init(&cloned, data->hid);
+      writable_buffer_init(&result, data->hid);
+      ASSERT_TRUE(SUCCESS(writable_buffer_resize(&bytes, length)));
+      blob_checksum_test_fill(&bytes, length);
+      ASSERT_TRUE(SUCCESS(blob_build(
+         &cfg, cc, &source, writable_buffer_to_slice(&bytes), &desc)));
+      slice       descriptor = writable_buffer_to_slice(&desc);
+      parsed_blob parsed;
+      ASSERT_TRUE(SUCCESS(blob_parse_descriptor(cc, descriptor, &parsed)));
+      ASSERT_EQUAL(trial < 2 ? 1 : 2, parsed.height);
+      ASSERT_TRUE(slice_length(descriptor) <= 512);
+      uint64 bound;
+      ASSERT_TRUE(
+         SUCCESS(blob_descriptor_size_bound(&cfg, extent, length, &bound)));
+      ASSERT_EQUAL(slice_length(descriptor), bound);
+
+      writeback_set set;
+      writeback_set_init(&set, cc, data->hid);
+      ASSERT_TRUE(SUCCESS(blob_writeback(cc, descriptor, &set)));
+      uint64 leaves = length / extent + (length % extent != 0);
+      ASSERT_EQUAL(leaves + (parsed.height == 2 ? parsed.num_extents : 0),
+                   writeback_set_num_requests(&set));
+      ASSERT_TRUE(SUCCESS(writeback_set_wait(&set)));
+      writeback_set_deinit(&set);
+      ASSERT_TRUE(SUCCESS(blob_validate(cc, descriptor)));
+      ASSERT_TRUE(SUCCESS(blob_clone(&cfg, cc, &target, descriptor, &cloned)));
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
+      ASSERT_TRUE(
+         SUCCESS(blob_validate(cc, writable_buffer_to_slice(&cloned))));
+      uint64 starts[] = {0,
+                         page - 3,
+                         extent - 5,
+                         page / sizeof(uint64) * extent - 7,
+                         length - 17};
+      for (uint64 i = 0; i < ARRAY_SIZE(starts); i++) {
+         if (starts[i] >= length) {
+            continue;
+         }
+         uint64 end = MIN(length, starts[i] + page + 31);
+         ASSERT_TRUE(SUCCESS(blob_materialize(
+            cc, writable_buffer_to_slice(&cloned), starts[i], end, &result)));
+         ASSERT_EQUAL(0,
+                      memcmp(writable_buffer_data(&result),
+                             (char *)writable_buffer_data(&bytes) + starts[i],
+                             end - starts[i]));
+      }
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_deinit(cc, &target, target_head)));
+      writable_buffer_deinit(&result);
+      writable_buffer_deinit(&cloned);
+      writable_buffer_deinit(&desc);
+      writable_buffer_deinit(&bytes);
+   }
+
+   /* A legacy descriptor larger than the current encoder budget is readable;
+    * cloning it under a smaller budget rewrites only the pointer topology. */
+   mini_allocator source, target;
+   uint64         source_head, target_head;
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &target, &target_head)));
+   writable_buffer bytes, desc, cloned, result;
+   writable_buffer_init(&bytes, data->hid);
+   writable_buffer_init(&desc, data->hid);
+   writable_buffer_init(&cloned, data->hid);
+   writable_buffer_init(&result, data->hid);
+   cfg.blob_max_descriptor_size = 1024;
+   ASSERT_TRUE(SUCCESS(blob_checksum_test_build_and_check(
+      &cfg, cc, &source, (roots + 1) * extent, &bytes, &desc, &result)));
+   parsed_blob parsed;
+   ASSERT_TRUE(SUCCESS(
+      blob_parse_descriptor(cc, writable_buffer_to_slice(&desc), &parsed)));
+   ASSERT_EQUAL(1, parsed.height);
+   ASSERT_TRUE(writable_buffer_length(&desc) > 512);
+   cfg.blob_max_descriptor_size = 512;
+   ASSERT_TRUE(SUCCESS(
+      blob_clone(&cfg, cc, &target, writable_buffer_to_slice(&desc), &cloned)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
+   ASSERT_TRUE(SUCCESS(
+      blob_checksum_test_writeback(cc, writable_buffer_to_slice(&cloned))));
+   ASSERT_TRUE(SUCCESS(blob_validate(cc, writable_buffer_to_slice(&cloned))));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_roundtrip(cc,
+                                           writable_buffer_to_slice(&cloned),
+                                           writable_buffer_to_slice(&bytes),
+                                           &result)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &target, target_head)));
+   writable_buffer_deinit(&result);
+   writable_buffer_deinit(&cloned);
+   writable_buffer_deinit(&desc);
+   writable_buffer_deinit(&bytes);
+}
+
+/* Sparse data extents keep this >2 GiB, height-three test small on disk and in
+ * RAM. All pointer pages are real and every leaf has distinct ownership. */
+typedef struct blob_tree_pack_iterator {
+   iterator super;
+   uint64   pos;
+   char     key_bytes[512];
+   message  msg;
+} blob_tree_pack_iterator;
+
+static void
+blob_tree_pack_curr(iterator *base, key *tuple_key, message *msg)
+{
+   blob_tree_pack_iterator *iter = (blob_tree_pack_iterator *)base;
+   iter->key_bytes[0]            = iter->pos;
+   *tuple_key = key_create(FALSE, sizeof(iter->key_bytes), iter->key_bytes);
+   *msg       = iter->msg;
+}
+
+static bool32
+blob_tree_pack_can_next(iterator *base)
+{
+   return ((blob_tree_pack_iterator *)base)->pos < 16;
+}
+
+static platform_status
+blob_tree_pack_next(iterator *base)
+{
+   ((blob_tree_pack_iterator *)base)->pos++;
+   return STATUS_OK;
+}
+
+static const iterator_ops blob_tree_pack_ops = {
+   .curr     = blob_tree_pack_curr,
+   .can_next = blob_tree_pack_can_next,
+   .next     = blob_tree_pack_next,
+};
+
+static const cache_ops *blob_tree_read_saved_ops;
+static uint64           blob_tree_read_failed_addr;
+static uint64           blob_tree_read_failures;
+
+static platform_status
+blob_tree_fail_get(cache       *cc,
+                   uint64       addr,
+                   bool32       blocking,
+                   page_type    type,
+                   page_handle *page)
+{
+   if (type == PAGE_TYPE_BLOB && addr == blob_tree_read_failed_addr) {
+      *page = (page_handle){0};
+      blob_tree_read_failures++;
+      return STATUS_TIMEDOUT;
+   }
+   return blob_tree_read_saved_ops->page_get(cc, addr, blocking, type, page);
+}
+
+typedef struct blob_tree_handoff {
+   blob_page_iterator *iter;
+   platform_status     rc;
+   threadid            receiver_tid;
+} blob_tree_handoff;
+
+static void
+blob_tree_handoff_receive(void *arg)
+{
+   blob_tree_handoff *handoff = arg;
+   handoff->receiver_tid      = platform_get_tid();
+   for (uint64 i = 0; i < 2; i++) {
+      uint64 offset;
+      slice  bytes;
+      handoff->rc = blob_page_iterator_get_curr(handoff->iter, &offset, &bytes);
+      if (!SUCCESS(handoff->rc)) {
+         break;
+      }
+      if (slice_length(bytes) != 1
+          || *(const char *)slice_data(bytes) != "XY"[i])
+      {
+         handoff->rc = STATUS_TEST_FAILED;
+         break;
+      }
+      blob_page_iterator_advance_page(handoff->iter);
+   }
+   blob_page_iterator_deinit(handoff->iter);
+}
+
+CTEST2(splinter, test_blob_height_three_and_large_stats)
+{
+   cache *cc        = (cache *)data->clock_cache;
+   uint64 extent    = cache_extent_size(cc);
+   uint64 page_size = cache_page_size(cc);
+   uint64 fanout    = extent / sizeof(uint64);
+   uint64 roots =
+      (BLOB_MIN_MAX_DESCRIPTOR_SIZE - sizeof(blob)) / sizeof(uint64);
+   uint64         leaves = roots * fanout + 1;
+   uint64         length = (leaves - 1) * extent + 1;
+   mini_allocator source, target;
+   uint64         source_head, target_head;
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &target, &target_head)));
+   writable_buffer flat, descriptor, result;
+   writable_buffer_init(&flat, data->hid);
+   writable_buffer_init(&descriptor, data->hid);
+   writable_buffer_init(&result, data->hid);
+   ASSERT_TRUE(SUCCESS(
+      writable_buffer_resize(&flat, sizeof(blob) + leaves * sizeof(uint64))));
+   blob *b = writable_buffer_data(&flat);
+   *b      = (blob){.length = length, .format = BLOB_FORMAT};
+   for (uint64 i = 0; i < leaves; i++) {
+      uint64 addr;
+      ASSERT_TRUE(SUCCESS(mini_alloc_extent(&source, 0, &addr, NULL)));
+      b->addrs[i] = addr;
+      if (i >= leaves - 2) {
+         uint64 page_addr = addr + (i == leaves - 2 ? extent - page_size : 0);
+         page_handle page;
+         ASSERT_NOT_NULL(cache_alloc(cc, page_addr, PAGE_TYPE_BLOB, &page));
+         memset(
+            page_handle_data(&page), i == leaves - 2 ? 'X' : 'Y', page_size);
+         test_splinter_unclaim_page(cc, &page);
+      }
+   }
+   /* Force the encoder through two levels of pointer extents, sharing the
+    * sparse data instead of materializing tens of GiB in the test process. */
+   blob_build_config cfg = {.extent_batch  = 0,
+                            .page_batch    = 1,
+                            .subpage_batch = 2,
+                            .blob_max_descriptor_size =
+                               BLOB_MIN_MAX_DESCRIPTOR_SIZE};
+   ASSERT_TRUE(SUCCESS(blob_clone(
+      &cfg, cc, &target, writable_buffer_to_slice(&flat), &descriptor)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
+   writable_buffer_deinit(&flat);
+   slice       desc = writable_buffer_to_slice(&descriptor);
+   parsed_blob parsed;
+   ASSERT_TRUE(SUCCESS(blob_parse_descriptor(cc, desc, &parsed)));
+   ASSERT_EQUAL(3, parsed.height);
+   ASSERT_TRUE(
+      SUCCESS(blob_materialize(cc, desc, length - 2, length, &result)));
+   ASSERT_EQUAL(0, memcmp(writable_buffer_data(&result), "XY", 2));
+
+   /* The final two bytes cross a lower pointer subtree. Inject failures at
+    * each pointer level and each data page, including after the first data
+    * page has been consumed. All acquired handles must be released. */
+   blob_page_iterator probe;
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_init(
+      cc, &probe, desc, length - 2, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH)));
+   uint64 offset;
+   slice  bytes;
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_get_curr(&probe, &offset, &bytes)));
+   uint64 path_pages[] = {page_handle_addr(&probe.index_pages[2]),
+                          page_handle_addr(&probe.index_pages[1]),
+                          probe.fragment.addr,
+                          0,
+                          0};
+   blob_page_iterator_advance_page(&probe);
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_get_curr(&probe, &offset, &bytes)));
+   path_pages[3] = page_handle_addr(&probe.index_pages[1]);
+   path_pages[4] = probe.fragment.addr;
+   ASSERT_NOT_EQUAL(path_pages[1], path_pages[3]);
+   blob_page_iterator_deinit(&probe);
+   blob_tree_read_saved_ops = cc->ops;
+   cache_ops fault_ops      = *cc->ops;
+   fault_ops.page_get       = blob_tree_fail_get;
+   for (uint64 i = 0; i < ARRAY_SIZE(path_pages); i++) {
+      blob_tree_read_failed_addr = path_pages[i];
+      blob_tree_read_failures    = 0;
+      cc->ops                    = &fault_ops;
+      platform_status rc =
+         blob_materialize(cc, desc, length - 2, length, &result);
+      cc->ops = blob_tree_read_saved_ops;
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT), "path page %lu", i);
+      ASSERT_EQUAL(1, blob_tree_read_failures);
+      for (uint64 j = 0; j < ARRAY_SIZE(path_pages); j++) {
+         ASSERT_FALSE(cache_in_use(cc, path_pages[j]), "path page %lu", j);
+      }
+      ASSERT_TRUE(
+         SUCCESS(blob_materialize(cc, desc, length - 2, length, &result)));
+      ASSERT_EQUAL(0, memcmp(writable_buffer_data(&result), "XY", 2));
+   }
+
+   /* Transfer already-acquired data and both pointer handles, then advance
+    * into the next subtree and release everything on the receiving thread. */
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_init(
+      cc, &probe, desc, length - 2, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH)));
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_get_curr(&probe, &offset, &bytes)));
+   blob_tree_handoff handoff = {.iter = &probe};
+   platform_thread   receiver;
+   ASSERT_TRUE(SUCCESS(platform_thread_create(
+      &receiver, FALSE, blob_tree_handoff_receive, &handoff, data->hid)));
+   ASSERT_TRUE(SUCCESS(platform_thread_join(&receiver)));
+   ASSERT_TRUE(SUCCESS(handoff.rc));
+   ASSERT_NOT_EQUAL(platform_get_tid(), handoff.receiver_tid);
+   for (uint64 i = 0; i < ARRAY_SIZE(path_pages); i++) {
+      ASSERT_FALSE(cache_in_use(cc, path_pages[i]), "path page %lu", i);
+   }
+
+   blob_tree_pack_iterator iter = {
+      .super = {.ops = &blob_tree_pack_ops},
+      .msg   = message_create(MESSAGE_TYPE_INSERT, cc, desc)};
+   btree_pack_req *req = TYPED_MALLOC(data->hid, req);
+   ASSERT_NOT_NULL(req);
+   ASSERT_TRUE(SUCCESS(btree_pack_req_init(req,
+                                           cc,
+                                           &data->system_cfg->btree_cfg,
+                                           &iter.super,
+                                           16,
+                                           0,
+                                           FALSE,
+                                           data->hid)));
+   ASSERT_TRUE(SUCCESS(btree_pack(req)));
+   ASSERT_EQUAL(16 * length, req->message_bytes);
+   ASSERT_TRUE(req->height > 0);
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &target, target_head)));
+   ASSERT_TRUE(SUCCESS(cache_writeback_dirty(cc)));
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   btree_pivot_stats stats;
+   ASSERT_TRUE(SUCCESS(btree_count_in_range(cc,
+                                            req->cfg,
+                                            req->root_addr,
+                                            NEGATIVE_INFINITY_KEY,
+                                            POSITIVE_INFINITY_KEY,
+                                            &stats)));
+   ASSERT_EQUAL(16, stats.num_kvs);
+   ASSERT_EQUAL(16 * length, stats.message_bytes);
+   ASSERT_TRUE(
+      SUCCESS(blob_materialize(cc, desc, length - 2, length, &result)));
+   ASSERT_EQUAL(0, memcmp(writable_buffer_data(&result), "XY", 2));
+   btree_dec_ref(cc, req->cfg, req->root_addr, PAGE_TYPE_BRANCH);
+   btree_pack_req_deinit(req, data->hid);
+   platform_free(data->hid, req);
+   writable_buffer_deinit(&result);
+   writable_buffer_deinit(&descriptor);
 }

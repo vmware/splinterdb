@@ -86,19 +86,13 @@
  * data structure for both memtables and branches.  So memtables
  * store BTREE_UNKNOWN_COUNTER for these counters.
  */
-#define BTREE_UNKNOWN_COUNTER   (0x7fffffffUL)
+#define BTREE_UNKNOWN_COUNTER   UINT64_MAX
 #define BTREE_MAX_KNOWN_COUNTER (BTREE_UNKNOWN_COUNTER - 1)
 static const btree_pivot_stats BTREE_PIVOT_STATS_UNKNOWN = {
    BTREE_UNKNOWN_COUNTER,
    BTREE_UNKNOWN_COUNTER,
    BTREE_UNKNOWN_COUNTER};
 
-static const blob_build_config btree_blob_cfg = {
-   .extent_batch  = 0,
-   .page_batch    = 1,
-   .subpage_batch = 2,
-   .alignment     = 0,
-};
 
 static void
 btree_blob_ref_init(ondisk_ref         *ref,
@@ -142,9 +136,10 @@ btree_reset_node_entries(const btree_config *cfg, btree_hdr *hdr)
 
 
 static inline uint64
-index_entry_required_capacity(key pivot)
+index_entry_required_capacity(key pivot, btree_pivot_stats stats)
 {
-   return sizeof(index_entry) + key_length(pivot);
+   return sizeof(index_entry) + key_length(pivot)
+          + (btree_stats_need_wide(stats) ? BTREE_WIDE_STATS_BYTES : 0);
 }
 
 static inline uint64
@@ -219,11 +214,11 @@ btree_fill_index_entry(const btree_config *cfg,
 {
    debug_assert((void *)hdr <= (void *)entry);
    debug_assert(diff_ptr(hdr, entry)
-                   + index_entry_required_capacity(new_pivot_key)
+                   + index_entry_required_capacity(new_pivot_key, stats)
                 <= btree_page_size(cfg));
    copy_key_to_ondisk_key(&entry->pivot, new_pivot_key);
    entry->pivot_data.child_addr = new_addr;
-   entry->pivot_data.stats      = stats;
+   index_entry_set_stats(entry, stats);
 }
 
 bool32
@@ -242,7 +237,7 @@ btree_set_index_entry(const btree_config *cfg,
       index_entry *old_entry = btree_get_index_entry(cfg, hdr, k);
       if (hdr->next_entry == diff_ptr(hdr, old_entry)
           && (diff_ptr(hdr, &hdr->offsets[new_num_entries])
-                 + index_entry_required_capacity(new_pivot_key)
+                 + index_entry_required_capacity(new_pivot_key, stats)
               <= hdr->next_entry + sizeof_index_entry(old_entry)))
       {
          /* special case to avoid creating fragmentation:
@@ -252,7 +247,7 @@ btree_set_index_entry(const btree_config *cfg,
           * In this case, just reset next_entry so we can insert the new entry.
           */
          hdr->next_entry += sizeof_index_entry(old_entry);
-      } else if (index_entry_required_capacity(new_pivot_key)
+      } else if (index_entry_required_capacity(new_pivot_key, stats)
                  <= sizeof_index_entry(old_entry))
       {
          /* old_entry is not the physically first in the node,
@@ -265,14 +260,16 @@ btree_set_index_entry(const btree_config *cfg,
       /* Fall through */
    }
 
-   if (hdr->next_entry < diff_ptr(hdr, &hdr->offsets[new_num_entries])
-                            + index_entry_required_capacity(new_pivot_key))
+   if (hdr->next_entry
+       < diff_ptr(hdr, &hdr->offsets[new_num_entries])
+            + index_entry_required_capacity(new_pivot_key, stats))
    {
       return FALSE;
    }
 
    index_entry *new_entry = pointer_byte_offset(
-      hdr, hdr->next_entry - index_entry_required_capacity(new_pivot_key));
+      hdr,
+      hdr->next_entry - index_entry_required_capacity(new_pivot_key, stats));
    btree_fill_index_entry(cfg, hdr, new_entry, new_pivot_key, new_addr, stats);
 
    hdr->offsets[k]  = diff_ptr(hdr, new_entry);
@@ -653,14 +650,14 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
          spec->use_new_message = FALSE;
          merge_accumulator_init(&spec->msg.modified_message, heap_id);
          rc = message_clone(
-            &btree_blob_cfg, cc, mini, msg, &spec->msg.modified_message);
+            &cfg->blob_cfg, cc, mini, msg, &spec->msg.modified_message);
       } else if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg))
                  < message_length(msg))
       {
          spec->use_new_message = FALSE;
          merge_accumulator_init(&spec->msg.modified_message, heap_id);
          rc = message_to_blob(
-            &btree_blob_cfg, cc, mini, msg, &spec->msg.modified_message);
+            &cfg->blob_cfg, cc, mini, msg, &spec->msg.modified_message);
       } else {
          spec->use_new_message = TRUE;
          spec->msg.new_message = msg;
@@ -690,7 +687,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
          merge_accumulator owned_blob;
          merge_accumulator_init(&owned_blob, heap_id);
          rc = message_clone(
-            &btree_blob_cfg,
+            &cfg->blob_cfg,
             cc,
             mini,
             merge_accumulator_to_message(&spec->msg.modified_message),
@@ -705,7 +702,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                  < merge_accumulator_length(&spec->msg.modified_message))
       {
          rc = merge_accumulator_convert_to_blob(
-            &btree_blob_cfg, cc, mini, &spec->msg.modified_message);
+            &cfg->blob_cfg, cc, mini, &spec->msg.modified_message);
       }
    }
 
@@ -1114,7 +1111,7 @@ btree_split_index_build_right_node(const btree_config *cfg,        // IN
                                                i,
                                                index_entry_key(entry),
                                                index_entry_child_addr(entry),
-                                               entry->pivot_data.stats);
+                                               index_entry_stats(entry));
       platform_assert(succeeded);
    }
 }
@@ -1141,7 +1138,7 @@ btree_defragment_index(const btree_config *cfg, // IN
                                                i,
                                                index_entry_key(entry),
                                                index_entry_child_addr(entry),
-                                               entry->pivot_data.stats);
+                                               index_entry_stats(entry));
       platform_assert(succeeded);
    }
 }
@@ -1329,8 +1326,8 @@ btree_read_index_key(const btree_config *cfg,
       return rc;
    }
    const index_entry *entry = (const index_entry *)((const char *)hdr + offset);
-   if (entry->pivot.flags != ONDISK_KEY_DEFAULT_FLAGS
-       || sizeof_ondisk_key_data(&entry->pivot) > remaining - sizeof(*entry))
+   if ((entry->pivot.flags & ~BTREE_INDEX_WIDE_STATS) != 0
+       || sizeof_index_entry(entry) > remaining)
    {
       return STATUS_INVALID_STATE;
    }
@@ -2157,8 +2154,8 @@ btree_defragment_or_split_child_index(cache              *cc,
 }
 
 
-static inline uint32
-add_unknown(uint32 a, uint64 b)
+static inline uint64
+add_unknown(uint64 a, uint64 b)
 {
    if (a > BTREE_MAX_KNOWN_COUNTER || b > BTREE_MAX_KNOWN_COUNTER - a) {
       return BTREE_UNKNOWN_COUNTER;
@@ -2213,7 +2210,7 @@ accumulate_node_ranks(cache              *cc,
          } else {
             entry = btree_get_index_entry(cfg, hdr, i);
          }
-         btree_accumulate_pivot_stats(stats, entry->pivot_data.stats);
+         btree_accumulate_pivot_stats(stats, index_entry_stats(entry));
       }
    }
    return STATUS_OK;
@@ -2377,7 +2374,7 @@ start_over:
                                    0,
                                    tuple_key,
                                    index_entry_child_addr(parent_entry),
-                                   parent_entry->pivot_data.stats);
+                                   index_entry_stats(parent_entry));
       }
       if (btree_index_is_full(cfg, root_node.hdr)) {
          rc = btree_grow_root(cc, cfg, mini, &root_node);
@@ -2395,7 +2392,7 @@ start_over:
                                   0,
                                   tuple_key,
                                   index_entry_child_addr(parent_entry),
-                                  parent_entry->pivot_data.stats);
+                                  index_entry_stats(parent_entry));
          platform_assert(success);
       }
       btree_node_unlock(cc, cfg, &root_node);
@@ -2473,7 +2470,7 @@ start_over:
                                       0,
                                       tuple_key,
                                       index_entry_child_addr(child_entry),
-                                      child_entry->pivot_data.stats);
+                                      index_entry_stats(child_entry));
          }
 
          if (btree_index_is_full(cfg, child_node.hdr)) {
@@ -2507,7 +2504,7 @@ start_over:
                                      0,
                                      tuple_key,
                                      index_entry_child_addr(child_entry),
-                                     child_entry->pivot_data.stats);
+                                     index_entry_stats(child_entry));
             platform_assert(success);
          }
          btree_node_unlock(cc, cfg, &parent_node);
@@ -2521,11 +2518,11 @@ start_over:
 
       child_idx    = next_child_idx;
       parent_entry = btree_get_index_entry(cfg, parent_node.hdr, child_idx);
-      debug_assert(parent_entry->pivot_data.stats.num_kvs
+      debug_assert(index_entry_stats(parent_entry).num_kvs
                    == BTREE_UNKNOWN_COUNTER);
-      debug_assert(parent_entry->pivot_data.stats.key_bytes
+      debug_assert(index_entry_stats(parent_entry).key_bytes
                    == BTREE_UNKNOWN_COUNTER);
-      debug_assert(parent_entry->pivot_data.stats.message_bytes
+      debug_assert(index_entry_stats(parent_entry).message_bytes
                    == BTREE_UNKNOWN_COUNTER);
       child_node.addr = index_entry_child_addr(parent_entry);
       debug_assert(
@@ -3672,11 +3669,15 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
       } else {
          entry = btree_get_index_entry(itor->cfg, itor->curr.hdr, itor->idx);
       }
-      *curr_key = index_entry_key(entry);
-      *data     = message_create(
+      *curr_key        = index_entry_key(entry);
+      itor->pivot_data = (btree_pivot_data){
+         .child_addr = entry->pivot_data.child_addr,
+         .stats      = index_entry_stats(entry),
+      };
+      *data = message_create(
          MESSAGE_TYPE_PIVOT_DATA,
          NULL,
-         slice_create(sizeof(entry->pivot_data), &entry->pivot_data));
+         slice_create(sizeof(itor->pivot_data), &itor->pivot_data));
    }
 }
 
@@ -5324,7 +5325,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 
    if (message_is_blob(msg)) {
       rc = message_clone(
-         &btree_blob_cfg, req->cc, &req->mini, msg, &req->blob_buffer);
+         &req->cfg->blob_cfg, req->cc, &req->mini, msg, &req->blob_buffer);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -5333,7 +5334,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
               < message_length(msg))
    {
       rc = message_to_blob(
-         &btree_blob_cfg, req->cc, &req->mini, msg, &req->blob_buffer);
+         &req->cfg->blob_cfg, req->cc, &req->mini, msg, &req->blob_buffer);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -5634,7 +5635,7 @@ btree_count_in_range_by_iterator(cache             *cc,
       iterator_curr(itor, &curr_key, &msg);
       stats->num_kvs++;
       stats->key_bytes += key_length(curr_key);
-      stats->message_bytes += message_length(msg);
+      stats->message_bytes += message_materialized_length(msg);
       rc = iterator_next(itor);
       if (!SUCCESS(rc)) {
          break;
@@ -5685,9 +5686,9 @@ btree_print_btree_pivot_stats(platform_log_handle *log_handle,
 
    // Indentation is dictated by outer caller
    platform_log(log_handle,
-                "   (num_kvs=%u\n"
-                "    key_bytes=%u (%s)\n"
-                "    message_bytes=%u (%s))\n",
+                "   (num_kvs=%lu\n"
+                "    key_bytes=%lu (%s)\n"
+                "    message_bytes=%lu (%s))\n",
                 pivot_stats->num_kvs,
                 pivot_stats->key_bytes,
                 PIVOT_STATS_BYTES_AS_STR(pivot_stats->key_bytes),
@@ -5715,7 +5716,9 @@ btree_print_index_entry(platform_log_handle *log_handle,
                 "[%2lu]: key=%s\n",
                 entry_num,
                 key_string(dcfg, index_entry_key(entry)));
-   btree_print_btree_pivot_data(log_handle, &entry->pivot_data);
+   btree_pivot_data decoded = {.child_addr = entry->pivot_data.child_addr,
+                               .stats      = index_entry_stats(entry)};
+   btree_print_btree_pivot_data(log_handle, &decoded);
 }
 
 static platform_status
@@ -6424,6 +6427,12 @@ btree_config_init(btree_config *btree_cfg,
    btree_cfg->data_cfg    = data_cfg;
    btree_cfg->page_size   = cache_config_page_size(cache_cfg);
    btree_cfg->extent_size = cache_config_extent_size(cache_cfg);
+   btree_cfg->blob_cfg    = (blob_build_config){
+         .extent_batch             = 0,
+         .page_batch               = 1,
+         .subpage_batch            = 2,
+         .blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE,
+   };
 
    uint64 page_size           = btree_page_size(btree_cfg);
    uint64 max_inline_key_size = MAX_INLINE_KEY_SIZE(page_size);

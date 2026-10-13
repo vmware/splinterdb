@@ -1,0 +1,62 @@
+[
+  {
+    "name": "unit",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/unit_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-unit",
+    "started": 1791872535.689291,
+    "returncode": 0,
+    "finished": 1791872691.0830195,
+    "tests": 206,
+    "passed": 203,
+    "failed": 0,
+    "skipped": 3
+  },
+  {
+    "name": "splinter",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/unit/splinter_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-splinter",
+    "started": 1791872691.0836706,
+    "returncode": 0,
+    "finished": 1791872771.7307925,
+    "tests": 36,
+    "passed": 36,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "name": "prefetch",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test",
+      "cache_test",
+      "--prefetch-admission",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "2"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-prefetch",
+    "started": 1791872771.7312615,
+    "returncode": 0,
+    "finished": 1791872771.8458645
+  },
+  {
+    "name": "async",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test",
+      "cache_test",
+      "--async",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "2"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-async",
+    "started": 1791872771.8462734,
+    "returncode": 0,
+    "finished": 1791872772.562958
+  }
+]

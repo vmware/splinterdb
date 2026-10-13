@@ -28,6 +28,9 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include "shard_log.h"
 
 #include "platform_threads.h"
 #include "platform_sleep.h"
@@ -246,6 +249,7 @@ CTEST2(splinterdb_quick, test_get_config_returns_effective_config)
    ASSERT_EQUAL(IO_DEFAULT_PERMS, cfg->io_perms);
    ASSERT_EQUAL(IO_DEFAULT_ASYNC_QUEUE_DEPTH, cfg->io_async_queue_depth);
 
+   ASSERT_EQUAL(512, cfg->blob_max_descriptor_size);
    ASSERT_EQUAL(1, cfg->btree_rough_count_height);
    ASSERT_EQUAL(27, cfg->filter_hash_size);
    ASSERT_EQUAL(9, cfg->filter_log_index_size);
@@ -306,8 +310,7 @@ CTEST2(splinterdb_quick, test_durable_barrier)
    ASSERT_EQUAL(0, rc);
 }
 
-CTEST2(splinterdb_quick,
-       test_logged_oversized_value_failure_preserves_old_value)
+CTEST2(splinterdb_quick, test_logged_large_value_replaces_old_value)
 {
    ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
    data->cfg.use_log   = TRUE;
@@ -319,11 +322,7 @@ CTEST2(splinterdb_quick,
    slice old_value = slice_create(strlen("old-value"), "old-value");
    ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, user_key, old_value, NULL));
 
-   /*
-    * Five hundred extent addresses make the blob descriptor too large for a
-    * log page.  The log reservation must reject the replacement before the
-    * btree removes the old tuple during defragmentation or splitting.
-    */
+   /* This used to exceed the flat descriptor's log-page limit. */
    const uint64 value_len = 500 * IO_DEFAULT_EXTENT_SIZE;
    char        *value_data =
       TYPED_ARRAY_MALLOC(data->cfg.heap_id, value_data, value_len);
@@ -332,17 +331,32 @@ CTEST2(splinterdb_quick,
 
    int rc = splinterdb_insert(
       data->kvsb, user_key, slice_create(value_len, value_data), NULL);
-   ASSERT_EQUAL(ENOSPC, rc);
+   ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
       data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, user_key, &result));
-   assert_lookup_result_matches_slice(&result, old_value);
+   assert_lookup_result_matches_slice(&result,
+                                      slice_create(value_len, value_data));
    splinterdb_lookup_result_deinit(&result);
 
-   /* A rejected reservation must not poison the log's durability suffix. */
+   /* The pointer tree participates in the log durability barrier. */
    ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb));
+   slice flat_key   = slice_create(4, "flat");
+   slice flat_value = slice_create(32 * IO_DEFAULT_EXTENT_SIZE, value_data);
+   ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, flat_key, flat_value, NULL));
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->cfg.blob_max_descriptor_size = 128;
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+   splinterdb_lookup_result_init(
+      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, flat_key, &result));
+   assert_lookup_result_matches_slice(&result, flat_value);
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, user_key, &result));
+   assert_lookup_result_matches_slice(&result,
+                                      slice_create(value_len, value_data));
+   splinterdb_lookup_result_deinit(&result);
    platform_free(data->cfg.heap_id, value_data);
 }
 
@@ -3019,4 +3033,151 @@ CTEST2(splinterdb_quick, test_iterator_thread_handoff)
       iterator_handoff_advance_and_deinit(&handoff);
       ASSERT_EQUAL(0, handoff.rc);
    }
+}
+
+/* The child exits without closing the database. In the damaged variant, a
+ * later group's second pointer page is invalid, after hundreds of data extents
+ * have already been discovered. Recovery must keep the preceding group and
+ * reclaim those conservative reservations in its root-only rebuild. */
+CTEST2(splinterdb_quick, test_blob_tree_crash_recovery)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->cfg.use_log                   = TRUE;
+   data->cfg.disk_size                 = 384 * Mega;
+   data->cfg.memtable_capacity         = 128 * Mega;
+   data->cfg.checkpoint_log_size_bytes = UINT64_MAX;
+   data->cfg.num_normal_bg_threads     = 0;
+   data->cfg.num_memtable_bg_threads   = 0;
+   const uint64 length                 = 514 * IO_DEFAULT_EXTENT_SIZE + 17;
+   slice        prefix                 = slice_create(6, "prefix");
+   slice        large                  = slice_create(5, "large");
+   slice        suffix                 = slice_create(6, "suffix");
+   slice        small                  = slice_create(2, "ok");
+   const char  *child_mode = getenv("SPLINTER_TEST_BLOB_CRASH_CHILD");
+   if (child_mode != NULL) {
+      bool32      corrupt = child_mode[0] == '1';
+      splinterdb *db;
+      if (splinterdb_create(&data->cfg, &db) != 0)
+         _exit(10);
+      if (splinterdb_insert(db, prefix, small, NULL) != 0)
+         _exit(11);
+      if (splinterdb_durable_barrier(db) != 0)
+         _exit(12);
+      char *bytes = malloc(length);
+      if (bytes == NULL)
+         _exit(13);
+      memset(bytes, 'L', length);
+      if (splinterdb_insert(db, large, slice_create(length, bytes), NULL) != 0)
+         _exit(14);
+      if (splinterdb_durable_barrier(db) != 0)
+         _exit(15);
+      if (splinterdb_insert(db, suffix, small, NULL) != 0)
+         _exit(16);
+      if (splinterdb_durable_barrier(db) != 0)
+         _exit(17);
+      if (corrupt) {
+         const core_handle *core = splinterdb_get_trunk_handle(db);
+         cache             *cc   = (cache *)splinterdb_get_cache_handle(db);
+         log_iterator      *iter;
+         platform_status    rc =
+            shard_log_iterator_create(cc,
+                                      (shard_log_config *)core->cfg.log_cfg,
+                                      data->cfg.heap_id,
+                                      log_get_head(core->log),
+                                      0,
+                                      &iter);
+         if (!SUCCESS(rc))
+            _exit(18);
+         uint64 pointer_page = 0;
+         while (log_iterator_can_next(iter)) {
+            key     k;
+            message msg;
+            log_iterator_curr(iter, &k, &msg);
+            if (message_is_blob(msg)) {
+               parsed_blob parsed;
+               if (!SUCCESS(
+                      blob_parse_descriptor(cc, message_slice(msg), &parsed))
+                   || parsed.height != 2)
+                  _exit(19);
+               pointer_page = parsed.base->addrs[0] + cache_page_size(cc);
+               break;
+            }
+            if (!SUCCESS(log_iterator_next(iter)))
+               _exit(20);
+         }
+         log_iterator_deinit(iter);
+         if (pointer_page == 0)
+            _exit(21);
+         page_handle page;
+         if (!SUCCESS(cache_get(cc, pointer_page, TRUE, PAGE_TYPE_BLOB, &page)))
+            _exit(27);
+         if (!cache_try_claim(cc, &page))
+            _exit(22);
+         cache_lock(cc, &page);
+         uint64 invalid = data->cfg.disk_size;
+         memcpy(page_handle_data(&page), &invalid, sizeof(invalid));
+         cache_unlock(cc, &page);
+         cache_unclaim(cc, &page);
+         writeback_set set;
+         writeback_set_init(&set, cc, data->cfg.heap_id);
+         if (!SUCCESS(writeback_set_add_page(&set, &page, PAGE_TYPE_BLOB)))
+            _exit(23);
+         cache_unget(cc, &page);
+         if (!SUCCESS(writeback_set_wait(&set)))
+            _exit(24);
+         if (!SUCCESS(writeback_set_make_durable(&set)))
+            _exit(25);
+         writeback_set_deinit(&set);
+      }
+      _exit(0);
+   }
+   for (uint64 corrupt = 0; corrupt < 2; corrupt++) {
+      pid_t pid = fork();
+      ASSERT_TRUE(pid >= 0);
+      if (pid == 0) {
+         setenv("SPLINTER_TEST_BLOB_CRASH_CHILD", corrupt ? "1" : "0", 1);
+         execl("/proc/self/exe",
+               "splinterdb_quick_test",
+               "test_blob_tree_crash_recovery",
+               (char *)NULL);
+         _exit(26);
+      }
+      int status;
+      ASSERT_EQUAL(pid, waitpid(pid, &status, 0));
+      ASSERT_TRUE(WIFEXITED(status));
+      ASSERT_EQUAL(0, WEXITSTATUS(status));
+      for (uint64 reopen = 0; reopen < 2; reopen++) {
+         ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+         splinterdb_lookup_result result;
+         splinterdb_lookup_result_init(
+            data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, prefix, &result));
+         assert_lookup_result_matches_slice(&result, small);
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, large, &result));
+         ASSERT_EQUAL(!corrupt, splinterdb_lookup_found(&result));
+         if (!corrupt) {
+            slice actual;
+            ASSERT_EQUAL(0, splinterdb_lookup_result_value(&result, &actual));
+            ASSERT_EQUAL(length, slice_length(actual));
+            const char *bytes = slice_data(actual);
+            for (uint64 i = 0; i < length; i++) {
+               if (bytes[i] != 'L') {
+                  ASSERT_TRUE(FALSE);
+                  break;
+               }
+            }
+         }
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, suffix, &result));
+         ASSERT_EQUAL(!corrupt, splinterdb_lookup_found(&result));
+         splinterdb_lookup_result_deinit(&result);
+         if (corrupt) {
+            allocator *al =
+               (allocator *)splinterdb_get_allocator_handle(data->kvsb);
+            ASSERT_TRUE(allocator_in_use(al) < length / 2);
+         }
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+      }
+   }
+   /* Keep the fixture's usual close path valid. */
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
 }

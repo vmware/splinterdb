@@ -1,0 +1,31 @@
+Checking for mismatched config...No mismatched config found
+Compiling            src/blob.c                                         [build-mainmerge/debug/obj/src/blob.o]
+Linking              build-mainmerge/debug/lib/libsplinterdb.so
+Building archive     build-mainmerge/debug/lib/libsplinterdb.a
+Linking              build-mainmerge/debug/bin/unit/btree_stress_test
+Linking              build-mainmerge/debug/bin/unit/btree_test
+Linking              build-mainmerge/debug/bin/unit/writeback_set_test
+Linking              build-mainmerge/debug/bin/splinter_inspect
+Linking              build-mainmerge/debug/bin/driver_test
+Linking              build-mainmerge/debug/bin/unit_test
+Linking              build-mainmerge/debug/bin/unit/config_parse_test
+Linking              build-mainmerge/debug/bin/unit/large_inserts_stress_test
+Linking              build-mainmerge/debug/bin/unit/limitations_test
+Linking              build-mainmerge/debug/bin/unit/merge_test
+Linking              build-mainmerge/debug/bin/unit/splinter_test
+Linking              build-mainmerge/debug/bin/unit/splinterdb_forked_child_test
+Linking              build-mainmerge/debug/bin/unit/splinterdb_heap_id_mgmt_test
+Linking              build-mainmerge/debug/bin/unit/splinterdb_optimize_test
+Linking              build-mainmerge/debug/bin/unit/splinterdb_quick_test
+Linking              build-mainmerge/debug/bin/unit/splinterdb_stress_test
+Linking              build-mainmerge/debug/bin/unit/superblock_test
+Linking              build-mainmerge/debug/bin/unit/task_system_test
+Linking              build-mainmerge/debug/bin/unit/trunk_async_test
+Linking              build-mainmerge/debug/bin/unit/trunk_gc_test
+Linking              build-mainmerge/debug/bin/unit/trunk_split_test
+Linking              build-mainmerge/debug/bin/unit/writable_buffer_test
+Linking              build-mainmerge/debug/bin/examples/splinterdb_custom_ipv4_addr_sortcmp_example
+Linking              build-mainmerge/debug/bin/examples/splinterdb_intro_example
+Linking              build-mainmerge/debug/bin/examples/splinterdb_iterators_example
+Linking              build-mainmerge/debug/bin/examples/splinterdb_optimize_example
+Linking              build-mainmerge/debug/bin/examples/splinterdb_wide_values_example

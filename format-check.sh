@@ -21,7 +21,7 @@ fi
 
 if [ "${1:-""}" = "fixall" ]; then
    # shellcheck disable=SC2046
-   "$TOOL" -i $(find . -path ./.cache -prune -o -name "*.[ch] -print")
+   "$TOOL" -i $(find . -path ./.cache -prune -o -name "*.[ch]" -print)
    exit 0
 fi
 

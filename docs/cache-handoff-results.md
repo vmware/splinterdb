@@ -278,3 +278,10 @@ does not establish universal performance neutrality.
 Exact samples, command manifests, build/source hashes, the six-guard patch,
 before/after disassembly, and scripts are committed in
 [`benchmarks/results-20261012/cache-handoff-selection`](../benchmarks/results-20261012/cache-handoff-selection/README.md).
+
+## Integration with current main
+
+The branch subsequently merges `origin/main` at `7d607b1`, retaining the compact
+handle API while adapting upstream multi-level blob traversal. See the
+[integration report](cache-handoff-mainmerge.md) for the additional error and
+handoff regression, fresh validation, and before/after measurements.

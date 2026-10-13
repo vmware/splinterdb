@@ -1,0 +1,32 @@
+/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test: splinterdb_build_version 23d26d16-dirty
+Dispatch test btree_test
+btree_test: memtable generation init test passed
+btree_pack_link_extent: cannot link an extent above maximum height 7
+btree_pack error status: 28
+btree_test: btree basic test started
+btree insert time per tuple 2102ns
+btree positive lookup time per tuple 1754ns
+100% lookups were async
+btree negative lookup time per tuple 1564ns
+btree memtable validation bypass test passed
+btree iterator init time 6715ns
+Tree stats: height 3
+btree itor/pack time per tuple 270ns
+btree packed positive lookup time per tuple 1561ns
+100% lookups were async
+btree packed negative lookup time per tuple 1360ns
+*******************
+** INVALID NODE 
+** addr: 252186624 
+-------------------
+*******************
+** INVALID NODE 
+** addr: 252186624 
+-------------------
+height mismatch
+addr: 251658240 idx: 0
+btree query validation test passed
+Tree stats: height 2
+btree_test: btree basic test succeeded
+
+btree_test: btree rough iterator test started
