@@ -155,6 +155,21 @@ stress run at 32 MiB cache and 96% working set stalled: all 8,192 slots were
 referenced, with no free or loading pages, and all eight readers were inside
 blocking free-page acquisition before their next old-window release. Exact
 serial repeats passed twice on both main and this branch. This does not
-establish absence of a progress problem; captures and further controls are
-retained in the integration evidence's `stall/` directory. No unrelated cache
-allocation redesign is included in this merge.
+establish absence of a progress problem. With one/two-CPU scheduling, unchanged
+main stalled three times and this branch stalled twice, all with the same
+capacity-exhaustion pattern. Some pending misses already had valid mappings
+published by other readers, but blocked allocation never rechecked lookup.
+The additional unrestricted 64 MiB candidate control passed. The inherited
+progress bug remains unfixed; captures and commands are retained in the
+integration evidence's `stall/` directory. No cache allocation redesign is
+included in this merge.
+
+## Fresh benchmarks after main integration (2026-10-13)
+
+Resident single-thread point throughput lost 4.60% in the broad screen and 4.54% in the nearby warmed repeat, with non-overlapping observed sample ranges. The repeated eight-thread point result (-3.64%) overlaps main, and short ranges (+0.03%) do not reproduce the earlier loss. Short-run WAL inserts lost 3.00%. Control drift still limits precise attribution; performance neutrality is not established. The inherited async allocation stall documented above is a separate correctness/progress limitation.
+
+These are updated-feature comparisons against main `7bb5fab`, not an isolated
+measurement of merge cost. Main controls drifted; observed range overlap is
+descriptive, not a statistical confidence interval. Exact samples, build/source
+hashes, commands, verification scope and fresh correctness evidence are in
+[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).

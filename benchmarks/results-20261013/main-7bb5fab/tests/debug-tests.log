@@ -1,0 +1,4 @@
+Starting main-7bb5fab-invalid-debug-tests test
+cache-invalid-addresses debug writeback
+cache-invalid-addresses debug quick
+cache-invalid-addresses debug cache-core

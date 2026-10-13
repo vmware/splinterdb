@@ -1,0 +1,1348 @@
+{
+  "serial_controls": [
+    {
+      "run": 0,
+      "variant": "main",
+      "command": [
+        "/home/rob/projects/splinterdb/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/scratch-0-main/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/scratch-0-main",
+      "binary_sha256": "44811d172061730a5861ec7eee6975c32e1459ebef51209586863dced8e30435",
+      "library_sha256": "7b41030ebda42b63247a6562a325f4e34e60030ffc798f0e70e8559e209d0512",
+      "started": 1791905642.9756193,
+      "timeout_seconds": 30,
+      "pid": 862536,
+      "returncode": 0,
+      "timed_out": false,
+      "finished": 1791905643.4907649
+    },
+    {
+      "run": 1,
+      "variant": "candidate",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/scratch-1-candidate/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/scratch-1-candidate",
+      "binary_sha256": "9dc9b7d5d3ffd675808a2b23d3e10044e40e780fa8bbbf8ace5a2547dca90d8f",
+      "library_sha256": "ff0dc8c3ae7d0e8535e183e4eec250a0402972bfb52c55d500bb34b63a97529d",
+      "started": 1791905643.494168,
+      "timeout_seconds": 30,
+      "pid": 862591,
+      "returncode": 0,
+      "timed_out": false,
+      "finished": 1791905644.059923
+    },
+    {
+      "run": 2,
+      "variant": "candidate",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/scratch-2-candidate/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/scratch-2-candidate",
+      "binary_sha256": "9dc9b7d5d3ffd675808a2b23d3e10044e40e780fa8bbbf8ace5a2547dca90d8f",
+      "library_sha256": "ff0dc8c3ae7d0e8535e183e4eec250a0402972bfb52c55d500bb34b63a97529d",
+      "started": 1791905644.062574,
+      "timeout_seconds": 30,
+      "pid": 862636,
+      "returncode": 0,
+      "timed_out": false,
+      "finished": 1791905644.5777905
+    },
+    {
+      "run": 3,
+      "variant": "main",
+      "command": [
+        "/home/rob/projects/splinterdb/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/scratch-3-main/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/scratch-3-main",
+      "binary_sha256": "44811d172061730a5861ec7eee6975c32e1459ebef51209586863dced8e30435",
+      "library_sha256": "7b41030ebda42b63247a6562a325f4e34e60030ffc798f0e70e8559e209d0512",
+      "started": 1791905644.580714,
+      "timeout_seconds": 30,
+      "pid": 862678,
+      "returncode": 0,
+      "timed_out": false,
+      "finished": 1791905645.045976
+    }
+  ],
+  "skew_controls": [
+    {
+      "ncpus": 1,
+      "cache_mib": 32,
+      "run": 0,
+      "variant": "main",
+      "command": [
+        "taskset",
+        "-c",
+        "0",
+        "/home/rob/projects/splinterdb/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-0-main/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-0-main",
+      "binary_sha256": "44811d172061730a5861ec7eee6975c32e1459ebef51209586863dced8e30435",
+      "library_sha256": "7b41030ebda42b63247a6562a325f4e34e60030ffc798f0e70e8559e209d0512",
+      "started": 1791905760.0310965,
+      "timeout_seconds": 20,
+      "pid": 863981,
+      "timed_out": true,
+      "gdb_command": [
+        "gdb",
+        "-nx",
+        "-q",
+        "-batch",
+        "-iex",
+        "set sysroot /",
+        "-iex",
+        "set solib-search-path /home/rob/projects/splinterdb/build-main-7bb5fab/debug/lib",
+        "-ex",
+        "set pagination off",
+        "-ex",
+        "thread apply all bt 16",
+        "-x",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/inspect.gdb",
+        "/home/rob/projects/splinterdb/build-main-7bb5fab/debug/bin/driver_test",
+        "-p",
+        "863981"
+      ],
+      "gdb_returncode": 0,
+      "returncode": -15,
+      "finished": 1791905780.2857022
+    },
+    {
+      "ncpus": 2,
+      "cache_mib": 32,
+      "run": 1,
+      "variant": "main",
+      "command": [
+        "taskset",
+        "-c",
+        "0,1",
+        "/home/rob/projects/splinterdb/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-1-main/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-1-main",
+      "binary_sha256": "44811d172061730a5861ec7eee6975c32e1459ebef51209586863dced8e30435",
+      "library_sha256": "7b41030ebda42b63247a6562a325f4e34e60030ffc798f0e70e8559e209d0512",
+      "started": 1791905780.2885664,
+      "timeout_seconds": 20,
+      "pid": 864161,
+      "timed_out": true,
+      "gdb_command": [
+        "gdb",
+        "-nx",
+        "-q",
+        "-batch",
+        "-iex",
+        "set sysroot /",
+        "-iex",
+        "set solib-search-path /home/rob/projects/splinterdb/build-main-7bb5fab/debug/lib",
+        "-ex",
+        "set pagination off",
+        "-ex",
+        "thread apply all bt 16",
+        "-x",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/inspect.gdb",
+        "/home/rob/projects/splinterdb/build-main-7bb5fab/debug/bin/driver_test",
+        "-p",
+        "864161"
+      ],
+      "gdb_returncode": 0,
+      "returncode": -15,
+      "finished": 1791905800.5684314
+    },
+    {
+      "ncpus": 2,
+      "cache_mib": 32,
+      "run": 2,
+      "variant": "main",
+      "command": [
+        "taskset",
+        "-c",
+        "0,1",
+        "/home/rob/projects/splinterdb/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-2-main/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-2-main",
+      "binary_sha256": "44811d172061730a5861ec7eee6975c32e1459ebef51209586863dced8e30435",
+      "library_sha256": "7b41030ebda42b63247a6562a325f4e34e60030ffc798f0e70e8559e209d0512",
+      "started": 1791905800.570904,
+      "timeout_seconds": 20,
+      "pid": 864352,
+      "timed_out": true,
+      "gdb_command": [
+        "gdb",
+        "-nx",
+        "-q",
+        "-batch",
+        "-iex",
+        "set sysroot /",
+        "-iex",
+        "set solib-search-path /home/rob/projects/splinterdb/build-main-7bb5fab/debug/lib",
+        "-ex",
+        "set pagination off",
+        "-ex",
+        "thread apply all bt 16",
+        "-x",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/inspect.gdb",
+        "/home/rob/projects/splinterdb/build-main-7bb5fab/debug/bin/driver_test",
+        "-p",
+        "864352"
+      ],
+      "gdb_returncode": 0,
+      "returncode": -15,
+      "finished": 1791905820.9005225
+    },
+    {
+      "ncpus": 2,
+      "cache_mib": 32,
+      "run": 3,
+      "variant": "candidate",
+      "command": [
+        "taskset",
+        "-c",
+        "0,1",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-3-candidate/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-3-candidate",
+      "binary_sha256": "9dc9b7d5d3ffd675808a2b23d3e10044e40e780fa8bbbf8ace5a2547dca90d8f",
+      "library_sha256": "ff0dc8c3ae7d0e8535e183e4eec250a0402972bfb52c55d500bb34b63a97529d",
+      "started": 1791905820.9033823,
+      "timeout_seconds": 20,
+      "pid": 864591,
+      "timed_out": true,
+      "gdb_command": [
+        "gdb",
+        "-nx",
+        "-q",
+        "-batch",
+        "-iex",
+        "set sysroot /",
+        "-iex",
+        "set solib-search-path /home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/lib",
+        "-ex",
+        "set pagination off",
+        "-ex",
+        "thread apply all bt 16",
+        "-x",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/inspect.gdb",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/bin/driver_test",
+        "-p",
+        "864591"
+      ],
+      "gdb_returncode": 0,
+      "returncode": -15,
+      "finished": 1791905841.182497
+    },
+    {
+      "ncpus": 1,
+      "cache_mib": 32,
+      "run": 4,
+      "variant": "candidate",
+      "command": [
+        "taskset",
+        "-c",
+        "0",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-4-candidate/async.db",
+        "--cache-capacity-mib",
+        "32",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-4-candidate",
+      "binary_sha256": "9dc9b7d5d3ffd675808a2b23d3e10044e40e780fa8bbbf8ace5a2547dca90d8f",
+      "library_sha256": "ff0dc8c3ae7d0e8535e183e4eec250a0402972bfb52c55d500bb34b63a97529d",
+      "started": 1791905841.1848817,
+      "timeout_seconds": 20,
+      "pid": 864931,
+      "timed_out": true,
+      "gdb_command": [
+        "gdb",
+        "-nx",
+        "-q",
+        "-batch",
+        "-iex",
+        "set sysroot /",
+        "-iex",
+        "set solib-search-path /home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/lib",
+        "-ex",
+        "set pagination off",
+        "-ex",
+        "thread apply all bt 16",
+        "-x",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/inspect.gdb",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/bin/driver_test",
+        "-p",
+        "864931"
+      ],
+      "gdb_returncode": 0,
+      "returncode": -15,
+      "finished": 1791905861.414821
+    },
+    {
+      "ncpus": 0,
+      "cache_mib": 64,
+      "run": 5,
+      "variant": "candidate",
+      "command": [
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/debug/bin/driver_test",
+        "cache_test",
+        "--async",
+        "--db-location",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-5-candidate/async.db",
+        "--cache-capacity-mib",
+        "64",
+        "--db-capacity-gib",
+        "1"
+      ],
+      "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-scratch-5-candidate",
+      "binary_sha256": "9dc9b7d5d3ffd675808a2b23d3e10044e40e780fa8bbbf8ace5a2547dca90d8f",
+      "library_sha256": "ff0dc8c3ae7d0e8535e183e4eec250a0402972bfb52c55d500bb34b63a97529d",
+      "started": 1791905861.4172518,
+      "timeout_seconds": 20,
+      "pid": 865269,
+      "returncode": 0,
+      "timed_out": false,
+      "finished": 1791905862.2839293
+    }
+  ],
+  "states": [
+    {
+      "capacity": 8192,
+      "held_pages": 8192,
+      "total_references": 62888,
+      "free": 0,
+      "unreferenced": 0,
+      "loading": 0,
+      "pinned": 0,
+      "busy_batches": 8,
+      "status_counts": {
+        "4": 8192
+      },
+      "reference_counts": {
+        "2": 131,
+        "3": 61,
+        "4": 66,
+        "5": 71,
+        "7": 108,
+        "8": 7514,
+        "6": 143,
+        "1": 98
+      },
+      "windows": [
+        {
+          "thread": 857099,
+          "requested_type": "PAGE_TYPE_MISC",
+          "batch_start": 8416,
+          "j": 21,
+          "tid": 1,
+          "i": 8416,
+          "k": 576,
+          "working_set_pages": 7864,
+          "owned_completed_handles": 7840,
+          "async_context_statuses": {
+            "ready_to_continue": 21,
+            "waiting_on_io": 1,
+            "done": 10
+          }
+        },
+        {
+          "thread": 857100,
+          "requested_type": "PAGE_TYPE_MISC",
+          "batch_start": 8192,
+          "j": 26,
+          "tid": 2,
+          "i": 8192,
+          "k": 352,
+          "working_set_pages": 7864,
+          "owned_completed_handles": 7840,
+          "async_context_statuses": {
+            "ready_to_continue": 26,
+            "waiting_on_io": 1,
+            "done": 5
+          }
+        },
+        {
+          "thread": 857101,
+          "requested_type": "PAGE_TYPE_MISC",
+          "batch_start": 8288,
+          "j": 6,
+          "tid": 3,
+          "i": 8288,
+          "k": 448,
+          "working_set_pages": 7864,
+          "owned_completed_handles": 7840,
+          "async_context_statuses": {
+            "ready_to_continue": 6,
+            "waiting_on_io": 1,
+            "done": 25
+          }
+        },
+        {
+          "thread": 857102,
+          "requested_type": "PAGE_TYPE_MISC",
+          "batch_start": 8512,
+          "j": 27,
+          "tid": 4,
+          "i": 8512,
+          "k": 672,
+          "working_set_pages": 7864,
+          "owned_completed_handles": 7840,
+          "async_context_statuses": {
+            "ready_to_continue": 27,
+            "waiting_on_io": 1,
+            "done": 4
+          }
+        },
+        {
+          "thread": 857103,
+          "requested_type": "PAGE_TYPE_MISC",
+          "batch_start": 8480,
+          "j": 30,
+          "tid": 5,
+          "i": 8480,
+          "k": 640,
+          "working_set_pages": 7864,
+          "owned_completed_handles": 7840,
+          "async_context_statuses": {
+            "ready_to_continue": 30,
+            "waiting_on_io": 1,
+            "done": 1
+          }
+        },
+        {
+          "thread": 857104,
+          "requested_type": "PAGE_TYPE_MISC",
+          "batch_start": 8512,
+          "j": 30,
+          "tid": 6,
+          "i": 8512,
+          "k": 672,
+          "working_set_pages": 7864,
+          "owned_completed_handles": 7840,
+          "async_context_statuses": {
+            "ready_to_continue": 30,
+            "waiting_on_io": 1,
+            "done": 1
+          }
+        },
+        {
+          "thread": 857105,
+          "requested_type": "PAGE_TYPE_MISC",
+          "batch_start": 8544,
+          "j": 0,
+          "tid": 7,
+          "i": 8544,
+          "k": 704,
+          "working_set_pages": 7864,
+          "owned_completed_handles": 7840,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 857106,
+          "requested_type": "PAGE_TYPE_MISC",
+          "batch_start": 8448,
+          "j": 28,
+          "tid": 8,
+          "i": 8448,
+          "k": 608,
+          "working_set_pages": 7864,
+          "owned_completed_handles": 7840,
+          "async_context_statuses": {
+            "ready_to_continue": 28,
+            "waiting_on_io": 1,
+            "done": 3
+          }
+        }
+      ],
+      "log": "cache-state-with-contexts.log",
+      "log_sha256": "03c8bcf10c66cf64763c011ce99abcc36f8393021acd528f1d5b4323130c390c"
+    },
+    {
+      "capacity": 8192,
+      "held_pages": 8192,
+      "total_references": 52225,
+      "free": 0,
+      "unreferenced": 0,
+      "loading": 0,
+      "pinned": 0,
+      "busy_batches": 8,
+      "status_counts": {
+        "4": 8191,
+        "68": 1
+      },
+      "reference_counts": {
+        "8": 4864,
+        "5": 1631,
+        "6": 1,
+        "4": 64,
+        "3": 1632
+      },
+      "windows": [
+        {
+          "thread": 864011,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309198848,
+          "current_mapping": 2137,
+          "batch_start": 9824,
+          "j": 0,
+          "tid": 1,
+          "i": 9824,
+          "k": 3296,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864012,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 6528,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 2,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864013,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309329920,
+          "current_mapping": 4294967295,
+          "batch_start": 9856,
+          "j": 0,
+          "tid": 3,
+          "i": 9856,
+          "k": 3328,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864014,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 6528,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 4,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864015,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309329920,
+          "current_mapping": 4294967295,
+          "batch_start": 9856,
+          "j": 0,
+          "tid": 5,
+          "i": 9856,
+          "k": 3328,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864016,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309329920,
+          "current_mapping": 4294967295,
+          "batch_start": 9856,
+          "j": 0,
+          "tid": 6,
+          "i": 9856,
+          "k": 3328,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864017,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309329920,
+          "current_mapping": 4294967295,
+          "batch_start": 9856,
+          "j": 0,
+          "tid": 7,
+          "i": 9856,
+          "k": 3328,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864018,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 6528,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 8,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        }
+      ],
+      "log": "skew-0-main-stacks-state.log",
+      "log_sha256": "f318e86cdd7a60611443bc3cc86b1b843033a04a7fced21fe98e6d0f07286bfe"
+    },
+    {
+      "capacity": 8192,
+      "held_pages": 8192,
+      "total_references": 52243,
+      "free": 0,
+      "unreferenced": 0,
+      "loading": 0,
+      "pinned": 0,
+      "busy_batches": 8,
+      "status_counts": {
+        "4": 8190,
+        "100": 2
+      },
+      "reference_counts": {
+        "4": 3262,
+        "5": 2,
+        "1": 15,
+        "2": 17,
+        "8": 4864,
+        "7": 32
+      },
+      "windows": [
+        {
+          "thread": 864189,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309329920,
+          "current_mapping": 4294967295,
+          "batch_start": 9856,
+          "j": 0,
+          "tid": 1,
+          "i": 9856,
+          "k": 3328,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864190,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309198848,
+          "current_mapping": 387,
+          "batch_start": 9824,
+          "j": 0,
+          "tid": 2,
+          "i": 9824,
+          "k": 3296,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864191,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 6912,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 3,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864192,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 6912,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 4,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864193,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 6912,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 5,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864194,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309198848,
+          "current_mapping": 387,
+          "batch_start": 9824,
+          "j": 0,
+          "tid": 6,
+          "i": 9824,
+          "k": 3296,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864195,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 6912,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 7,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864196,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309268480,
+          "current_mapping": 349,
+          "batch_start": 9824,
+          "j": 17,
+          "tid": 8,
+          "i": 9824,
+          "k": 3296,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "ready_to_continue": 17,
+            "waiting_on_io": 1,
+            "done": 14
+          }
+        }
+      ],
+      "log": "skew-1-main-stacks-state.log",
+      "log_sha256": "6ccd28f3ef3b24ef3f907bc13ea3ebf554b17ce2dbe56c0164f62d72e5521371"
+    },
+    {
+      "capacity": 8192,
+      "held_pages": 8192,
+      "total_references": 52278,
+      "free": 0,
+      "unreferenced": 0,
+      "loading": 0,
+      "pinned": 0,
+      "busy_batches": 8,
+      "status_counts": {
+        "4": 8192
+      },
+      "reference_counts": {
+        "8": 4865,
+        "3": 1597,
+        "2": 67,
+        "5": 1551,
+        "6": 106,
+        "7": 6
+      },
+      "windows": [
+        {
+          "thread": 864387,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 1280,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 1,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864388,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309067776,
+          "current_mapping": 4294967295,
+          "batch_start": 9792,
+          "j": 0,
+          "tid": 2,
+          "i": 9792,
+          "k": 3264,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864389,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309067776,
+          "current_mapping": 4294967295,
+          "batch_start": 9792,
+          "j": 0,
+          "tid": 3,
+          "i": 9792,
+          "k": 3264,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864390,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302452736,
+          "current_mapping": 7857,
+          "batch_start": 8160,
+          "j": 17,
+          "tid": 4,
+          "i": 8160,
+          "k": 1632,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6545,
+          "async_context_statuses": {
+            "done": 31,
+            "waiting_on_io": 1
+          }
+        },
+        {
+          "thread": 864391,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302280704,
+          "current_mapping": 7894,
+          "batch_start": 8128,
+          "j": 7,
+          "tid": 5,
+          "i": 8128,
+          "k": 1600,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6529,
+          "async_context_statuses": {
+            "done": 25,
+            "ready_to_continue": 6,
+            "waiting_on_io": 1
+          }
+        },
+        {
+          "thread": 864392,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 1280,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 6,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864393,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 308924416,
+          "current_mapping": 3152,
+          "batch_start": 9728,
+          "j": 29,
+          "tid": 7,
+          "i": 9728,
+          "k": 3200,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "ready_to_continue": 29,
+            "waiting_on_io": 1,
+            "done": 2
+          }
+        },
+        {
+          "thread": 864394,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302256128,
+          "current_mapping": 5370,
+          "batch_start": 8128,
+          "j": 1,
+          "tid": 8,
+          "i": 8128,
+          "k": 1600,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "ready_to_continue": 1,
+            "waiting_on_io": 1,
+            "done": 30
+          }
+        }
+      ],
+      "log": "skew-2-main-stacks-state.log",
+      "log_sha256": "add76eabab9f22f9e537f6898e36afee84b3ad0971e9dc44d92ee495ff2c7738"
+    },
+    {
+      "capacity": 8192,
+      "held_pages": 8192,
+      "total_references": 52283,
+      "free": 0,
+      "unreferenced": 0,
+      "loading": 0,
+      "pinned": 0,
+      "busy_batches": 8,
+      "status_counts": {
+        "4": 8192
+      },
+      "reference_counts": {
+        "4": 3094,
+        "3": 55,
+        "2": 43,
+        "1": 8,
+        "8": 4864,
+        "5": 64,
+        "6": 32,
+        "7": 32
+      },
+      "windows": [
+        {
+          "thread": 864619,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 7488,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 1,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864620,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 7488,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 2,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864621,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309121024,
+          "current_mapping": 1297,
+          "batch_start": 9792,
+          "j": 13,
+          "tid": 3,
+          "i": 9792,
+          "k": 3264,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "ready_to_continue": 13,
+            "waiting_on_io": 1,
+            "done": 18
+          }
+        },
+        {
+          "thread": 864622,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309329920,
+          "current_mapping": 4294967295,
+          "batch_start": 9856,
+          "j": 0,
+          "tid": 4,
+          "i": 9856,
+          "k": 3328,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864623,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 308895744,
+          "current_mapping": 1238,
+          "batch_start": 9728,
+          "j": 22,
+          "tid": 5,
+          "i": 9728,
+          "k": 3200,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "ready_to_continue": 22,
+            "waiting_on_io": 1,
+            "done": 9
+          }
+        },
+        {
+          "thread": 864624,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309297152,
+          "current_mapping": 1348,
+          "batch_start": 9824,
+          "j": 24,
+          "tid": 6,
+          "i": 9824,
+          "k": 3296,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "ready_to_continue": 24,
+            "waiting_on_io": 1,
+            "done": 7
+          }
+        },
+        {
+          "thread": 864625,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 7488,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 7,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864626,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 7488,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 8,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        }
+      ],
+      "log": "skew-3-candidate-stacks-state.log",
+      "log_sha256": "8afdd2c18f314604b39f510440769245fcfd760c29035c93e0a0c02988413044"
+    },
+    {
+      "capacity": 8192,
+      "held_pages": 8192,
+      "total_references": 52240,
+      "free": 0,
+      "unreferenced": 0,
+      "loading": 0,
+      "pinned": 0,
+      "busy_batches": 8,
+      "status_counts": {
+        "4": 8191,
+        "68": 1
+      },
+      "reference_counts": {
+        "8": 4878,
+        "7": 114,
+        "3": 1470,
+        "4": 2,
+        "1": 128,
+        "2": 64,
+        "5": 1472,
+        "6": 64
+      },
+      "windows": [
+        {
+          "thread": 864979,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 3264,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 1,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864980,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 308543488,
+          "current_mapping": 4290,
+          "batch_start": 9664,
+          "j": 0,
+          "tid": 2,
+          "i": 9664,
+          "k": 3136,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864981,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 3264,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 3,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864982,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302309376,
+          "current_mapping": 1358,
+          "batch_start": 8128,
+          "j": 14,
+          "tid": 4,
+          "i": 8128,
+          "k": 1600,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "ready_to_continue": 14,
+            "waiting_on_io": 1,
+            "done": 17
+          }
+        },
+        {
+          "thread": 864983,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 308805632,
+          "current_mapping": 4012,
+          "batch_start": 9728,
+          "j": 0,
+          "tid": 5,
+          "i": 9728,
+          "k": 3200,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864984,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 3264,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 6,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864985,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 302514176,
+          "current_mapping": 3264,
+          "batch_start": 8192,
+          "j": 0,
+          "tid": 7,
+          "i": 8192,
+          "k": 1664,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        },
+        {
+          "thread": 864986,
+          "requested_type": "PAGE_TYPE_MISC",
+          "requested_addr": 309067776,
+          "current_mapping": 4294967295,
+          "batch_start": 9792,
+          "j": 0,
+          "tid": 8,
+          "i": 9792,
+          "k": 3264,
+          "working_set_pages": 6553,
+          "owned_completed_handles": 6528,
+          "async_context_statuses": {
+            "waiting_on_io": 1,
+            "done": 31
+          }
+        }
+      ],
+      "log": "skew-4-candidate-stacks-state.log",
+      "log_sha256": "9fb4a9a873c3d73b32d164cdffec8160ac8a4f8c49d8760087547b62bf61c14d"
+    }
+  ]
+}
