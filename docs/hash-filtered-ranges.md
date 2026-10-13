@@ -208,7 +208,7 @@ the main final evidence. Future copied-image runs use an explicit sync.
 
 Compact raw samples, exact commands, fixture and binary hashes, build flags,
 and machine/filesystem provenance are retained in
-[`benchmarks/results-20261011`](../benchmarks/results-20261011/README.md).
+[`benchmarks/results-20261011`](../benchmarks/results-20261011/filtered-ranges-README.md).
 Unsuffixed directories are the superseded v1 implementation; `v2` directories
 measure ordered merge selection before the layout repair; `v3` directories
 measure the final implementation. Database images and verbose logs remain in
@@ -239,7 +239,7 @@ These are updated-feature comparisons against main `7bb5fab`, not an isolated
 measurement of merge cost. Main controls drifted; observed range overlap is
 descriptive, not a statistical confidence interval. Exact samples, build/source
 hashes, commands, verification scope and fresh correctness evidence are in
-[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
+[the integration archive](../benchmarks/results-20261013/filtered-ranges-main-7bb5fab/README.md).
 
 ## Predicate API implementation (2026-10-13)
 

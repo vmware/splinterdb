@@ -446,6 +446,12 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);
 platform_status
 core_durable_barrier(core_handle *spl);
 
+/* Take the durability cut now and enqueue the slow wait. Close drains the
+ * task before releasing the core. A failed launch leaves notification idle. */
+platform_status
+core_durable_barrier_async(core_handle                    *spl,
+                           struct splinterdb_notification *notification);
+
 /*
  * Unmount the database without destroying it; it can be re-opened later with
  * core_mount().

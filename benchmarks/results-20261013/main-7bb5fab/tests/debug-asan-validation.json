@@ -1,0 +1,84 @@
+[
+  {
+    "name": "debug-asan-0-notification_test",
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "main-merge-async-debug-asan-0-notification_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/async-durable-barrier/build-main-7bb5fab/debug-asan/bin/unit/notification_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/async-durable-barrier/scratch/debug-asan-0-notification_test",
+    "returncode": 0,
+    "results": [
+      "RESULTS: 7 tests (7 ok, 0 failed, 0 skipped) ran in 112 ms"
+    ],
+    "seconds": 0.16440081596374512,
+    "binary_sha256": "c937ee4bc6bf20c9b3a57c8c11c12fc013ad1af945c6d29625bfa0ff94cf4de1",
+    "log_sha256": "82a0810b81fbdc734590264f2119462c529622a129e79c69e37028eae547cc21"
+  },
+  {
+    "name": "debug-asan-1-notification_test",
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "main-merge-async-debug-asan-1-notification_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/async-durable-barrier/build-main-7bb5fab/debug-asan/bin/unit/notification_test",
+      "--use-shmem"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/async-durable-barrier/scratch/debug-asan-1-notification_test",
+    "returncode": 0,
+    "results": [
+      "RESULTS: 7 tests (7 ok, 0 failed, 0 skipped) ran in 113 ms"
+    ],
+    "seconds": 0.1645655632019043,
+    "binary_sha256": "c937ee4bc6bf20c9b3a57c8c11c12fc013ad1af945c6d29625bfa0ff94cf4de1",
+    "log_sha256": "db7e954b2551eb4566cc30fa8be5f91f5602914d81376deef0bd588e7fcb5d3a"
+  },
+  {
+    "name": "debug-asan-2-splinterdb_optimize_test",
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "main-merge-async-debug-asan-2-splinterdb_optimize_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/async-durable-barrier/build-main-7bb5fab/debug-asan/bin/unit/splinterdb_optimize_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/async-durable-barrier/scratch/debug-asan-2-splinterdb_optimize_test",
+    "returncode": 0,
+    "results": [
+      "RESULTS: 9 tests (9 ok, 0 failed, 0 skipped) ran in 1497 ms"
+    ],
+    "seconds": 1.5670039653778076,
+    "binary_sha256": "0a54922c12534941d575a44df3e1b1fd27b29637c82ebf0f1b4393279604592a",
+    "log_sha256": "238fb7f2b98e9af05a7bcd70c39e267eed9d52f1881bdddcc70cda0f95a7f4ce"
+  },
+  {
+    "name": "debug-asan-3-splinterdb_optimize_test",
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "main-merge-async-debug-asan-3-splinterdb_optimize_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/async-durable-barrier/build-main-7bb5fab/debug-asan/bin/unit/splinterdb_optimize_test",
+      "--use-shmem"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/async-durable-barrier/scratch/debug-asan-3-splinterdb_optimize_test",
+    "returncode": 0,
+    "results": [
+      "RESULTS: 9 tests (9 ok, 0 failed, 0 skipped) ran in 1763 ms"
+    ],
+    "seconds": 1.8186383247375488,
+    "binary_sha256": "0a54922c12534941d575a44df3e1b1fd27b29637c82ebf0f1b4393279604592a",
+    "log_sha256": "fb0e44584f973da08930f3b736ed10fe4e8c1a5a200ad294593cdb3c23612225"
+  }
+]

@@ -1,27 +1,19 @@
-Compact evidence for hash-filtered ranges. See
-[`docs/hash-filtered-ranges.md`](../../docs/hash-filtered-ranges.md) for results
-and their limits.
+# Durable-barrier evidence, 2026-10-11
 
-- Unsuffixed directories measure the superseded eager per-source adapter (v1,
-  `6ff014b`).
-- Directories with `v2` measure filtering during ordered merge selection
-  (`9062730`), before the ordinary iterator layout repair.
-- Directories with `v3` measure the final implementation (`f30ebdf`): the
-  focused ordinary range1/8-thread check and the 100,000-query native hash
-  probe. Earlier full matrices were not rerun on this revision.
+See ../../docs/async-durable-barriers.md for interpretation and validation.
+Baseline is db3047a; production implementation is 9d66eee. The final changes
+outside that commit only extend the benchmark/report. Exact measured harness
+sources are retained here because the final source also received whitespace
+formatting. Build JSON files and manifests identify their source/binary hashes.
 
-CSVs retain individual samples and checksums. Manifests retain exact commands,
-binary hashes, and fixture hashes where a shared fixture was used. Build
-metadata and `source-provenance.json` identify source and compiler flags.
-Machine metadata records the campaign hardware; physical memory is not the
-available memory during every run. All database paths were on real ext4 disk,
-with O_DIRECT and one exclusive timing lock shared across the projects.
+The four initial matrices contain 48 measured runs plus four pilot runs. The
+two *-io-control matrices add 24 measured runs with getrusage block-I/O counters.
+All 72 measured runs and four pilots passed process-exit crash recovery and full
+key/value verification. Commands, original absolute paths, timestamps and run
+orders are in manifests; the archived runner documents the campaign layout.
 
-The copied-image runner did not explicitly fsync its buffered copies before
-warming and timing. Pending writeback might overlap the historical disk
-opt-out runs; no disk speedup is claimed. The native hash probe creates its
-own O_DIRECT databases. Later campaign runners sync copied fixtures explicitly.
-
-Database images and verbose logs remain under
-`.cache/projects-20261011/benchmarks/filtered-ranges` in the original checkout
-and are intentionally omitted.
+The initial verified scratch images were deleted only after completed runs;
+that reclamation is marked in their manifests. The controls use one scratch
+path per campaign, unlinking after each successfully verified subprocess and
+creating a fresh image next time. No databases are included. Full logs remain
+in the original campaign directory under the main checkout's .cache.
