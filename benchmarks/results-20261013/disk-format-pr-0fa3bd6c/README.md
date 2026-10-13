@@ -7,8 +7,9 @@ checkpoint and notification paths remain intact.
 
 Debug and release each passed 150 unit cases, with two expected skips of the
 allocation-failure case because these builds disable allocation fault injection.
-Both also passed the functional routing-filter suite and the log suite with 10,000
-inserts. The initially strict validation runner stopped at that expected skip;
+Both also passed the functional routing-filter suite and the complete log suite
+(500,000-record round trip). The invocation requested 10,000 inserts, but this
+functional driver hardcodes 500,000; raw logs confirm the actual count. The initially strict validation runner stopped at that expected skip;
 its log and original runner are retained. After recognizing only that named skip,
 the debug run resumed with the remaining suites; no database case failed.
 

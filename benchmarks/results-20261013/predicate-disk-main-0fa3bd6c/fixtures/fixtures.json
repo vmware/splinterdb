@@ -1,0 +1,26 @@
+{
+  "resident-main": {
+    "fixture": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filter-predicate-20261013/fixtures/resident-main.db",
+    "fixture_sha256": "ca92c8cbc69dfd2cff48c94d92fc27cd801bd9a1062319e2bb41b94daf419718",
+    "allocated_bytes": 28905472,
+    "apparent_bytes": 162664448
+  },
+  "resident-disk-format": {
+    "fixture": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filter-predicate-20261013/fixtures/resident-disk-format.db",
+    "fixture_sha256": "c853e677543afdfa7efcd67fa13e5c9d57b0a1465aff245641584f65c1dbecc4",
+    "allocated_bytes": 28905472,
+    "apparent_bytes": 162664448
+  },
+  "disk-main": {
+    "fixture": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filter-predicate-20261013/fixtures/disk-main.db",
+    "fixture_sha256": "e3f6d22da99b2bea72245e9aa5a01748b0ba5f5ca507512ff311d37fd27b1b2b",
+    "allocated_bytes": 474849280,
+    "apparent_bytes": 2513178624
+  },
+  "disk-disk-format": {
+    "fixture": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filter-predicate-20261013/fixtures/disk-disk-format.db",
+    "fixture_sha256": "dc350c6481fdd12f4e8faff8642718487862d7dafa47129735196ad64422852b",
+    "allocated_bytes": 475258880,
+    "apparent_bytes": 2513178624
+  }
+}
