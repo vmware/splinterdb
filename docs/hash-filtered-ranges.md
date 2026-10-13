@@ -212,3 +212,13 @@ Commands, logs and hashes are in
 `.cache/projects-20261011/coordination/main-7bb5fab/filtered-ranges/`.
 The measurements above remain historical. Fresh integration measurements are
 tracked separately under `benchmarks/main-7bb5fab/` in that campaign.
+
+## Fresh benchmarks after main integration (2026-10-13)
+
+The exact-hash probe matched main result checksums. Query latency changed -5.70%/-16.71%/+0.56%/-9.59% for limits 1/2/10/100. Ordinary eight-thread short-range throughput changed -3.38% resident and -1.67% on disk, with sample ranges overlapping main.
+
+These are updated-feature comparisons against main `7bb5fab`, not an isolated
+measurement of merge cost. Main controls drifted; observed range overlap is
+descriptive, not a statistical confidence interval. Exact samples, build/source
+hashes, commands, verification scope and fresh correctness evidence are in
+[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
