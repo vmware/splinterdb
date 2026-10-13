@@ -165,3 +165,13 @@ logs, commands, binary hashes, and the source manifest are recorded in the
 main checkout under `.cache/projects-20261011/coordination/main-7bb5fab/branch-prefix/`.
 The performance measurements above predate this merge and do not establish the
 performance of the merged implementation.
+
+## Fresh benchmarks after main integration (2026-10-13)
+
+Common-prefix resident point throughput improved 10.61%, while the random-key resident long-range workload lost 10.88%, both with non-overlapping sample ranges. Common-prefix disk long-range throughput improved about 14.4%. The experiment retains a workload-dependent cost; it is not performance neutral.
+
+These are updated-feature comparisons against main `7bb5fab`, not an isolated
+measurement of merge cost. Main controls drifted; observed range overlap is
+descriptive, not a statistical confidence interval. Exact samples, build/source
+hashes, commands, verification scope and fresh correctness evidence are in
+[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).

@@ -1,0 +1,10 @@
+Running 1 CTests, suite name 'btree', test case 'all'.
+TEST 1/8 btree:test_compressed_suffix_copy [OK]
+TEST 2/8 btree:test_leaf_hdr [OK]
+TEST 3/8 btree:test_leaf_hdr_search [OK]
+TEST 4/8 btree:test_index_hdr [OK]
+TEST 5/8 btree:test_index_hdr_search [OK]
+TEST 6/8 btree:test_leaf_split [OK]
+TEST 7/8 btree:test_defragmented_leaf_bytes [OK]
+TEST 8/8 btree:test_defragmented_index_bytes [OK]
+RESULTS: 8 tests (8 ok, 0 failed, 0 skipped) ran in 14 ms
