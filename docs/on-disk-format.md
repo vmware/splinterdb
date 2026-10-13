@@ -206,3 +206,13 @@ Commands, logs, source and executable hashes are retained in the main checkout's
 `.cache/projects-20261011/coordination/main-7bb5fab/disk-format/` directory.
 The measurements above predate this integration; they do not establish current
 performance neutrality.
+
+## Fresh benchmarks after main integration (2026-10-13)
+
+Resident point throughput changed -1.21%/-1.92% at one/eight threads, and disk point throughput changed -0.81%. These sample ranges overlap main; substantial control drift prevents precise attribution of small differences.
+
+These are updated-feature comparisons against main `7bb5fab`, not an isolated
+measurement of merge cost. Main controls drifted; observed range overlap is
+descriptive, not a statistical confidence interval. Exact samples, build/source
+hashes, commands, verification scope and fresh correctness evidence are in
+[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).

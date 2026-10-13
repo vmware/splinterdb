@@ -1,0 +1,26 @@
+Starting mainmerge-disk-format-debug-formatted build
+Checking for mismatched config...No mismatched config found
+Compiling            tests/functional/filter_test.c                     [build-main-7bb5fab/debug/obj/tests/functional/filter_test.o]
+Compiling            src/shard_log.c                                    [build-main-7bb5fab/debug/obj/src/shard_log.o]
+Compiling            tests/unit/splinter_test.c                         [build-main-7bb5fab/debug/obj/tests/unit/splinter_test.o]
+Linking              build-main-7bb5fab/debug/lib/libsplinterdb.so
+Building archive     build-main-7bb5fab/debug/lib/libsplinterdb.a
+Linking              build-main-7bb5fab/debug/bin/splinter_inspect
+Linking              build-main-7bb5fab/debug/bin/driver_test
+Linking              build-main-7bb5fab/debug/bin/unit_test
+Linking              build-main-7bb5fab/debug/bin/unit/config_parse_test
+Linking              build-main-7bb5fab/debug/bin/unit/large_inserts_stress_test
+Linking              build-main-7bb5fab/debug/bin/unit/limitations_test
+Linking              build-main-7bb5fab/debug/bin/unit/merge_test
+Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_forked_child_test
+Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_heap_id_mgmt_test
+Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_optimize_test
+Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_quick_test
+Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_stress_test
+Linking              build-main-7bb5fab/debug/bin/unit/superblock_test
+Linking              build-main-7bb5fab/debug/bin/unit/task_system_test
+Linking              build-main-7bb5fab/debug/bin/unit/trunk_async_test
+Linking              build-main-7bb5fab/debug/bin/unit/trunk_gc_test
+Linking              build-main-7bb5fab/debug/bin/unit/trunk_split_test
+Linking              build-main-7bb5fab/debug/bin/unit/writable_buffer_test
+Linking              build-main-7bb5fab/debug/bin/unit/splinter_test

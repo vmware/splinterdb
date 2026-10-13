@@ -1,0 +1,214 @@
+{
+  "project": "disk-format",
+  "branch": "robj/disk-format",
+  "merge_head": "d21b87f5cfac709fb0fa74c3585fb38936c08852",
+  "integrated_main": "7bb5fab305b9c6179e31f75998dabea833537a08",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 2087,
+      "sha256": "c6973738a9ff770ca29cf6d23c581beb9795c2c114572bb1fd0ebb23432d1e3e",
+      "source": "generated archive guide"
+    },
+    {
+      "path": "build-debug-3.log",
+      "bytes": 2645,
+      "sha256": "0ca67435c379811d39b3c6447642a4aa39cc7fad4909812f7a15366000fe74a0",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/build-debug-3.log"
+    },
+    {
+      "path": "build-debug-4.log",
+      "bytes": 1050,
+      "sha256": "2d2a2ae60de93416062f879361aeaac014528ae8147922a943e833933facdf0e",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/build-debug-4.log"
+    },
+    {
+      "path": "build-debug-5.log",
+      "bytes": 615,
+      "sha256": "87e86d57017778cb00c49bdbb29447f0d50505de79049dc22bc77d3f2a98aad9",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/build-debug-5.log"
+    },
+    {
+      "path": "build-debug-final.log",
+      "bytes": 9826,
+      "sha256": "7b33ebeed7ab9431c221c444ef151ae009548064525fec25ab12f4d9b95a3305",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/build-debug-final.log"
+    },
+    {
+      "path": "build-debug-formatted.log",
+      "bytes": 2014,
+      "sha256": "be00255ea6bc75794bfa659f28ceb9e28a2144f8552518ae8b01e5b6ffc5c005",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/build-debug-formatted.log"
+    },
+    {
+      "path": "build-debug-resolved.log",
+      "bytes": 1808,
+      "sha256": "9a3be29c63ca79da78381300ed25248f7c6089e4613f64ae58999f98b04a66fc",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/build-debug-resolved.log"
+    },
+    {
+      "path": "build-debug.log",
+      "bytes": 2695,
+      "sha256": "72da8e8587c1a9bd7946519a223a788f72b64320727055aa3d97e79c7ee9aeef",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/build-debug.log"
+    },
+    {
+      "path": "build-release.log",
+      "bytes": 13641,
+      "sha256": "c6cabf428fd6973cd2bd1fa01b04be25c538f891ac547c2cf7f16834c3301bf7",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/build-release.log"
+    },
+    {
+      "path": "debug-btree.log",
+      "bytes": 2305,
+      "sha256": "f8ca9a5b8c682cd418b940a5afef55253c9dc165dced3c780c25b4b141e8d05e",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/debug-btree.log"
+    },
+    {
+      "path": "debug-filter.log",
+      "bytes": 3865,
+      "sha256": "49259f7e14bc368c5ba8d9410dd23b58d270333eaf6b13736bbd038ca9b1d924",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/debug-filter.log"
+    },
+    {
+      "path": "debug-log.log",
+      "bytes": 752,
+      "sha256": "372a0c0e44520c2d299d25bde942a0dfdd13119b77cfa2b5e4cc032e3e4d8095",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/debug-log.log"
+    },
+    {
+      "path": "debug-quick.log",
+      "bytes": 3943,
+      "sha256": "2e348ee7750ccc4c95d7c839ff752e2bb23183c605af0d0df0efabcb46033421",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/debug-quick.log"
+    },
+    {
+      "path": "debug-splinter-4gib.log",
+      "bytes": 6635,
+      "sha256": "19abfb216913e1d89c0d6ef7f7dc7cd0ff4275f8de44e5e2cd7a3ca094b90f1f",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/debug-splinter-4gib.log"
+    },
+    {
+      "path": "debug-splinter.log",
+      "bytes": 6580,
+      "sha256": "20208a30e6dcf9076de207d0712849e24113084851af3813c3bdbd9d7e492a7f",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/debug-splinter.log"
+    },
+    {
+      "path": "debug-superblock.log",
+      "bytes": 2781,
+      "sha256": "417133bc50d178e582c1bdcbff4182a07ced3994a81d29eb409f4b713300f7d2",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/debug-superblock.log"
+    },
+    {
+      "path": "debug-trunk-async.log",
+      "bytes": 438,
+      "sha256": "358786a8840bf748a73c6f3d58cb3eb2bac80a7107a6387bfa11a167fe5265ed",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/debug-trunk-async.log"
+    },
+    {
+      "path": "manifest.json",
+      "bytes": 27637,
+      "sha256": "e8214285ef7e8a67ecb37a56cb076f1a47c08a84048e6f0a6bc24d2769708970",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/manifest.json"
+    },
+    {
+      "path": "release-btree.log",
+      "bytes": 2304,
+      "sha256": "43c08095c908b960b7c40ce73c84804496b2538fd4e5d1e6d67cf78f14d311f5",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/release-btree.log"
+    },
+    {
+      "path": "release-filter.log",
+      "bytes": 3867,
+      "sha256": "bcfd592c4f9020413d7751bbf1e69d0de0a8c21e9953b19768e35c17564cd7e5",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/release-filter.log"
+    },
+    {
+      "path": "release-log.log",
+      "bytes": 754,
+      "sha256": "94d99f7647332b2b2a3310da728d30fddc459ed2c722060f5d0fc1bc4003e55e",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/release-log.log"
+    },
+    {
+      "path": "release-quick.log",
+      "bytes": 3943,
+      "sha256": "fb9f96d901f9d6653e0295bcffe6220ded0a75f71db48ec3a5c763be57a50b0c",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/release-quick.log"
+    },
+    {
+      "path": "release-splinter-4gib.log",
+      "bytes": 6786,
+      "sha256": "40f1c0c881534b1c7584bf5db4e324181858eb9668642ca7d83649627dd82664",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/release-splinter-4gib.log"
+    },
+    {
+      "path": "release-splinter.log",
+      "bytes": 6580,
+      "sha256": "64e3e5c3f4c796d2be3661ddbc06e3da816516e1497a2b98aafc2a84a6947de7",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/release-splinter.log"
+    },
+    {
+      "path": "release-superblock.log",
+      "bytes": 2781,
+      "sha256": "e8f058f14fdc7b2ae6c78a4983c56e5ae3c3cee7cdc4b46a303efa3a18cb2b1c",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/release-superblock.log"
+    },
+    {
+      "path": "release-trunk-async.log",
+      "bytes": 438,
+      "sha256": "58337bde38e57564caa2561b024f9e05bedf6d7c6d6f1b220fee48ef6c622449",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/release-trunk-async.log"
+    },
+    {
+      "path": "shared/before.json",
+      "bytes": 4460,
+      "sha256": "133ae8f9f5fda20e884fd1d283d857d389a96cef6a74a82b7a17fa094a0cc6e5",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/before.json"
+    },
+    {
+      "path": "shared/run_job.py",
+      "bytes": 2461,
+      "sha256": "908d86de805e6efd41b423c919187f2df14715104f047e10fa8a6c57129cc773",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py"
+    },
+    {
+      "path": "shared/test_root_branches.py",
+      "bytes": 3223,
+      "sha256": "36f5b93940442f3806266d12284fe4da2927b56b4f1882c957df7519696d3da7",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/test_root_branches.py"
+    },
+    {
+      "path": "test_integration.py",
+      "bytes": 1600,
+      "sha256": "cabf042d58089771e6d134241f594e273d93bd259b47d77a660c69424a9ed298",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/test_integration.py"
+    },
+    {
+      "path": "validation-debug-4gib.json",
+      "bytes": 1319,
+      "sha256": "985687f55c536e818cab8a71be2af260dbe1a53c8a74fd3a041ad4ed58cea79c",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/validation-debug-4gib.json"
+    },
+    {
+      "path": "validation-debug.json",
+      "bytes": 3094,
+      "sha256": "d1be87ee55ad22eb4d14b295ff62b78e8e77ca02e9031cc13aefdfb3e325f853",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/validation-debug.json"
+    },
+    {
+      "path": "validation-release-4gib.json",
+      "bytes": 1252,
+      "sha256": "6333e64bcc5246e1accccbb2058edbb599cecc1b089e77ee9a82116d420ffda0",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/validation-release-4gib.json"
+    },
+    {
+      "path": "validation-release.json",
+      "bytes": 3111,
+      "sha256": "ecfd4bd663739ae819754ef4239ebcde4796d3cef6615d0ac291b547c46ccbb0",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/disk-format/validation-release.json"
+    }
+  ],
+  "manifest_excludes_itself": true,
+  "archived_payload_bytes": 139290
+}
