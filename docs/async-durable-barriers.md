@@ -306,3 +306,13 @@ Commands, binary/source hashes, test counts and raw logs are retained in the
 collection's `coordination/main-7bb5fab/async-durable-barrier` directory. Previous
 performance results above describe their original revisions; they do not
 measure this merge.
+
+## Fresh benchmarks after main integration (2026-10-13)
+
+All 24 barrier runs completed crash/reopen/full-readback verification. Barrier throughput varied substantially, so no stable throughput improvement is claimed. The nearby ordinary-query repeat changed eight-thread point/short-range throughput -0.52%/-2.28%, with sample ranges overlapping main.
+
+These are updated-feature comparisons against main `7bb5fab`, not an isolated
+measurement of merge cost. Main controls drifted; observed range overlap is
+descriptive, not a statistical confidence interval. Exact samples, build/source
+hashes, commands, verification scope and fresh correctness evidence are in
+[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
