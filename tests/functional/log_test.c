@@ -1746,19 +1746,21 @@ test_log_malformed_record_bounds(clockcache        *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   page_handle *page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   page_handle *page = &acquired_page;
    while (!cache_try_claim(cacheh, page)) {
       cache_unget(cacheh, page);
-      page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+      *page = test_cache_get_page(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
    }
    cache_lock(cacheh, page);
-   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   shard_log_hdr *hdr = (shard_log_hdr *)page_handle_data(page);
    platform_assert(hdr->num_entries == 1);
-   ondisk_tuple *tuple =
-      (ondisk_tuple *)(page->data + sizeof(*hdr) + 2 * sizeof(uint64));
-   tuple->key_length = ONDISK_KEY_POSITIVE_INFINITY - 1;
+   ondisk_tuple *tuple = (ondisk_tuple *)(page_handle_data(page) + sizeof(*hdr)
+                                          + 2 * sizeof(uint64));
+   tuple->key_length   = ONDISK_KEY_POSITIVE_INFINITY - 1;
    hdr->checksum =
-      platform_checksum128(page->data + sizeof(checksum128),
+      platform_checksum128(page_handle_data(page) + sizeof(checksum128),
                            cache_page_size(cacheh) - sizeof(checksum128),
                            cfg->seed);
    cache_unlock(cacheh, page);
@@ -1820,20 +1822,22 @@ test_log_group_page_cycle(clockcache        *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   page_handle *page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+   page_handle *page = &acquired_page;
    while (!cache_try_claim(cacheh, page)) {
       cache_unget(cacheh, page);
-      page = cache_get(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
+      *page = test_cache_get_page(cacheh, sealed.addr, TRUE, PAGE_TYPE_LOG);
    }
    cache_lock(cacheh, page);
-   shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   shard_log_hdr *hdr = (shard_log_hdr *)page_handle_data(page);
    platform_assert(hdr->group_id == SHARD_LOG_FIRST_GROUP_ID);
    platform_assert(hdr->page_no == 0);
    platform_assert(hdr->pages_in_group != 0);
    hdr->pages_in_group   = 0;
    hdr->next_extent_addr = sealed.addr;
    hdr->checksum =
-      platform_checksum128(page->data + sizeof(checksum128),
+      platform_checksum128(page_handle_data(page) + sizeof(checksum128),
                            cache_page_size(cacheh) - sizeof(checksum128),
                            cfg->seed);
    cache_unlock(cacheh, page);
@@ -1935,14 +1939,16 @@ test_log_blob_checksum_prefix(clockcache        *cc,
    blob_page_iterator_deinit(&blob_itor);
    log_iterator_deinit(itor);
 
-   page_handle *page =
-      cache_get(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   page_handle *page = &acquired_page;
    while (!cache_try_claim(cacheh, page)) {
       cache_unget(cacheh, page);
-      page = cache_get(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+      *page =
+         test_cache_get_page(cacheh, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
    }
    cache_lock(cacheh, page);
-   page->data[corrupt_page_offset] ^= 0x80;
+   page_handle_data(page)[corrupt_page_offset] ^= 0x80;
    cache_unlock(cacheh, page);
    cache_unclaim(cacheh, page);
    cache_unget(cacheh, page);
@@ -2160,19 +2166,21 @@ test_log_missing_group_preserves_prefix(clockcache             *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   uint64         missing_addr = segment.addr + cache_page_size(cacheh);
-   page_handle   *page = cache_get(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
-   shard_log_hdr *hdr  = (shard_log_hdr *)page->data;
+   uint64      missing_addr = segment.addr + cache_page_size(cacheh);
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
+   page_handle   *page = &acquired_page;
+   shard_log_hdr *hdr  = (shard_log_hdr *)page_handle_data(page);
    platform_assert(hdr->group_id == SHARD_LOG_FIRST_GROUP_ID + 1);
    platform_assert(hdr->page_no == 0);
    platform_assert((hdr->pages_in_group & SHARD_LOG_PAGES_IN_GROUP_MASK) == 1);
 
    while (!cache_try_claim(cacheh, page)) {
       cache_unget(cacheh, page);
-      page = cache_get(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
+      *page = test_cache_get_page(cacheh, missing_addr, TRUE, PAGE_TYPE_LOG);
    }
    cache_lock(cacheh, page);
-   memset(page->data, 0, cache_page_size(cacheh));
+   memset(page_handle_data(page), 0, cache_page_size(cacheh));
    cache_unlock(cacheh, page);
    cache_unclaim(cacheh, page);
    cache_unget(cacheh, page);
@@ -2253,8 +2261,10 @@ test_log_recovery_reused_successor(clockcache        *cc,
    platform_assert_status_ok(cache_writeback_dirty(cacheh));
    platform_assert_status_ok(cache_durable_barrier(cacheh));
 
-   page_handle *page = cache_get(cacheh, successor, TRUE, PAGE_TYPE_BLOB);
-   platform_assert(page->data[0] == 'B');
+   page_handle acquired_page =
+      test_cache_get_page(cacheh, successor, TRUE, PAGE_TYPE_BLOB);
+   page_handle *page = &acquired_page;
+   platform_assert(page_handle_data(page)[0] == 'B');
    cache_unget(cacheh, page);
 
    /* Retain the original allocator for normal metadata-based test cleanup. */
@@ -2310,6 +2320,141 @@ test_log_recovery_reused_successor(clockcache        *cc,
    shard_log_dec_ref(cacheh, &old_head);
    shard_log_dec_ref(cacheh, &live_head);
    merge_accumulator_deinit(&msg);
+}
+
+
+static cache_range_is_readable_fn blob_test_saved_readable;
+static uint64                     blob_test_missing_page;
+
+static platform_status
+blob_test_range_is_readable(cache  *cc,
+                            uint64  addr,
+                            uint64  bytes,
+                            bool32 *readable)
+{
+   if (addr <= blob_test_missing_page && blob_test_missing_page - addr < bytes)
+   {
+      *readable = FALSE;
+      return STATUS_OK;
+   }
+   return blob_test_saved_readable(cc, addr, bytes, readable);
+}
+
+static void
+test_log_indirect_blob_recovery(clockcache        *cc,
+                                clockcache_config *cache_cfg,
+                                io_handle         *io,
+                                rc_allocator      *al,
+                                shard_log_config  *cfg,
+                                platform_heap_id   hid)
+{
+   cache      *cacheh = (cache *)cc;
+   log_handle *log;
+   platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &log));
+   log_head head       = log_get_head(log);
+   char     key_data[] = "indirect-recovery";
+   key      skey       = key_create(FALSE, sizeof(key_data) - 1, key_data);
+   message  small =
+      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(2, "ok"));
+   platform_assert(log_write(log, skey, small, 0, 0) == 0);
+   platform_assert_status_ok(log_make_durable(log));
+   merge_accumulator value;
+   merge_accumulator_init(&value, hid);
+   uint64 length =
+      (cache_page_size(cacheh) / sizeof(uint64) + 2) * cache_extent_size(cacheh)
+      + 17;
+   platform_assert(merge_accumulator_resize(&value, length));
+   merge_accumulator_set_class(&value, MESSAGE_TYPE_INSERT);
+   memset(merge_accumulator_data(&value), 'B', length);
+   platform_assert(
+      log_write(log, skey, merge_accumulator_to_message(&value), 1, 0) == 0);
+   platform_assert_status_ok(log_make_durable(log));
+   platform_assert(log_write(log, skey, small, 2, 0) == 0);
+   platform_assert_status_ok(log_seal(log));
+   log_deinit(log);
+   platform_assert_status_ok(cache_writeback_dirty(cacheh));
+   platform_assert_status_ok(cache_durable_barrier(cacheh));
+   log_iterator *iter;
+   platform_assert_status_ok(
+      shard_log_iterator_create(cacheh, cfg, hid, head, 0, &iter));
+   platform_assert_status_ok(log_iterator_next(iter));
+   key     returned_key;
+   message msg;
+   log_iterator_curr(iter, &returned_key, &msg);
+   parsed_blob parsed;
+   platform_assert_status_ok(
+      blob_parse_descriptor(cacheh, message_slice(msg), &parsed));
+   platform_assert(parsed.height == 2);
+   uint64 root = parsed.base->addrs[0];
+   log_iterator_deinit(iter);
+   merge_accumulator_deinit(&value);
+
+   for (uint64 mode = 0; mode < 4; mode++) {
+      clockcache_deinit(cc);
+      rc_allocator recovery;
+      platform_assert_status_ok(rc_allocator_mount(
+         &recovery, al->cfg, io, hid, platform_get_module_id()));
+      platform_assert_status_ok(
+         allocator_recovery_begin((allocator *)&recovery));
+      platform_assert_status_ok(clockcache_init(cc,
+                                                cache_cfg,
+                                                io,
+                                                (allocator *)&recovery,
+                                                "indirect-blob-recovery",
+                                                hid,
+                                                platform_get_module_id()));
+      const cache_ops *saved     = cacheh->ops;
+      cache_ops        fault_ops = *saved;
+      if (mode != 0) {
+         blob_test_saved_readable = saved->range_is_readable;
+         blob_test_missing_page =
+            root + (mode == 1 ? 0 : cache_page_size(cacheh));
+         fault_ops.range_is_readable = blob_test_range_is_readable;
+         cacheh->ops                 = &fault_ops;
+      }
+      uint64 first_needed = mode == 3 ? 2 : 0;
+      uint64 first_invalid;
+      platform_assert_status_ok(shard_log_recover_allocations_from(
+         cacheh, cfg, head, first_needed, &first_invalid));
+      cacheh->ops = saved;
+      platform_assert(first_invalid
+                      == ((mode == 1 || mode == 2) ? 2 : UINT64_MAX));
+      allocator_recovery_finish((allocator *)&recovery);
+      /* The missing page is readable again now. The remembered cutoff must
+       * still reject the blob, whose remaining children were never protected.
+       */
+      platform_assert_status_ok(shard_log_iterator_create_recovered(
+         cacheh, cfg, hid, head, first_needed, first_invalid, &iter));
+      platform_assert(log_iterator_stream_complete(iter)
+                      == (mode == 0 || mode == 3));
+      uint64 count = 0;
+      while (log_iterator_can_next(iter)) {
+         uint64 generation, leaf_generation;
+         log_iterator_curr_generations(iter, &generation, &leaf_generation);
+         platform_assert(generation == (mode == 3 ? 2 : count));
+         count++;
+         platform_assert_status_ok(log_iterator_next(iter));
+      }
+      platform_assert(count == (mode == 0 ? 3 : 1));
+      log_iterator_deinit(iter);
+      platform_assert_status_ok(cache_evict(cacheh, FALSE));
+      /* An empty root-only rebuild releases the partial discovery, too. */
+      platform_assert_status_ok(
+         allocator_recovery_begin((allocator *)&recovery));
+      allocator_recovery_finish((allocator *)&recovery);
+      platform_assert(allocator_get_refcount((allocator *)&recovery, root)
+                      == AL_FREE);
+      clockcache_deinit(cc);
+      rc_allocator_deinit(&recovery);
+      platform_assert_status_ok(clockcache_init(cc,
+                                                cache_cfg,
+                                                io,
+                                                (allocator *)al,
+                                                "after-indirect-blob-recovery",
+                                                hid,
+                                                platform_get_module_id()));
+   }
+   shard_log_dec_ref(cacheh, &head);
 }
 
 typedef struct test_log_thread_params {
@@ -3042,6 +3187,9 @@ log_test(int argc, char *argv[])
    platform_assert(rc == 0);
 
    test_log_recovery_reused_successor(
+      cc, &system_cfg.cache_cfg, io, &al, &system_cfg.log_cfg, hid);
+
+   test_log_indirect_blob_recovery(
       cc, &system_cfg.cache_cfg, io, &al, &system_cfg.log_cfg, hid);
 
    rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);

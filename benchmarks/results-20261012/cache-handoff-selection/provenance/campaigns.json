@@ -1,0 +1,24 @@
+[
+  {
+    "mode": "resident",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/handoff_selection_compare.py",
+      "resident"
+    ],
+    "started": 1791870734.654879,
+    "returncode": 0,
+    "finished": 1791870911.4794621
+  },
+  {
+    "mode": "disk",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/handoff_selection_compare.py",
+      "disk"
+    ],
+    "started": 1791870911.4796512,
+    "returncode": 0,
+    "finished": 1791870988.322495
+  }
+]

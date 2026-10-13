@@ -93,3 +93,29 @@ information are retained in
 [`benchmarks/results-20261011`](../benchmarks/results-20261011).
 The earlier single-owner loop was superseded because it could follow a
 continuously advancing target. Its measurements are not used in this table.
+
+## Integration with main on 2026-10-13
+
+Merged `origin/main` at `7bb5fab305b9c6179e31f75998dabea833537a08`,
+including caller-owned, fallible, transferable cache handles and multilevel
+blobs. Configuration merges retain both the group threshold and the blob
+descriptor-size limit. Threshold behavior, logical blob-page accounting, and
+fixed-target automatic durability ownership remain unchanged.
+
+The process-exit regression now also writes four 8 MiB blobs with a 128-byte
+descriptor limit, forcing blob pointer pages. The child exits without close,
+checkpoint, or a manual barrier; reopening verifies every value. The existing
+small-record and flat-blob cases remain covered.
+
+Debug and release each passed 87 unit cases (37 core, 49 public quick, and
+one process-exit regression with three data shapes). Each mode also passed
+the functional log suite, including recovery of 500,000/500,000 entries.
+Debug additionally exercises deterministic bounded automatic waits, competing
+manual cuts, and retirement with live durability tickets. Core coverage
+includes injected durability failure/retry, cache read failures, large blob
+trees and iterator handoff. Both builds and the release benchmark targets
+succeeded. Commands, source/binary hashes, counts and raw logs are retained
+in the collection's `coordination/main-7bb5fab/log-group-limit` directory.
+
+The earlier performance table describes the pre-merge revision. It does not
+measure this integration or establish that the 64-page default is neutral.

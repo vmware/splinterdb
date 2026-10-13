@@ -1,0 +1,9 @@
+Benchmark database storage: ext4 /dev/mapper/snafu-root_crypt[/home/rob/projects/splinterdb] /home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-mainmerge
+Starting handoff-mainmerge-point8-repeat benchmark
+handoff-mainmerge resident 1 / 4 merged
+handoff-mainmerge resident 2 / 4 before
+handoff-mainmerge resident 3 / 4 before
+handoff-mainmerge resident 4 / 4 merged
+point:uniform@8 before 4891408.8 ops/s [4651143.1,5131674.4], +0.00%, CPUeff +0.00%
+point:uniform@8 merged 4994298.4 ops/s [4907728.7,5080868.1], +2.10%, CPUeff +2.10%
+Completed /home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-mainmerge/resident-point8-repeat20

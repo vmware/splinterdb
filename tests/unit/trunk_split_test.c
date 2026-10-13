@@ -168,7 +168,7 @@ static uint64           split_test_fail_get_addr;
 static uint64           split_test_failures;
 
 static page_handle *
-split_test_page_alloc(cache *cc, uint64 addr, page_type type)
+split_test_page_alloc(cache *cc, uint64 addr, page_type type, page_handle *page)
 {
    if (type == PAGE_TYPE_TRUNK
        && ++split_test_alloc_calls == split_test_fail_alloc_at)
@@ -176,17 +176,22 @@ split_test_page_alloc(cache *cc, uint64 addr, page_type type)
       split_test_failures++;
       return NULL;
    }
-   return split_test_real_ops->page_alloc(cc, addr, type);
+   return split_test_real_ops->page_alloc(cc, addr, type, page);
 }
 
-static page_handle *
-split_test_page_get(cache *cc, uint64 addr, bool32 blocking, page_type type)
+static platform_status
+split_test_page_get(cache       *cc,
+                    uint64       addr,
+                    bool32       blocking,
+                    page_type    type,
+                    page_handle *page)
 {
    if (type == PAGE_TYPE_BRANCH && addr == split_test_fail_get_addr) {
       split_test_failures++;
-      return NULL;
+      *page = (page_handle){0};
+      return STATUS_IO_ERROR;
    }
-   return split_test_real_ops->page_get(cc, addr, blocking, type);
+   return split_test_real_ops->page_get(cc, addr, blocking, type, page);
 }
 
 CTEST2(trunk_split, root_growth_allocation_failure_preserves_ownership)

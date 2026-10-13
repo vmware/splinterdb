@@ -37,9 +37,10 @@ typedef struct ONDISK trunk_async_test_pivot {
 } trunk_async_test_pivot;
 
 typedef struct trunk_async_test_cache {
-   cache        super;
-   page_handle *pivot_page;
-   uint64       async_calls;
+   cache           super;
+   page_handle    *pivot_page;
+   uint64          async_calls;
+   platform_status result;
 } trunk_async_test_cache;
 
 typedef struct trunk_async_test_get_state {
@@ -92,7 +93,7 @@ trunk_async_test_get_init(void             *payload,
                           void             *callback_arg)
 {
    trunk_async_test_cache *test_cc = (trunk_async_test_cache *)cc;
-   platform_assert(addr == test_cc->pivot_page->disk_addr);
+   platform_assert(addr == page_handle_addr(test_cc->pivot_page));
    platform_assert(type == PAGE_TYPE_TRUNK);
    trunk_async_test_get_state *state = payload;
    state->cc                         = test_cc;
@@ -107,11 +108,14 @@ trunk_async_test_get_async(void *payload)
    return state->calls++ == 0 ? ASYNC_STATUS_RUNNING : ASYNC_STATUS_DONE;
 }
 
-static page_handle *
-trunk_async_test_get_result(void *payload)
+static platform_status
+trunk_async_test_get_result(void *payload, page_handle *page)
 {
    trunk_async_test_get_state *state = payload;
-   return state->cc->pivot_page;
+   if (SUCCESS(state->cc->result)) {
+      *page = *state->cc->pivot_page;
+   }
+   return state->cc->result;
 }
 
 static const cache_ops trunk_async_test_cache_ops = {
@@ -139,41 +143,47 @@ trunk_async_test_resume_on_fresh_stack(void *arg)
    platform_assert(stack_clobber[0] == 0);
 }
 
-CTEST(trunk_async, pivot_header_survives_cross_thread_yield)
+static void
+trunk_async_test_pivot_lookup(bool32 fail)
 {
    platform_register_thread();
 
    uint64 header_words[TRUNK_ASYNC_TEST_PAGE_SIZE / sizeof(uint64)] = {0};
    uint64 pivot_words[TRUNK_ASYNC_TEST_PAGE_SIZE / sizeof(uint64)]  = {0};
 
-   page_handle header_page = {
+   cache_page header_identity = {
       .data      = (char *)header_words,
       .disk_addr = TRUNK_ASYNC_TEST_HEADER_ADDR,
    };
-   page_handle pivot_page = {
+   cache_page pivot_identity = {
       .data      = (char *)pivot_words,
       .disk_addr = TRUNK_ASYNC_TEST_HEADER_ADDR + TRUNK_ASYNC_TEST_PAGE_SIZE,
    };
-   trunk_async_test_cache test_cc = {
-      .super      = {.ops = &trunk_async_test_cache_ops},
-      .pivot_page = &pivot_page,
+   page_handle            header_page = {.page = &header_identity};
+   page_handle            pivot_page  = {.page = &pivot_identity};
+   trunk_async_test_cache test_cc     = {
+          .super      = {.ops = &trunk_async_test_cache_ops},
+          .pivot_page = &pivot_page,
+          .result     = fail ? STATUS_TIMEDOUT : STATUS_OK,
    };
 
-   trunk_async_test_node *header = (trunk_async_test_node *)header_page.data;
-   header->height                = 0;
-   header->num_pivots            = 2;
-   header->pivot_offsets[0]      = TRUNK_ASYNC_TEST_PAGE_SIZE;
-   header->pivot_offsets[1]      = 2 * TRUNK_ASYNC_TEST_PAGE_SIZE;
+   trunk_async_test_node *header =
+      (trunk_async_test_node *)page_handle_data(&header_page);
+   header->height           = 0;
+   header->num_pivots       = 2;
+   header->pivot_offsets[0] = TRUNK_ASYNC_TEST_PAGE_SIZE;
+   header->pivot_offsets[1] = 2 * TRUNK_ASYNC_TEST_PAGE_SIZE;
 
-   trunk_async_test_pivot *pivot = (trunk_async_test_pivot *)pivot_page.data;
-   pivot->key.flags              = ONDISK_KEY_DEFAULT_FLAGS;
-   pivot->key.length             = 0;
+   trunk_async_test_pivot *pivot =
+      (trunk_async_test_pivot *)page_handle_data(&pivot_page);
+   pivot->key.flags  = ONDISK_KEY_DEFAULT_FLAGS;
+   pivot->key.length = 0;
 
    trunk_ondisk_node_handle handle = {
       .cc          = &test_cc.super,
       .page_size   = TRUNK_ASYNC_TEST_PAGE_SIZE,
       .extent_size = TRUNK_ASYNC_TEST_EXTENT_SIZE,
-      .header_page = &header_page,
+      .header_page = header_page,
    };
    trunk_context context = {
       .cc = &test_cc.super,
@@ -209,10 +219,20 @@ CTEST(trunk_async, pivot_header_survives_cross_thread_yield)
    ASSERT_TRUE(SUCCESS(rc));
 
    ASSERT_EQUAL(ASYNC_STATUS_DONE, resume.status);
-   ASSERT_TRUE(SUCCESS(async_result(&state)));
+   ASSERT_TRUE(STATUS_IS_EQ(async_result(&state), test_cc.result));
    ASSERT_EQUAL(2, test_cc.async_calls);
 
    trunk_ondisk_node_handle_deinit(&handle);
    lookup_result_deinit(&result);
    platform_deregister_thread();
+}
+
+CTEST(trunk_async, pivot_header_survives_cross_thread_yield)
+{
+   trunk_async_test_pivot_lookup(FALSE);
+}
+
+CTEST(trunk_async, pivot_read_error_survives_cross_thread_yield)
+{
+   trunk_async_test_pivot_lookup(TRUE);
 }

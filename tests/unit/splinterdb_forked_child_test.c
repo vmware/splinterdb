@@ -14,6 +14,7 @@
  * -----------------------------------------------------------------------------
  */
 #include <fcntl.h>
+#include <stdlib.h>
 #include <sys/wait.h>
 
 #include "splinterdb/default_data_config.h"
@@ -92,21 +93,26 @@ CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
 {
    data_config dcfg;
    default_data_config_init(&dcfg);
-   for (unsigned large = 0; large < 2; large++) {
+   for (unsigned variant = 0; variant < 3; variant++) {
       splinterdb_config cfg = {
          .filename                   = data->master_cfg.io_filename,
          .cache_size                 = 64 * Mega,
          .disk_size                  = 4 * Giga,
          .data_cfg                   = &dcfg,
          .use_log                    = TRUE,
-         .log_group_size_pages       = large ? 0 : 1,
+         .log_group_size_pages       = variant ? 0 : 1,
+         .blob_max_descriptor_size   = variant == 2 ? 128 : 0,
          .checkpoint_log_size_bytes  = UINT64_MAX,
          .checkpoint_log_grace_bytes = UINT64_MAX,
       };
-      const uint64 count      = large ? 4 : 32;
-      const uint64 value_size = large ? 64 * 4096 + 1 : 128;
-      char         value[64 * 4096 + 1];
-      pid_t        child = fork();
+      const uint64 count = variant ? 4 : 32;
+      /* The final case exceeds a 128-byte descriptor's direct extent array,
+       * so automatic durability must include blob pointer pages as well. */
+      const uint64 value_sizes[] = {128, 64 * 4096 + 1, 8 * Mega + 1};
+      const uint64 value_size    = value_sizes[variant];
+      char        *value         = malloc(value_size);
+      ASSERT_NOT_NULL(value);
+      pid_t child = fork();
       ASSERT_TRUE(child >= 0);
       if (child == 0) {
          cfg.io_flags = O_RDWR | O_CREAT | O_TRUNC;
@@ -148,6 +154,7 @@ CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
       }
       splinterdb_lookup_result_deinit(&result);
       ASSERT_EQUAL(0, splinterdb_close(&db, FALSE));
+      free(value);
    }
 }
 

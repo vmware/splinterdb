@@ -1,0 +1,41 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 127K of event 'cpu_core/cycles/u'
+# Event count (approx.): 312312597038
+#
+# Overhead  Symbol                                                     IPC   [IPC Coverage]
+# ........  .........................................................  ....................
+#
+    16.68%  [.] 0x0000000000163353                                     -      -            
+    12.63%  [.] clockcache_try_get_read.constprop.0                    -      -            
+    10.47%  [.] btree_find_pivot_checked.lto_priv.0                    -      -            
+     9.41%  [.] btree_find_tuple_checked.lto_priv.0                    -      -            
+     3.73%  [.] clockcache_unget_virtual                               -      -            
+     2.98%  [.] key_compare                                            -      -            
+     2.84%  [.] btree_lookup_node_async.constprop.0                    -      -            
+     2.43%  [.] clockcache_get_internal_async.constprop.0              -      -            
+     2.29%  [.] find_btree_node_and_get_idx_bounds_async.constprop.0   -      -            
+     2.17%  [.] 0x00000000001621f8                                     -      -            
+     2.17%  [.] btree_node_read_header.isra.0                          -      -            
+     2.09%  [.] core_range_iterator_init                               -      -            
+     2.07%  [.] 0x0000000000162419                                     -      -            
+     1.99%  [.] rc_allocator_dec_ref_virtual                           -      -            
+     1.92%  [.] btree_iterator_init_async                              -      -            
+     1.82%  [.] rc_allocator_inc_ref_virtual                           -      -            
+     1.81%  [.] 0x000000000016241d                                     -      -            
+     1.52%  [.] merge_comp                                             -      -            
+     1.29%  [.] clockcache_get_in_cache_async.constprop.0              -      -            
+     1.26%  [.] merge_iterator_create                                  -      -            
+     0.99%  [.] setup_ordered_iterators                                -      -            
+     0.91%  [.] 0x00000000001624c7                                     -      -            
+     0.63%  [.] __vdso_clock_gettime                                   -      -            
+     0.53%  [.] 0x0000000000162b87                                     -      -            
+     0.52%  [.] 0x00000000001621f4                                     -      -            
+
+
+#
+# (Tip: To record every process run by a user: perf record -u <user>)
+#

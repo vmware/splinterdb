@@ -1,0 +1,8 @@
+
+ cache-handoff/disk-log0-prefetch-guard
+phase | baseline mean [min,max] ops/s | candidate mean [min,max] ops/s | delta | p99 us B/C | CPU efficiency delta | read bytes/op B/C
+range:uniform:1@1 | 11441.2 [11309.0,11573.5] | 10953.4 [10790.8,11116.0] | -4.26% | 155.648/159.744 | -4.18% | 26787/26791
+range:uniform:1@8 | 61332.2 [60603.5,62061.0] | 57580.2 [55675.0,59485.3] | -6.12% | 243.712/275.456 | -5.91% | 26844/26818
+range:uniform:10000@1 | 129.1 [128.4,129.8] | 127.1 [125.6,128.6] | -1.55% | 17825.792/18087.936 | -0.19% | 2955318/2955835
+range:uniform:10000@8 | 738.2 [737.8,738.6] | 708.4 [692.6,724.2] | -4.04% | 24379.392/28573.696 | -2.07% | 2844890/2870302
+samples 20 errors 0 violations 0

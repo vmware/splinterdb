@@ -1,0 +1,73 @@
+[
+  {
+    "name": "release-writeback",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/release/bin/unit/writeback_set_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-release-writeback",
+    "started": 1791872608.408826,
+    "returncode": 0,
+    "finished": 1791872609.8275616,
+    "tests": 16,
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "name": "release-quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/release/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-release-quick",
+    "started": 1791872609.8280106,
+    "returncode": 0,
+    "finished": 1791872618.969267,
+    "tests": 49,
+    "passed": 49,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "name": "asan-writeback",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug-asan/bin/unit/writeback_set_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-asan-writeback",
+    "started": 1791872618.969604,
+    "returncode": 0,
+    "finished": 1791872620.6384993,
+    "tests": 16,
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "name": "asan-quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug-asan/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-asan-quick",
+    "started": 1791872620.6388502,
+    "returncode": 0,
+    "finished": 1791872640.15408,
+    "tests": 49,
+    "passed": 49,
+    "failed": 0,
+    "skipped": 0
+  },
+  {
+    "name": "asan-blob",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug-asan/bin/unit/splinter_test",
+      "test_blob_"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-asan-blob",
+    "started": 1791872640.1545525,
+    "returncode": 0,
+    "finished": 1791872644.1300845,
+    "tests": 4,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0
+  }
+]

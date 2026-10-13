@@ -1,0 +1,2 @@
+*.csv whitespace=cr-at-eol
+*.patch -whitespace

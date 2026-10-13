@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "config.h"
+#include "blob_build.h"
 #include "platform_units.h"
 #include "platform_buffer.h"
 #include "platform_heap.h"
@@ -80,6 +81,7 @@ config_set_defaults(master_config *cfg)
       .allocator_capacity       = GiB_TO_B(TEST_CONFIG_DEFAULT_DISK_SIZE_GB),
       .cache_capacity           = GiB_TO_B(TEST_CONFIG_DEFAULT_CACHE_SIZE_GB),
       .btree_rough_count_height = 1,
+      .blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE,
       .filter_hash_size    = TEST_CONFIG_DEFAULT_FILTER_HASH_SIZE,
       .filter_log_index_size        = TEST_CONFIG_DEFAULT_FILTER_LOG_INDEX_SIZE,
       .use_log                  = FALSE,
@@ -116,6 +118,7 @@ void
 config_usage()
 {
    platform_error_log("\nConfiguration: (default)\n");
+   platform_error_log("\t--blob-max-descriptor-size (512 bytes)\n");
    platform_error_log("\t--page-size (%d)\n", TEST_CONFIG_DEFAULT_PAGE_SIZE);
    platform_error_log("\t--extent-size (%d)\n",
                       TEST_CONFIG_DEFAULT_EXTENT_SIZE);
@@ -397,6 +400,10 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_gib("prefetch-budget", cfg, prefetch_budget) {}
          config_set_uint64("prefetch-budget-bytes", cfg, prefetch_budget) {}
          config_set_uint64("log-group-size-pages", cfg, log_group_size_pages) {}
+         config_set_uint64(
+            "blob-max-descriptor-size", cfg, blob_max_descriptor_size)
+         {
+         }
          config_set_mib("checkpoint-log-size", cfg, checkpoint_log_size) {}
          config_set_gib("checkpoint-log-size", cfg, checkpoint_log_size) {}
          config_set_uint64(
