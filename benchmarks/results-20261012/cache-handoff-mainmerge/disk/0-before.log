@@ -1,0 +1,22 @@
+kvbench version=before splinter=splinterdb_build_version f0641f9f-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-mainmerge/disk/probe.db mode=open n=2000000 cache_mib=64 disk_gib=8 log=0 threads=8 mt_bg=1 normal_bg=3 memtable_mib=4 secs=10.0 warmup=1.0 rep=0 sabotage=0
+open took 0.005 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=2000000    secs=   0.10 ops/s=   19800858  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.60s ops/cpu-s=3309505 rd=138.7 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+  [point:uniform@8] progress 2161935 ops (+216181 ops/s)
+   found=1996593 notfound=0
+== point:uniform@8        T=8  ops=1996593    secs=  10.00 ops/s=     199656  lat us p50=47.62 p99=74.75 p99.9=101.38 max=1609.3 mean=40.03
+   cpu=10.95s ops/cpu-s=182315 rd=3223.4 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 683373 ops (+1844552077783739904 ops/s)
+== range:uniform:1@8      T=8  ops=691039     secs=  10.00 ops/s=      69102  lat us p50=115.71 p99=202.75 p99.9=247.81 max=4237.9 mean=115.70
+   cpu=85.51s ops/cpu-s=8082 rd=26839.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=115.71 p99=202.75 mean=114.76  per-tuple=nan ns  deinit mean=0.90 us  tuples/s=69102
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:10000@8] progress 6884 ops (+1844558807210336512 ops/s)
+close took 0.066 s
+== range:uniform:10000@8  T=8  ops=7797       secs=  10.00 ops/s=        780  lat us p50=10616.83 p99=22282.24 p99.9=25427.97 max=27028.0 mean=10257.72
+   cpu=28.66s ops/cpu-s=272 rd=2887644.8 B/op wr=0.5 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=243.71 p99=778.24 mean=276.42  per-tuple=999.4 ns  deinit mean=1.31 us  tuples/s=7782153
+   insert/run=10.00s drain(close)=0.07s total=10.07s drain_cpu=0.01s drain_rd=0 drain_wr=274432 wamp=nan db_apparent=2998669312 db_alloc=629567488

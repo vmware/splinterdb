@@ -1,0 +1,339 @@
+Running 20 CTests, suite name 'all', test case 'all'.
+TEST 1/206 btree_stress:iterator_basics [OK]
+TEST 2/206 btree_stress:insert_callback_failure_abandons_insert [OK]
+TEST 3/206 btree_stress:insert_callback_failure_after_root_growth [OK]
+TEST 4/206 btree_stress:insert_rebuild_failure_releases_parent_claim [OK]
+TEST 5/206 btree_stress:test_random_inserts_concurrent [OK]
+TEST 6/206 btree_stress:overwrite_returns_old_value_after_tree_growth [OK]
+TEST 7/206 btree_stress:iterator_endpoint_error_is_returned_by_init [OK]
+TEST 8/206 btree_stress:count_in_range_returns_lookup_error [OK]
+TEST 9/206 btree_stress:copied_iterator_bounds [OK]
+TEST 10/206 btree_stress:copied_iterator_split_on_release [OK]
+TEST 11/206 btree_stress:copied_iterator_prefetch [OK]
+TEST 12/206 btree:test_leaf_hdr [OK]
+TEST 13/206 btree:test_leaf_hdr_search [OK]
+TEST 14/206 btree:test_index_hdr [OK]
+TEST 15/206 btree:test_index_hdr_search [OK]
+TEST 16/206 btree:test_leaf_split [OK]
+TEST 17/206 btree:test_defragmented_leaf_bytes [OK]
+TEST 18/206 btree:test_defragmented_index_bytes [OK]
+TEST 19/206 limitations:test_io_init_invalid_page_size [OK]
+TEST 20/206 limitations:test_io_init_invalid_extent_size [OK]
+TEST 21/206 limitations:test_splinterdb_create_invalid_task_system_config [OK]
+TEST 22/206 limitations:test_splinterdb_create_invalid_cache_size [OK]
+TEST 23/206 limitations:test_splinterdb_create_invalid_fanout [OK]
+TEST 24/206 limitations:test_splinterdb_create_invalid_memtable_capacity [OK]
+TEST 25/206 limitations:test_memtable_capacity_rounds_up_to_one_extent [OK]
+TEST 26/206 limitations:test_splinterdb_create_invalid_data_callbacks [OK]
+TEST 27/206 limitations:test_allocation_exhaustion_returns_error [OK]
+TEST 28/206 limitations:test_runtime_allocation_exhaustion_returns_error [OK]
+TEST 29/206 limitations:test_splinterdb_create_invalid_filter_config [OK]
+TEST 30/206 limitations:test_splinterdb_create_invalid_page_size [OK]
+TEST 31/206 limitations:test_splinterdb_create_invalid_extent_size [OK]
+TEST 32/206 limitations:test_create_zero_disk_size [OK]
+TEST 33/206 limitations:test_create_zero_extent_capacity [OK]
+TEST 34/206 limitations:test_disk_size_not_integral_multiple_of_page_size [OK]
+TEST 35/206 limitations:test_disk_size_not_integral_multiple_of_extents [OK]
+TEST 36/206 limitations:test_zero_cache_size [OK]
+TEST 37/206 limitations:test_file_error_returns [OK]
+TEST 38/206 limitations:test_oversized_paths_return_bad_param [OK]
+TEST 39/206 merge:direction_change_propagates_child_errors [OK]
+TEST 40/206 merge:direction_change_succeeds [OK]
+TEST 41/206 merge:failed_direction_change_preserves_iterator_ownership [OK]
+TEST 42/206 merge:failed_creation_cleans_up [OK]
+TEST 43/206 merge:maximum_arity_is_accepted [OK]
+TEST 44/206 merge:direction_change_clears_stale_equal_key_flag [OK]
+TEST 45/206 merge:direction_change_at_duplicate_key_moves_to_adjacent_key [OK]
+TEST 46/206 merge:random_direction_changes_match_merged_sequence [OK]
+TEST 47/206 misc:test_histogram_bucket_boundaries [OK]
+TEST 48/206 misc:test_assert_basic_msg [OK]
+TEST 49/206 misc:test_assert_msg_with_args [OK]
+TEST 50/206 misc:test_ctest_assert_prints_user_msg_with_params [OK]
+TEST 51/206 misc:test_bytes_to_fractional_value_macros [OK]
+TEST 52/206 misc:test_size_to_str [OK]
+TEST 53/206 platform_api:test_platform_buffer_init [OK]
+TEST 54/206 platform_api:test_platform_buffer_init_fails_for_very_large_length [OK]
+TEST 55/206 platform_api:test_memory_fault_range [SKIPPED]
+TEST 56/206 platform_api:test_memory_fault_random_respects_max_failures [SKIPPED]
+TEST 57/206 platform_api:test_platform_semaphore_init_destroy [OK]
+TEST 58/206 platform_api:test_platform_spinlock_init_destroy [OK]
+TEST 59/206 platform_api:test_platform_mutex_init_destroy [OK]
+TEST 60/206 platform_api:test_platform_condvar_init_destroy [OK]
+TEST 61/206 platform_threads:test_forked_child_pid_slots_are_reused [OK]
+TEST 62/206 platform_threads:test_forked_child_auto_cleanup_reuses_tid_and_pid_slots [OK]
+TEST 63/206 shmalloc:stress_test Child 397 created
+Failed allocations: 66164
+Failed allocations: 82462
+Failed allocations: 81688
+Failed allocations: 83579
+Child 397 completed
+Child 395 created
+Failed allocations: 67983
+Failed allocations: 81986
+Failed allocations: 81741
+Failed allocations: 79222
+Child 395 completed
+Child 396 created
+Failed allocations: 80406
+Failed allocations: 78583
+Failed allocations: 79306
+Failed allocations: 76013
+Child 396 completed
+Failed allocations: 65472
+Failed allocations: 68211
+Failed allocations: 79715
+Failed allocations: 76910
+[OK]
+TEST 64/206 splinterdb_optimize:test_blocking_full_range [OK]
+TEST 65/206 splinterdb_optimize:test_blocking_without_full_leaf_compactions [OK]
+TEST 66/206 splinterdb_optimize:test_blocking_with_no_background_threads [OK]
+TEST 67/206 splinterdb_optimize:test_merge_can_grow_and_shrink_values [OK]
+TEST 68/206 splinterdb_optimize:test_open_reads_disk_geometry [OK]
+TEST 69/206 splinterdb_optimize:test_polling_subrange [OK]
+TEST 70/206 splinterdb_optimize:test_concurrent_overlapping_ranges [OK]
+TEST 71/206 splinterdb_quick:test_get_config_returns_effective_config [OK]
+TEST 72/206 splinterdb_quick:test_get_cost_stats [OK]
+TEST 73/206 splinterdb_quick:test_checkpoint_log_grace_default [OK]
+TEST 74/206 splinterdb_quick:test_durable_barrier [OK]
+TEST 75/206 splinterdb_quick:test_logged_large_value_replaces_old_value [OK]
+TEST 76/206 splinterdb_quick:test_basic_flow [OK]
+TEST 77/206 splinterdb_quick:test_pthread_auto_registration [OK]
+TEST 78/206 splinterdb_quick:test_result_auto_registration_with_stats [OK]
+TEST 79/206 splinterdb_quick:test_stats_reset_clears_cache_io [OK]
+TEST 80/206 splinterdb_quick:test_final_merge_error_propagation [OK]
+TEST 81/206 splinterdb_quick:test_fetch_and_update_catches_up_after_rotation [OK]
+TEST 82/206 splinterdb_quick:test_fetch_and_update_rejects_incorporated_boundary [OK]
+TEST 83/206 splinterdb_quick:test_range_init_error_cleanup_preserves_branches setup_ordered_iterators: exception: Cannot allocate memory
+core_apply_to_range: range iterator init failed: Cannot allocate memory
+[OK]
+TEST 84/206 splinterdb_quick:stats_reset_excludes_active_operations [OK]
+TEST 85/206 splinterdb_quick:test_apis_for_large_key [OK]
+TEST 86/206 splinterdb_quick:test_key_size_gt_max_inline_key_size [OK]
+TEST 87/206 splinterdb_quick:test_value_size_gt_max_value_size [OK]
+TEST 88/206 splinterdb_quick:test_large_lookup_survives_memtable_recycle [OK]
+TEST 89/206 splinterdb_quick:test_iterator_survives_memtable_recycle [OK]
+TEST 90/206 splinterdb_quick:test_variable_length_values [OK]
+TEST 91/206 splinterdb_quick:test_basic_iterator [OK]
+TEST 92/206 splinterdb_quick:test_iterator_delete_current [OK]
+TEST 93/206 splinterdb_quick:test_empty_iterator [OK]
+TEST 94/206 splinterdb_quick:test_bounded_iterator [OK]
+TEST 95/206 splinterdb_quick:test_bounded_iterator_start_normalization [OK]
+TEST 96/206 splinterdb_quick:test_splinterdb_iterator_with_startkey [OK]
+TEST 97/206 splinterdb_quick:test_splinterdb_iterator_with_non_existent_startkey [OK]
+TEST 98/206 splinterdb_quick:test_splinterdb_iterator_with_missing_startkey_in_sequence [OK]
+TEST 99/206 splinterdb_quick:test_iterator_prev_and_next [OK]
+TEST 100/206 splinterdb_quick:test_iterator_reversal_on_key_in_two_branches [OK]
+TEST 101/206 splinterdb_quick:test_iterator_reversal_with_three_branches [OK]
+TEST 102/206 splinterdb_quick:test_rewriting_keys_does_not_grow_trunk [OK]
+TEST 103/206 splinterdb_quick:test_close_and_reopen [OK]
+TEST 104/206 splinterdb_quick:test_logged_close_and_reopen [OK]
+TEST 105/206 splinterdb_quick:test_repeated_insert_close_reopen [OK]
+TEST 106/206 splinterdb_quick:test_custom_data_config [OK]
+TEST 107/206 splinterdb_quick:test_existence_only_memtable_lookup [OK]
+TEST 108/206 splinterdb_quick:test_existence_only_trunk_lookup_skips_branches [OK]
+TEST 109/206 splinterdb_quick:test_write_api_returns_old_value [OK]
+TEST 110/206 splinterdb_quick:test_write_api_old_result_existence_only [OK]
+TEST 111/206 splinterdb_quick:test_write_api_old_result_custom_merge_semantics [OK]
+TEST 112/206 splinterdb_quick:test_write_api_old_result_merges_memtable_and_trunk [OK]
+TEST 113/206 splinterdb_quick:test_write_api_old_result_respects_trunk_delete_shadow [OK]
+TEST 114/206 splinterdb_quick:test_iterator_custom_comparator [OK]
+TEST 115/206 splinterdb_quick:test_iterator_init_bug [OK]
+TEST 116/206 splinterdb_quick:test_splinterdb_create_w_background_threads [OK]
+TEST 117/206 splinterdb_quick:test_splinterdb_create_w_all_background_threads [OK]
+TEST 118/206 splinterdb_quick:test_iterator_thread_handoff [OK]
+TEST 119/206 splinterdb_quick:test_blob_tree_crash_recovery Running 1 CTests, suite name 'splinterdb_quick', test case 'test_blob_tree_crash_recovery'.
+TEST 1/1 splinterdb_quick:test_blob_tree_crash_recovery Running 1 CTests, suite name 'splinterdb_quick', test case 'test_blob_tree_crash_recovery'.
+TEST 1/1 splinterdb_quick:test_blob_tree_crash_recovery [OK]
+TEST 120/206 splinterdb_stress:test_random_inserts_concurrent [OK]
+TEST 121/206 splinterdb_stress:test_naive_range_delete [OK]
+TEST 122/206 splinterdb_stress:test_iterator_over_many_kvs [OK]
+TEST 123/206 splinterdb_stress:test_issue_458_mini_destroy_unused_debug_assert [SKIPPED]
+TEST 124/206 superblock:test_format_sets_fresh_state [OK]
+TEST 125/206 superblock:test_snapshot_persists_state [OK]
+TEST 126/206 superblock:test_two_log_checkpoint_transitions [OK]
+TEST 127/206 superblock:test_snapshot_preserves_unincorporated_sealed_log [OK]
+TEST 128/206 superblock:test_two_log_checkpoint_torn_begin [OK]
+TEST 129/206 superblock:test_torn_write_falls_back_to_older_generation [OK]
+TEST 130/206 superblock:test_generation_wrap_selects_newest_slot [OK]
+TEST 131/206 superblock:test_both_slots_corrupt_is_not_found superblock_mount: no valid superblock found
+[OK]
+TEST 132/206 superblock:test_mount_rejects_invalid_metadata superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+[OK]
+TEST 133/206 superblock:test_slot_read_error_falls_back_to_peer [OK]
+TEST 134/206 superblock:test_both_slot_read_errors_are_reported superblock_mount: no readable valid superblock found: Input/output error
+[OK]
+TEST 135/206 superblock:test_read_geometry superblock_read_bootstrap: no valid superblock found
+[OK]
+TEST 136/206 superblock:test_read_bootstrap_allocation_state superblock_read_bootstrap: no valid superblock found
+[OK]
+TEST 137/206 superblock:test_bootstrap_geometry_metadata_budget Device geometry needs 134217728 bytes of cache lookup metadata, which exceeds the configured cache budget of 67108864 bytes.
+Failed to open existing SplinterDB device 'db' with specified configuration: No space left on device
+[OK]
+TEST 138/206 task_system:test_basic_create_destroy [OK]
+TEST 139/206 task_system:test_rejects_oversized_thread_counts Total number of background threads configured, normal_bg_threads=18446744073709551615, memtable_bg_threads=0, must be <= 63.
+Total number of background threads configured, normal_bg_threads=0, memtable_bg_threads=18446744073709551615, must be <= 63.
+Total number of background threads configured, normal_bg_threads=63, memtable_bg_threads=1, must be <= 63.
+[OK]
+TEST 140/206 task_system:test_one_thread_using_lower_apis [OK]
+TEST 141/206 task_system:test_one_thread_using_extern_apis [OK]
+TEST 142/206 task_system:test_max_threads_using_lower_apis [OK]
+TEST 143/206 task_system:test_task_system_creation_with_bg_threads [OK]
+TEST 144/206 task_system:test_use_all_but_one_threads_for_bg_threads [OK]
+TEST 145/206 trunk_async:pivot_header_survives_cross_thread_yield [OK]
+TEST 146/206 trunk_async:pivot_read_error_survives_cross_thread_yield trunk_ondisk_node_read_pivot_key_async():1459: ondisk_node_handle_setup_content_page() failed: Connection timed outtrunk_merge_lookup_async: ondisk_node_find_pivot_async failed: 110
+[OK]
+TEST 147/206 trunk_gc:deferred_parent_can_enqueue_busy_child [OK]
+TEST 148/206 trunk_split:duplicate_keys_produce_valid_leaves [OK]
+TEST 149/206 trunk_split:root_growth_allocation_failure_preserves_ownership trunk_node_serialize():2789: cache_alloc() failedserialize_nodes():2973: node_serialize() failedbuild_new_roots: serialize_nodes_and_enqueue_bundle_compactions failed: 12
+trunk_flush_prepare: build_new_roots failed: 12
+trunk_node_serialize():2789: cache_alloc() failedserialize_nodes():2973: node_serialize() failedbuild_new_roots: serialize_nodes_and_enqueue_bundle_compactions failed: 12
+trunk_flush_prepare: build_new_roots failed: 12
+trunk_node_serialize():2789: cache_alloc() failedserialize_nodes():2973: node_serialize() failedbuild_new_roots: serialize_nodes_and_enqueue_bundle_compactions failed: 12
+trunk_flush_prepare: build_new_roots failed: 12
+[OK]
+TEST 150/206 trunk_split:split_scan_propagates_io_error leaf_split_select_pivots: iterator_next failed: 5
+leaf_split: leaf_split_select_pivots failed: 5
+restore_balance_leaf: leaf_split failed: 5
+trunk_flush_prepare: flush_then_compact failed: 5
+[OK]
+TEST 151/206 util:test_debug_hex_encode [OK]
+TEST 152/206 vector:length [OK]
+TEST 153/206 vector:get [OK]
+TEST 154/206 vector:get_ptr [OK]
+TEST 155/206 vector:set [OK]
+TEST 156/206 vector:truncate [OK]
+TEST 157/206 vector:copy [OK]
+TEST 158/206 vector:append_empty_subvector [OK]
+TEST 159/206 vector:apply_generic_function [OK]
+TEST 160/206 vector:apply_generic_macro [OK]
+TEST 161/206 vector:apply_to_elts [OK]
+TEST 162/206 vector:apply_to_ptrs [OK]
+TEST 163/206 vector:map_elts [OK]
+TEST 164/206 vector:map_ptrs [OK]
+TEST 165/206 vector:map_elts_to_ptrs [OK]
+TEST 166/206 vector:map_elts_to_ptrs_fails_on_null VECTOR_MAP_ELTS_TO_PTRS: ptr_at_fail_after_5 returned NULL at index 5 from tests/unit/vector_test.c:258
+[OK]
+TEST 167/206 vector:fold_left_generic_function [OK]
+TEST 168/206 vector:fold_left_generic_macro [OK]
+TEST 169/206 vector:fold_right_generic_function [OK]
+TEST 170/206 vector:fold_right_generic_macro [OK]
+TEST 171/206 vector:fold_left_acc_elt [OK]
+TEST 172/206 vector:emplace_append_generic [OK]
+TEST 173/206 vector:emplace_append [OK]
+TEST 174/206 vector:emplace_map_generic [OK]
+TEST 175/206 vector:emplace_map_elts [OK]
+TEST 176/206 vector:emplace_map_ptrs [OK]
+TEST 177/206 writable_buffer:test_basic_empty_buffer [OK]
+TEST 178/206 writable_buffer:test_resize_empty_buffer [OK]
+TEST 179/206 writable_buffer:test_resize_empty_buffer_to_smaller [OK]
+TEST 180/206 writable_buffer:test_resize_empty_buffer_to_larger [OK]
+TEST 181/206 writable_buffer:test_basic_user_buffer [OK]
+TEST 182/206 writable_buffer:test_basic_user_buffer_with_length [OK]
+TEST 183/206 writable_buffer:test_resize_user_buffer_to_same_length [OK]
+TEST 184/206 writable_buffer:test_resize_user_buffer_to_smaller [OK]
+TEST 185/206 writable_buffer:test_resize_user_buffer_to_larger [OK]
+TEST 186/206 writable_buffer:test_basic_copy_slice [OK]
+TEST 187/206 writable_buffer:test_copy_slice_causing_resize_larger [OK]
+TEST 188/206 writable_buffer:test_writable_buffer_append [OK]
+TEST 189/206 writable_buffer:test_writable_buffer_append_empty [OK]
+TEST 190/206 writable_buffer:test_writable_buffer_append_beyond_orig_length [OK]
+TEST 191/206 writeback_set:test_rejected_page_submission clockcache_write_callback: async write failed: Input/output error
+writeback_set_wait: writeback of addr 1179648 failed
+[OK]
+TEST 192/206 writeback_set:test_rejected_extent_submissions clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+writeback_set_wait: writeback of addr 1179648 failed
+[OK]
+TEST 193/206 writeback_set:test_rejected_cleaner_submission clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_writeback_dirty: writeback of addr 1179648 failed
+clockcache_writeback_dirty: writeback of addr 1183744 failed
+clockcache_writeback_dirty: writeback of addr 1187840 failed
+clockcache_writeback_dirty: writeback of addr 1191936 failed
+clockcache_writeback_dirty: writeback of addr 1196032 failed
+clockcache_writeback_dirty: writeback of addr 1200128 failed
+clockcache_writeback_dirty: writeback of addr 1204224 failed
+clockcache_writeback_dirty: writeback of addr 1208320 failed
+clockcache_writeback_dirty: writeback of addr 1212416 failed
+clockcache_writeback_dirty: writeback of addr 1216512 failed
+clockcache_writeback_dirty: writeback of addr 1220608 failed
+clockcache_writeback_dirty: writeback of addr 1224704 failed
+clockcache_writeback_dirty: writeback of addr 1228800 failed
+clockcache_writeback_dirty: writeback of addr 1232896 failed
+clockcache_writeback_dirty: writeback of addr 1236992 failed
+clockcache_writeback_dirty: writeback of addr 1241088 failed
+clockcache_writeback_dirty: writeback of addr 1245184 failed
+clockcache_writeback_dirty: writeback of addr 1249280 failed
+clockcache_writeback_dirty: writeback of addr 1253376 failed
+clockcache_writeback_dirty: writeback of addr 1257472 failed
+clockcache_writeback_dirty: writeback of addr 1261568 failed
+clockcache_writeback_dirty: writeback of addr 1265664 failed
+clockcache_writeback_dirty: writeback of addr 1269760 failed
+clockcache_writeback_dirty: writeback of addr 1273856 failed
+clockcache_writeback_dirty: writeback of addr 1277952 failed
+clockcache_writeback_dirty: writeback of addr 1282048 failed
+clockcache_writeback_dirty: writeback of addr 1286144 failed
+clockcache_writeback_dirty: writeback of addr 1290240 failed
+clockcache_writeback_dirty: writeback of addr 1294336 failed
+clockcache_writeback_dirty: writeback of addr 1298432 failed
+clockcache_writeback_dirty: writeback of addr 1302528 failed
+clockcache_writeback_dirty: writeback of addr 1306624 failed
+[OK]
+TEST 194/206 writeback_set:test_wait_makes_pages_clean [OK]
+TEST 195/206 writeback_set:test_add_extent [OK]
+TEST 196/206 writeback_set:test_empty_set [OK]
+TEST 197/206 writeback_set:test_add_clean_page [OK]
+TEST 198/206 writeback_set:test_repeated_rounds [OK]
+TEST 199/206 writeback_set:test_cache_sync_read_error_and_retry clockcache_get_from_disk: io_read failed for addr 1179648, type 8: Connection timed out
+[OK]
+TEST 200/206 writeback_set:test_cache_async_read_setup_failures clockcache_get_from_disk_async: async read failed for addr 1179648, entry 130: Connection timed out
+[OK]
+TEST 201/206 writeback_set:test_cache_failed_load_wakes_waiters clockcache_get_from_disk_async_callback: async read failed for addr 1179648, entry 128: Connection timed out
+clockcache_get_from_disk_async: async read failed for addr 1179648, entry 128: Connection timed out
+[OK]
+TEST 202/206 writeback_set:test_partial_reclamation_requires_recovery WARNING: abandoned reclamation of mini allocator at 1179648 (type misc): Connection timed out. Remaining space is unavailable until reopen; clean allocation state will not be written. Recovery is required.
+[OK]
+TEST 203/206 writeback_set:test_failed_prefetch_leaves_demand_read_retryable clockcache_prefetch_pages: io_async_state_init failed for first addr 1179648, page addr 1179648, num pages 32, type 8: Cannot allocate memory
+clockcache_prefetch_pages: io_async_state_append_page failed for first addr 1179648, page addr 1179648, entry 128, num pages 32, type 8: Cannot allocate memory
+clockcache_prefetch_callback: async read failed: Connection timed out
+[OK]
+TEST 204/206 writeback_set:test_failed_load_releases_synchronous_waiter clockcache_get_from_disk_async_callback: async read failed for addr 1179648, entry 128: Connection timed out
+clockcache_get_from_disk_async: async read failed for addr 1179648, entry 128: Connection timed out
+[OK]
+TEST 205/206 writeback_set:test_page_handle_thread_handoff [OK]
+TEST 206/206 writeback_set:test_page_handle_outlives_acquiring_thread [OK]
+RESULTS: 206 tests (203 ok, 0 failed, 3 skipped) ran in 155385 ms

@@ -195,3 +195,20 @@ Unsuffixed directories are the superseded v1 implementation; `v2` directories
 measure ordered merge selection before the layout repair; `v3` directories
 measure the final implementation. Database images and verbose logs remain in
 the original campaign directory and are not committed.
+
+## Main integration (2026-10-13)
+
+Merged main `7bb5fab`, preserving both the hash-filtered API and main's compact
+transferable cache handles and multilevel blobs. The quick-test append conflict
+was resolved by retaining the filtered-range tests and the new handoff/blob
+recovery tests. Selected branches retain complete update chains; unmatched
+keys are still excluded before user merge callbacks.
+
+Debug and release each pass 65 cases: nine merge tests, 51 public API tests,
+the core cache-error test and four blob tests. Both routing-filter functional
+runs pass. An initial core invocation had its test-name filter before the
+configuration arguments and was rejected; corrected invocations passed.
+Commands, logs and hashes are in
+`.cache/projects-20261011/coordination/main-7bb5fab/filtered-ranges/`.
+The measurements above remain historical. Fresh integration measurements are
+tracked separately under `benchmarks/main-7bb5fab/` in that campaign.

@@ -196,13 +196,13 @@ DEFINE_ASYNC_STATE(routing_filter_lookup_async_state, 2,
    local, uint32,                       bucket,
    local, uint32,                       index,
    local, routing_hdr *,                hdr,
-   local, page_handle *,                filter_page,
+   local, page_handle,                  filter_page,
    local, uint64,                       page_size,
    local, uint64,                       addrs_per_page,
    local, uint64,                       index_addr,
    local, uint64,                       hdr_raw_addr,
    local, uint64,                       header_addr,
-   local, page_handle *,                index_page,
+   local, page_handle,                  index_page,
    local, page_get_async_state_buffer, cache_get_state)
 // clang-format on
 
@@ -239,8 +239,10 @@ routing_filter_estimate_unique_fp(cache                *cc,
                                   uint32               *num_unique_fp,
                                   uint32               *fingerprint_size);
 
-uint64
-routing_filter_space_use_bytes(cache *cc, const routing_filter *filter);
+platform_status
+routing_filter_space_use_bytes(cache                *cc,
+                               const routing_filter *filter,
+                               uint64               *bytes);
 
 // Debug functions
 

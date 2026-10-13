@@ -91,6 +91,12 @@ typedef struct splinterdb_config {
    uint64 num_memtable_bg_threads;
    uint64 num_normal_bg_threads;
 
+   // Maximum encoded blob descriptor bytes, including its header. Zero selects
+   // 512. This is a runtime encoding policy; existing descriptors are decoded
+   // independently of this setting. Must be at least 114 and no greater than
+   // the B-tree inline message limit (35% of page_size).
+   uint64 blob_max_descriptor_size;
+
    // btree
    uint64 btree_rough_count_height;
 
@@ -486,8 +492,9 @@ On the other hand, if valid() == false, then there are two possibilities:
 
 Be sure to check status() whenever valid() is false.
 
-Iterators must be cleaned up via deinit.  Live iterators will block
-other operations from the same thread, including close.
+Iterators must be cleaned up via deinit before closing the database. An iterator
+may move between threads using ordinary synchronization; only one thread may
+access it at a time. The creating thread need not remain registered or alive.
 
 Known issue: a live iterator may block inserts and deletes from the same thread.
 

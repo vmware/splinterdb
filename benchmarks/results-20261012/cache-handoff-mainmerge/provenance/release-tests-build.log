@@ -1,0 +1,16 @@
+Starting handoff-mainmerge-release-tests-build build
+Checking for mismatched config...No mismatched config found
+Compiling            src/blob.c                                         [build-mainmerge/release/obj/src/blob.o]
+Compiling            tests/unit/splinter_test.c                         [build-mainmerge/release/obj/tests/unit/splinter_test.o]
+Linking              build-mainmerge/release/bin/unit/writeback_set_test
+Linking              build-mainmerge/release/lib/libsplinterdb.so
+lto-wrapper: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper: note: see the ‘-flto’ option documentation for more information
+lto-wrapper: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper: note: see the ‘-flto’ option documentation for more information
+Linking              build-mainmerge/release/bin/unit/splinterdb_quick_test
+Linking              build-mainmerge/release/bin/unit/splinter_test
+lto-wrapper: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper: note: see the ‘-flto’ option documentation for more information
+lto-wrapper: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper: note: see the ‘-flto’ option documentation for more information

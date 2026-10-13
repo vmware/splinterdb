@@ -67,13 +67,16 @@ typedef uint32 entry_status; // Saved in clockcache_entry->status
  * clockcache_entry --
  *
  *     The meta data entry in the cache. Each entry has the underlying
- *     page_handle together with some flags.
+ *     shared cache_page identity together with some flags.
  *-----------------------------------------------------------------------------
  */
 struct clockcache_entry {
-   page_handle page;
+   cache_page page;
    // Accessed atomically; see clockcache_get_status() and the flag helpers.
    volatile entry_status status;
+   /* Published before CC_LOADING is cleared; protected by the read reference.
+    */
+   platform_status read_status;
    // Generation in which this page's current dirty interval began; 0 when the
    // page is clean or free. A writeback_dirty() drains every entry whose
    // generation is at or below the cut it took (see
@@ -87,6 +90,11 @@ struct clockcache_entry {
    history_record history[NUM_HISTORY_RECORDS];
 #endif
 };
+
+#ifndef RECORD_ACQUISITION_STACKS
+_Static_assert(sizeof(clockcache_entry) == PLATFORM_CACHELINE_SIZE,
+               "cache entry must fit in one cache line");
+#endif
 
 // Allocators acquire and release this flag for every slot allocation. Keep
 // flags for independent batches on separate cache lines.
@@ -144,6 +152,20 @@ struct clockcache {
    char                *data;    // convenience pointer for bh
    platform_log_handle *logfile;
    platform_heap_id     heap_id;
+
+#if SPLINTER_DEBUG
+   // Deterministic admission test; configure only on a quiescent cache.
+   void (*before_candidate_ref)(clockcache *, uint64, uint32, void *);
+   void *before_candidate_ref_arg;
+   void (*before_prefetch_publish)(clockcache *, uint64, uint32, void *);
+   void *before_prefetch_publish_arg;
+   void (*after_candidate_ref_attempt)(clockcache *,
+                                       uint64,
+                                       uint32,
+                                       bool32,
+                                       void *);
+   void *after_candidate_ref_attempt_arg;
+#endif
 
    // Distributed locks (the write bit is in the status uint32 of the entry)
    buffer_handle    rc_bh;

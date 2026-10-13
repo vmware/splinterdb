@@ -1025,12 +1025,15 @@ trunk_ondisk_node_read_header(trunk_ondisk_node_handle *handle)
 {
    uint64 page_size   = handle->page_size;
    uint64 extent_size = handle->extent_size;
-   if (handle->header_page == NULL || page_size < sizeof(trunk_ondisk_node)) {
+   if (page_handle_is_null(&handle->header_page)
+       || page_size < sizeof(trunk_ondisk_node))
+   {
       return STATUS_INVALID_STATE;
    }
 
-   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
-   uint64             max_pivots =
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle->header_page);
+   uint64 max_pivots =
       (page_size - sizeof(*header)) / sizeof(header->pivot_offsets[0]);
    if (header->height >= TRUNK_MAX_HEIGHT || header->num_pivots < 2
        || max_pivots < header->num_pivots
@@ -1053,7 +1056,7 @@ trunk_ondisk_node_check_expected_height(const trunk_ondisk_node_handle *handle,
                                         uint64 expected_height)
 {
    const trunk_ondisk_node *header =
-      (const trunk_ondisk_node *)handle->header_page->data;
+      (const trunk_ondisk_node *)page_handle_data(&handle->header_page);
    if (expected_height != TRUNK_HEIGHT_UNKNOWN
        && header->height != expected_height)
    {
@@ -1070,18 +1073,18 @@ trunk_ondisk_node_handle_init(trunk_ondisk_node_handle *handle,
    handle->cc                   = cc;
    handle->page_size            = cache_page_size(cc);
    handle->extent_size          = cache_extent_size(cc);
-   handle->header_page          = NULL;
-   handle->pivot_page           = NULL;
-   handle->inflight_bundle_page = NULL;
-   handle->header_page          = cache_get(cc, addr, TRUE, PAGE_TYPE_TRUNK);
-   if (handle->header_page == NULL) {
-      platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
-      return STATUS_IO_ERROR;
-   }
-   platform_status rc = trunk_ondisk_node_read_header(handle);
+   handle->header_page          = (page_handle){0};
+   handle->pivot_page           = (page_handle){0};
+   handle->inflight_bundle_page = (page_handle){0};
+   platform_status rc =
+      cache_get(cc, addr, TRUE, PAGE_TYPE_TRUNK, &handle->header_page);
    if (!SUCCESS(rc)) {
-      cache_unget(cc, handle->header_page);
-      handle->header_page = NULL;
+      return rc;
+   }
+   rc = trunk_ondisk_node_read_header(handle);
+   if (!SUCCESS(rc)) {
+      cache_unget(cc, &handle->header_page);
+      handle->header_page = (page_handle){0};
       return rc;
    }
    return STATUS_OK;
@@ -1105,9 +1108,9 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
    state->child_handle.cc          = state->context->cc;
    state->child_handle.page_size   = cache_page_size(state->context->cc);
    state->child_handle.extent_size = cache_extent_size(state->context->cc);
-   state->child_handle.header_page = NULL;
-   state->child_handle.pivot_page  = NULL;
-   state->child_handle.inflight_bundle_page = NULL;
+   state->child_handle.header_page = (page_handle){0};
+   state->child_handle.pivot_page  = (page_handle){0};
+   state->child_handle.inflight_bundle_page = (page_handle){0};
    async_await_call(state,
                     cache_get_async,
                     &state->cache_get_state,
@@ -1116,25 +1119,23 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
                     PAGE_TYPE_TRUNK,
                     state->callback,
                     state->callback_arg);
-   state->child_handle.header_page =
-      cache_get_async_state_result(&state->cache_get_state);
-   if (state->child_handle.header_page == NULL) {
-      platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
-      state->rc = STATUS_IO_ERROR;
+   state->rc = cache_get_async_state_result(&state->cache_get_state,
+                                            &state->child_handle.header_page);
+   if (!SUCCESS(state->rc)) {
       async_return(state);
    }
    state->rc = trunk_ondisk_node_read_header(&state->child_handle);
    if (!SUCCESS(state->rc)) {
-      cache_unget(state->context->cc, state->child_handle.header_page);
-      state->child_handle.header_page = NULL;
+      cache_unget(state->context->cc, &state->child_handle.header_page);
+      state->child_handle.header_page = (page_handle){0};
       async_return(state);
    }
    state->rc = state->height == 0 ? STATUS_INVALID_STATE
                                   : trunk_ondisk_node_check_expected_height(
                                        &state->child_handle, state->height - 1);
    if (!SUCCESS(state->rc)) {
-      cache_unget(state->context->cc, state->child_handle.header_page);
-      state->child_handle.header_page = NULL;
+      cache_unget(state->context->cc, &state->child_handle.header_page);
+      state->child_handle.header_page = (page_handle){0};
       async_return(state);
    }
    async_return(state);
@@ -1144,21 +1145,23 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
 void
 trunk_ondisk_node_handle_deinit(trunk_ondisk_node_handle *handle)
 {
-   if (handle->pivot_page != NULL && handle->pivot_page != handle->header_page)
+   if (!page_handle_is_null(&handle->pivot_page)
+       && !page_handle_same_page(&handle->pivot_page, &handle->header_page))
    {
-      cache_unget(handle->cc, handle->pivot_page);
+      cache_unget(handle->cc, &handle->pivot_page);
    }
-   if (handle->inflight_bundle_page != NULL
-       && handle->inflight_bundle_page != handle->header_page)
+   if (!page_handle_is_null(&handle->inflight_bundle_page)
+       && !page_handle_same_page(&handle->inflight_bundle_page,
+                                 &handle->header_page))
    {
-      cache_unget(handle->cc, handle->inflight_bundle_page);
+      cache_unget(handle->cc, &handle->inflight_bundle_page);
    }
-   if (handle->header_page != NULL) {
-      cache_unget(handle->cc, handle->header_page);
+   if (!page_handle_is_null(&handle->header_page)) {
+      cache_unget(handle->cc, &handle->header_page);
    }
-   handle->header_page          = NULL;
-   handle->pivot_page           = NULL;
-   handle->inflight_bundle_page = NULL;
+   handle->header_page          = (page_handle){0};
+   handle->pivot_page           = (page_handle){0};
+   handle->inflight_bundle_page = (page_handle){0};
 }
 
 static platform_status
@@ -1168,23 +1171,25 @@ trunk_ondisk_node_handle_clone(trunk_ondisk_node_handle       *dst,
    dst->cc          = src->cc;
    dst->page_size   = src->page_size;
    dst->extent_size = src->extent_size;
-   if (src->header_page == NULL) {
-      dst->header_page          = NULL;
-      dst->pivot_page           = NULL;
-      dst->inflight_bundle_page = NULL;
+   if (page_handle_is_null(&src->header_page)) {
+      dst->header_page          = (page_handle){0};
+      dst->pivot_page           = (page_handle){0};
+      dst->inflight_bundle_page = (page_handle){0};
       return STATUS_OK;
    }
 
-   dst->header_page =
-      cache_get(src->cc, src->header_page->disk_addr, TRUE, PAGE_TYPE_TRUNK);
-   if (dst->header_page == NULL) {
-      platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
-      return STATUS_IO_ERROR;
+   platform_status rc = cache_get(src->cc,
+                                  page_handle_addr(&src->header_page),
+                                  TRUE,
+                                  PAGE_TYPE_TRUNK,
+                                  &dst->header_page);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
    /* The immutable source page was validated when its handle was initialized.
     */
-   dst->pivot_page           = NULL;
-   dst->inflight_bundle_page = NULL;
+   dst->pivot_page           = (page_handle){0};
+   dst->inflight_bundle_page = (page_handle){0};
    return STATUS_OK;
 }
 
@@ -1192,7 +1197,7 @@ static uint64
 content_page_offset(const trunk_ondisk_node_handle *handle,
                     const page_handle              *page)
 {
-   return page->disk_addr - handle->header_page->disk_addr;
+   return page_handle_addr(page) - page_handle_addr(&handle->header_page);
 }
 
 static bool32
@@ -1201,41 +1206,39 @@ offset_is_in_content_page(const trunk_ondisk_node_handle *handle,
                           uint32                          offset)
 {
    uint64 page_size = handle->page_size;
-   return page != NULL && content_page_offset(handle, page) <= offset
+   return !page_handle_is_null(page)
+          && content_page_offset(handle, page) <= offset
           && offset < content_page_offset(handle, page) + page_size;
 }
 
 static platform_status
 trunk_ondisk_node_handle_setup_content_page(trunk_ondisk_node_handle *handle,
                                             uint64                    offset,
-                                            page_handle             **page)
+                                            page_handle              *page)
 {
    uint64 page_size = handle->page_size;
    if (handle->extent_size <= offset) {
       return STATUS_INVALID_STATE;
    }
 
-   if (offset_is_in_content_page(handle, *page, offset)) {
+   if (offset_is_in_content_page(handle, page, offset)) {
       return STATUS_OK;
    }
 
-   if (*page != NULL && *page != handle->header_page) {
-      cache_unget(handle->cc, *page);
-      *page = NULL;
+   if (!page_handle_is_null(page)
+       && !page_handle_same_page(page, &handle->header_page))
+   {
+      cache_unget(handle->cc, page);
+      *page = (page_handle){0};
    }
 
    if (offset < page_size) {
       *page = handle->header_page;
       return STATUS_OK;
    } else {
-      uint64 addr = handle->header_page->disk_addr + offset;
+      uint64 addr = page_handle_addr(&handle->header_page) + offset;
       addr -= (addr % page_size);
-      *page = cache_get(handle->cc, addr, TRUE, PAGE_TYPE_TRUNK);
-      if (*page == NULL) {
-         platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
-         return STATUS_IO_ERROR;
-      }
-      return STATUS_OK;
+      return cache_get(handle->cc, addr, TRUE, PAGE_TYPE_TRUNK, page);
    }
 }
 
@@ -1267,14 +1270,16 @@ trunk_ondisk_node_handle_setup_content_page_async(
       async_return(state);
    }
 
-   if (offset_is_in_content_page(state->handlep, *state->page, state->offset)) {
+   if (offset_is_in_content_page(state->handlep, state->page, state->offset)) {
       state->rc = STATUS_OK;
       async_return(state);
    }
 
-   if (*state->page != NULL && *state->page != state->handlep->header_page) {
-      cache_unget(state->handlep->cc, *state->page);
-      *state->page = NULL;
+   if (!page_handle_is_null(state->page)
+       && !page_handle_same_page(state->page, &state->handlep->header_page))
+   {
+      cache_unget(state->handlep->cc, state->page);
+      *state->page = (page_handle){0};
    }
 
    if (state->offset < page_size) {
@@ -1282,7 +1287,8 @@ trunk_ondisk_node_handle_setup_content_page_async(
       state->rc    = STATUS_OK;
       async_return(state);
    } else {
-      uint64 addr = state->handlep->header_page->disk_addr + state->offset;
+      uint64 addr =
+         page_handle_addr(&state->handlep->header_page) + state->offset;
       addr -= (addr % page_size);
       async_await_call(state,
                        cache_get_async,
@@ -1292,10 +1298,9 @@ trunk_ondisk_node_handle_setup_content_page_async(
                        PAGE_TYPE_TRUNK,
                        state->callback,
                        state->callback_arg);
-      *state->page = cache_get_async_state_result(&state->cache_get_state);
-      if (*state->page == NULL) {
-         platform_error_log("%s():%d: cache_get() failed", __func__, __LINE__);
-         state->rc = STATUS_IO_ERROR;
+      state->rc =
+         cache_get_async_state_result(&state->cache_get_state, state->page);
+      if (!SUCCESS(state->rc)) {
          async_return(state);
       }
       state->rc = STATUS_OK;
@@ -1306,14 +1311,16 @@ trunk_ondisk_node_handle_setup_content_page_async(
 static uint64
 trunk_ondisk_node_height(trunk_ondisk_node_handle *handle)
 {
-   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle->header_page);
    return header->height;
 }
 
 static uint64
 trunk_ondisk_node_num_pivots(trunk_ondisk_node_handle *handle)
 {
-   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle->header_page);
    return header->num_pivots;
 }
 
@@ -1322,7 +1329,8 @@ trunk_ondisk_node_read_pivot_offset(trunk_ondisk_node_handle *handle,
                                     uint64                    pivot_num,
                                     uint64                   *offset_out)
 {
-   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle->header_page);
    if (header->num_pivots <= pivot_num) {
       return STATUS_INVALID_STATE;
    }
@@ -1341,15 +1349,17 @@ trunk_ondisk_node_read_pivot_offset(trunk_ondisk_node_handle *handle,
    return STATUS_OK;
 }
 
-static trunk_ondisk_pivot *
+static platform_status
 trunk_ondisk_node_read_pivot_key(trunk_ondisk_node_handle *handle,
-                                 uint64                    pivot_num)
+                                 uint64                    pivot_num,
+                                 trunk_ondisk_pivot      **out)
 {
+   *out = NULL;
    uint64          offset;
    platform_status rc =
       trunk_ondisk_node_read_pivot_offset(handle, pivot_num, &offset);
    if (!SUCCESS(rc)) {
-      return NULL;
+      return rc;
    }
    rc = trunk_ondisk_node_handle_setup_content_page(
       handle, offset, &handle->pivot_page);
@@ -1359,23 +1369,25 @@ trunk_ondisk_node_read_pivot_key(trunk_ondisk_node_handle *handle,
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
-      return NULL;
+      return rc;
    }
    uint64 page_offset =
-      offset - content_page_offset(handle, handle->pivot_page);
+      offset - content_page_offset(handle, &handle->pivot_page);
    uint64 page_size = handle->page_size;
    if (page_size - page_offset < sizeof(trunk_ondisk_pivot)) {
-      return NULL;
+      return STATUS_INVALID_STATE;
    }
    trunk_ondisk_pivot *pivot =
-      (trunk_ondisk_pivot *)(handle->pivot_page->data + page_offset);
+      (trunk_ondisk_pivot *)(page_handle_data(&handle->pivot_page)
+                             + page_offset);
    if (pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
        || sizeof_ondisk_key_data(&pivot->key)
              > page_size - page_offset - sizeof(*pivot))
    {
-      return NULL;
+      return STATUS_INVALID_STATE;
    }
-   return pivot;
+   *out = pivot;
+   return STATUS_OK;
 }
 
 static platform_status
@@ -1383,7 +1395,8 @@ trunk_ondisk_node_read_pivot_fields(trunk_ondisk_node_handle *handle,
                                     uint64                    pivot_num,
                                     trunk_ondisk_pivot       *pivot)
 {
-   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle->header_page);
    if (header->num_inflight_bundles < pivot->num_live_inflight_bundles
        || !trunk_pivot_stats_are_valid(pivot->stats))
    {
@@ -1397,18 +1410,17 @@ trunk_ondisk_node_read_pivot_fields(trunk_ondisk_node_handle *handle,
    return STATUS_OK;
 }
 
-static trunk_ondisk_pivot *
-trunk_ondisk_node_read_pivot(trunk_ondisk_node_handle *handle, uint64 pivot_num)
+static platform_status
+trunk_ondisk_node_read_pivot(trunk_ondisk_node_handle *handle,
+                             uint64                    pivot_num,
+                             trunk_ondisk_pivot      **pivot)
 {
-   trunk_ondisk_pivot *pivot =
-      trunk_ondisk_node_read_pivot_key(handle, pivot_num);
-   if (pivot == NULL
-       || !SUCCESS(
-          trunk_ondisk_node_read_pivot_fields(handle, pivot_num, pivot)))
-   {
-      return NULL;
+   platform_status rc =
+      trunk_ondisk_node_read_pivot_key(handle, pivot_num, pivot);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
-   return pivot;
+   return trunk_ondisk_node_read_pivot_fields(handle, pivot_num, *pivot);
 }
 
 /*
@@ -1450,12 +1462,13 @@ trunk_ondisk_node_read_pivot_key_async(trunk_merge_lookup_async_state *state,
       async_return(state);
    }
    state->pivot =
-      (trunk_ondisk_pivot *)(state->handlep->pivot_page->data + state->offset
-                             - content_page_offset(state->handlep,
-                                                   state->handlep->pivot_page));
+      (trunk_ondisk_pivot *)(page_handle_data(&state->handlep->pivot_page)
+                             + state->offset
+                             - content_page_offset(
+                                state->handlep, &state->handlep->pivot_page));
    uint64 page_offset =
       state->offset
-      - content_page_offset(state->handlep, state->handlep->pivot_page);
+      - content_page_offset(state->handlep, &state->handlep->pivot_page);
    uint64 page_size = state->handlep->page_size;
    if (page_size - page_offset < sizeof(*state->pivot)
        || state->pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
@@ -1475,12 +1488,13 @@ trunk_ondisk_node_get_pivot_key(trunk_ondisk_node_handle *handle,
                                 uint64                    pivot_num,
                                 key                      *k)
 {
-   trunk_ondisk_pivot *odp =
-      trunk_ondisk_node_read_pivot_key(handle, pivot_num);
-   if (odp == NULL) {
+   trunk_ondisk_pivot *odp;
+   platform_status     rc =
+      trunk_ondisk_node_read_pivot_key(handle, pivot_num, &odp);
+   if (!SUCCESS(rc)) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
-      return STATUS_IO_ERROR;
+      return rc;
    }
    *k = ondisk_key_to_key(&odp->key);
    return STATUS_OK;
@@ -1495,21 +1509,26 @@ static trunk_ondisk_bundle *
 trunk_ondisk_node_read_pivot_bundle(trunk_ondisk_node_handle *handle,
                                     trunk_ondisk_pivot       *pivot);
 
-static trunk_ondisk_bundle *
+static platform_status
 trunk_ondisk_node_get_pivot_bundle(trunk_ondisk_node_handle *handle,
-                                   uint64                    pivot_num)
+                                   uint64                    pivot_num,
+                                   trunk_ondisk_bundle     **bundle)
 {
-   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
+   *bundle = NULL;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle->header_page);
    if (pivot_num + 1 >= header->num_pivots) {
-      return NULL;
+      return STATUS_INVALID_STATE;
    }
-   trunk_ondisk_pivot *pivot = trunk_ondisk_node_read_pivot(handle, pivot_num);
-   if (pivot == NULL) {
+   trunk_ondisk_pivot *pivot;
+   platform_status rc = trunk_ondisk_node_read_pivot(handle, pivot_num, &pivot);
+   if (!SUCCESS(rc)) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
-      return NULL;
+      return rc;
    }
-   return trunk_ondisk_node_read_pivot_bundle(handle, pivot);
+   *bundle = trunk_ondisk_node_read_pivot_bundle(handle, pivot);
+   return *bundle == NULL ? STATUS_INVALID_STATE : STATUS_OK;
 }
 
 static bool32
@@ -1535,12 +1554,14 @@ static trunk_ondisk_bundle *
 trunk_ondisk_node_read_pivot_bundle(trunk_ondisk_node_handle *handle,
                                     trunk_ondisk_pivot       *pivot)
 {
-   if (handle == NULL || handle->pivot_page == NULL || pivot == NULL) {
+   if (handle == NULL || page_handle_is_null(&handle->pivot_page)
+       || pivot == NULL)
+   {
       return NULL;
    }
 
    uint64    page_size  = handle->page_size;
-   uintptr_t page_start = (uintptr_t)handle->pivot_page->data;
+   uintptr_t page_start = (uintptr_t)page_handle_data(&handle->pivot_page);
    uintptr_t pivot_addr = (uintptr_t)pivot;
    if (pivot_addr < page_start || pivot_addr - page_start > page_size
        || page_size - (pivot_addr - page_start) < sizeof(*pivot)
@@ -1556,20 +1577,23 @@ trunk_ondisk_node_read_pivot_bundle(trunk_ondisk_node_handle *handle,
    }
    uint64               bundle_offset = page_offset + sizeof(*pivot) + key_size;
    trunk_ondisk_bundle *bundle =
-      (trunk_ondisk_bundle *)(handle->pivot_page->data + bundle_offset);
+      (trunk_ondisk_bundle *)(page_handle_data(&handle->pivot_page)
+                              + bundle_offset);
    return trunk_ondisk_bundle_readable(bundle, page_size - bundle_offset, TRUE)
              ? bundle
              : NULL;
 }
 
-static trunk_ondisk_bundle *
+static platform_status
 trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
-                                   uint64                    offset)
+                                   uint64                    offset,
+                                   trunk_ondisk_bundle     **out)
 {
+   *out               = NULL;
    uint64 page_size   = handle->page_size;
    uint64 extent_size = handle->extent_size;
    if (extent_size <= offset) {
-      return NULL;
+      return STATUS_INVALID_STATE;
    }
 
    /* If there's not enough room for a bundle header, skip to the next
@@ -1577,7 +1601,7 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
    if (page_size - (offset % page_size) < sizeof(trunk_ondisk_bundle)) {
       offset += page_size - (offset % page_size);
       if (extent_size <= offset) {
-         return NULL;
+         return STATUS_INVALID_STATE;
       }
    }
 
@@ -1589,17 +1613,18 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
-      return NULL;
+      return rc;
    }
    trunk_ondisk_bundle *result =
-      (trunk_ondisk_bundle *)(handle->inflight_bundle_page->data + offset
+      (trunk_ondisk_bundle *)(page_handle_data(&handle->inflight_bundle_page)
+                              + offset
                               - content_page_offset(
-                                 handle, handle->inflight_bundle_page));
+                                 handle, &handle->inflight_bundle_page));
 
    uint64 page_offset =
-      offset - content_page_offset(handle, handle->inflight_bundle_page);
+      offset - content_page_offset(handle, &handle->inflight_bundle_page);
    if (page_size - page_offset < sizeof(*result)) {
-      return NULL;
+      return STATUS_INVALID_STATE;
    }
 
    /* If there wasn't enough room for this bundle on this page, then we would
@@ -1607,7 +1632,7 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
    if (result->num_branches == 0) {
       offset += page_size - (offset % page_size);
       if (extent_size <= offset) {
-         return NULL;
+         return STATUS_INVALID_STATE;
       }
       rc = trunk_ondisk_node_handle_setup_content_page(
          handle, offset, &handle->inflight_bundle_page);
@@ -1617,19 +1642,21 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
                             __func__,
                             __LINE__,
                             platform_status_to_string(rc));
-         return NULL;
+         return rc;
       }
       result =
-         (trunk_ondisk_bundle *)(handle->inflight_bundle_page->data + offset
+         (trunk_ondisk_bundle *)(page_handle_data(&handle->inflight_bundle_page)
+                                 + offset
                                  - content_page_offset(
-                                    handle, handle->inflight_bundle_page));
+                                    handle, &handle->inflight_bundle_page));
       page_offset =
-         offset - content_page_offset(handle, handle->inflight_bundle_page);
+         offset - content_page_offset(handle, &handle->inflight_bundle_page);
    }
    if (!trunk_ondisk_bundle_readable(result, page_size - page_offset, FALSE)) {
-      return NULL;
+      return STATUS_INVALID_STATE;
    }
-   return result;
+   *out = result;
+   return STATUS_OK;
 }
 
 /*
@@ -1684,15 +1711,16 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
       async_return(state);
    }
    state->bndl =
-      (trunk_ondisk_bundle *)(state->handlep->inflight_bundle_page->data
+      (trunk_ondisk_bundle *)(page_handle_data(
+                                 &state->handlep->inflight_bundle_page)
                               + state->offset
                               - content_page_offset(
                                  state->handlep,
-                                 state->handlep->inflight_bundle_page));
+                                 &state->handlep->inflight_bundle_page));
    uint64 page_offset =
       state->offset
       - content_page_offset(state->handlep,
-                            state->handlep->inflight_bundle_page);
+                            &state->handlep->inflight_bundle_page);
    if (page_size - page_offset < sizeof(*state->bndl)) {
       state->bndl = NULL;
       state->rc   = STATUS_INVALID_STATE;
@@ -1721,14 +1749,15 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
          async_return(state);
       }
       state->bndl =
-         (trunk_ondisk_bundle *)(state->handlep->inflight_bundle_page->data
+         (trunk_ondisk_bundle *)(page_handle_data(
+                                    &state->handlep->inflight_bundle_page)
                                  + state->offset
                                  - content_page_offset(
                                     state->handlep,
-                                    state->handlep->inflight_bundle_page));
+                                    &state->handlep->inflight_bundle_page));
       page_offset = state->offset
-                    - content_page_offset(state->handlep,
-                                          state->handlep->inflight_bundle_page);
+                    - content_page_offset(
+                       state->handlep, &state->handlep->inflight_bundle_page);
    }
    if (!trunk_ondisk_bundle_readable(
           state->bndl, page_size - page_offset, FALSE))
@@ -1745,7 +1774,8 @@ static platform_status
 trunk_ondisk_node_get_first_inflight_bundle(trunk_ondisk_node_handle *handle,
                                             trunk_ondisk_bundle     **bndl)
 {
-   trunk_ondisk_node *header = (trunk_ondisk_node *)handle->header_page->data;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle->header_page);
    if (header->num_inflight_bundles == 0) {
       *bndl = NULL;
       return header->inflight_bundles_offset == 0 ? STATUS_OK
@@ -1761,8 +1791,7 @@ trunk_ondisk_node_get_first_inflight_bundle(trunk_ondisk_node_handle *handle,
       *bndl = NULL;
       return STATUS_INVALID_STATE;
    }
-   *bndl = trunk_ondisk_node_bundle_at_offset(handle, offset);
-   return *bndl == NULL ? STATUS_INVALID_STATE : STATUS_OK;
+   return trunk_ondisk_node_bundle_at_offset(handle, offset, bndl);
 }
 
 /*
@@ -1786,7 +1815,7 @@ trunk_ondisk_node_get_first_inflight_bundle_async(
    async_begin(state, depth);
 
    trunk_ondisk_node *header =
-      (trunk_ondisk_node *)state->handlep->header_page->data;
+      (trunk_ondisk_node *)page_handle_data(&state->handlep->header_page);
    if (header->num_inflight_bundles == 0) {
       state->bndl = NULL;
       state->rc   = header->inflight_bundles_offset == 0 ? STATUS_OK
@@ -1809,14 +1838,16 @@ trunk_ondisk_node_get_first_inflight_bundle_async(
 }
 
 
-static trunk_ondisk_bundle *
+static platform_status
 trunk_ondisk_node_get_next_inflight_bundle(trunk_ondisk_node_handle *handle,
-                                           trunk_ondisk_bundle      *bundle)
+                                           trunk_ondisk_bundle      *bundle,
+                                           trunk_ondisk_bundle     **next)
 {
-   uint64 offset = ((char *)bundle) - handle->inflight_bundle_page->data
-                   + content_page_offset(handle, handle->inflight_bundle_page)
+   uint64 offset = ((char *)bundle)
+                   - page_handle_data(&handle->inflight_bundle_page)
+                   + content_page_offset(handle, &handle->inflight_bundle_page)
                    + sizeof_trunk_ondisk_bundle(bundle);
-   return trunk_ondisk_node_bundle_at_offset(handle, offset);
+   return trunk_ondisk_node_bundle_at_offset(handle, offset, next);
 }
 
 /*
@@ -1841,25 +1872,29 @@ trunk_ondisk_node_get_next_inflight_bundle_async(
 {
    async_begin(state, depth);
    state->offset = ((char *)state->bndl)
-                   - state->handlep->inflight_bundle_page->data
+                   - page_handle_data(&state->handlep->inflight_bundle_page)
                    + content_page_offset(state->handlep,
-                                         state->handlep->inflight_bundle_page)
+                                         &state->handlep->inflight_bundle_page)
                    + sizeof_trunk_ondisk_bundle(state->bndl);
    async_await_subroutine(state, trunk_ondisk_node_bundle_at_offset_async);
    async_return(state);
 }
 
-static trunk_pivot *
+static platform_status
 trunk_pivot_deserialize(platform_heap_id          hid,
                         trunk_ondisk_node_handle *handle,
-                        uint64                    i)
+                        uint64                    i,
+                        trunk_pivot             **pivot)
 {
-   trunk_ondisk_node  *header = (trunk_ondisk_node *)handle->header_page->data;
-   trunk_ondisk_pivot *odp    = trunk_ondisk_node_read_pivot(handle, i);
-   if (odp == NULL) {
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle->header_page);
+   *pivot = NULL;
+   trunk_ondisk_pivot *odp;
+   platform_status     rc = trunk_ondisk_node_read_pivot(handle, i, &odp);
+   if (!SUCCESS(rc)) {
       platform_error_log(
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
-      return NULL;
+      return rc;
    }
    uint64 inflight_bundle_start;
    if (i < header->num_pivots - 1) {
@@ -1868,12 +1903,13 @@ trunk_pivot_deserialize(platform_heap_id          hid,
    } else {
       inflight_bundle_start = 0;
    }
-   return trunk_pivot_create(hid,
-                             trunk_ondisk_pivot_key(odp),
-                             odp->child_addr,
-                             inflight_bundle_start,
-                             odp->stats,
-                             odp->stats);
+   *pivot = trunk_pivot_create(hid,
+                               trunk_ondisk_pivot_key(odp),
+                               odp->child_addr,
+                               inflight_bundle_start,
+                               odp->stats,
+                               odp->stats);
+   return *pivot == NULL ? STATUS_NO_MEMORY : STATUS_OK;
 }
 
 static platform_status
@@ -1917,7 +1953,8 @@ trunk_node_deserialize(const trunk_context *context,
                          platform_status_to_string(rc));
       return rc;
    }
-   trunk_ondisk_node *header = (trunk_ondisk_node *)handle.header_page->data;
+   trunk_ondisk_node *header =
+      (trunk_ondisk_node *)page_handle_data(&handle.header_page);
 
    trunk_pivot_vector pivots;
    bundle_vector      inflight_bundles;
@@ -1952,12 +1989,11 @@ trunk_node_deserialize(const trunk_context *context,
    }
 
    for (uint64 i = 0; i < header->num_pivots; i++) {
-      trunk_pivot *imp =
-         trunk_pivot_deserialize(PROCESS_PRIVATE_HEAP_ID, &handle, i);
-      if (imp == NULL) {
+      trunk_pivot *imp;
+      rc = trunk_pivot_deserialize(PROCESS_PRIVATE_HEAP_ID, &handle, i, &imp);
+      if (!SUCCESS(rc)) {
          platform_error_log(
             "%s():%d: pivot_deserialize() failed", __func__, __LINE__);
-         rc = STATUS_NO_MEMORY;
          goto cleanup;
       }
       rc = vector_append(&pivots, imp);
@@ -1972,12 +2008,12 @@ trunk_node_deserialize(const trunk_context *context,
    }
 
    for (uint64 i = 0; i < header->num_pivots - 1; i++) {
-      trunk_ondisk_bundle *odb = trunk_ondisk_node_get_pivot_bundle(&handle, i);
-      if (odb == NULL) {
+      trunk_ondisk_bundle *odb;
+      rc = trunk_ondisk_node_get_pivot_bundle(&handle, i, &odb);
+      if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: ondisk_node_get_pivot_bundle() failed",
                             __func__,
                             __LINE__);
-         rc = STATUS_IO_ERROR;
          goto cleanup;
       }
       rc = VECTOR_EMPLACE_APPEND(
@@ -1993,9 +2029,10 @@ trunk_node_deserialize(const trunk_context *context,
 
    if (0 < header->num_inflight_bundles) {
       trunk_ondisk_bundle *odb = NULL;
-      // We can ignore the return code here since we will notice any error once
-      // we go inside the fore loop.
-      trunk_ondisk_node_get_first_inflight_bundle(&handle, &odb);
+      rc = trunk_ondisk_node_get_first_inflight_bundle(&handle, &odb);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
       for (uint64 i = 0; i < header->num_inflight_bundles; i++) {
          if (odb == NULL) {
             platform_error_log(
@@ -2017,7 +2054,10 @@ trunk_node_deserialize(const trunk_context *context,
             goto cleanup;
          }
          if (i + 1 < header->num_inflight_bundles) {
-            odb = trunk_ondisk_node_get_next_inflight_bundle(&handle, odb);
+            rc = trunk_ondisk_node_get_next_inflight_bundle(&handle, odb, &odb);
+            if (!SUCCESS(rc)) {
+               goto cleanup;
+            }
          }
       }
    }
@@ -2583,6 +2623,7 @@ trunk_node_serialize_maybe_setup_next_page(cache        *cc,
                                            uint64        required_space,
                                            page_handle  *header_page,
                                            page_handle **current_page,
+                                           page_handle  *current_storage,
                                            uint64       *page_offset)
 {
    uint64 page_size   = cache_page_size(cc);
@@ -2595,19 +2636,21 @@ trunk_node_serialize_maybe_setup_next_page(cache        *cc,
    }
 
    if (page_size < *page_offset + required_space) {
-      uint64 addr = (*current_page)->disk_addr + page_size;
-      if (extent_size <= addr - header_page->disk_addr) {
+      uint64 addr = page_handle_addr(*current_page) + page_size;
+      if (extent_size <= addr - page_handle_addr(header_page)) {
          platform_error_log(
             "%s():%d: extent_size too small", __func__, __LINE__);
          return STATUS_LIMIT_EXCEEDED;
       }
-      memset((*current_page)->data + *page_offset, 0, page_size - *page_offset);
+      memset(page_handle_data(*current_page) + *page_offset,
+             0,
+             page_size - *page_offset);
       if (*current_page != header_page) {
          cache_unlock(cc, *current_page);
          cache_unclaim(cc, *current_page);
          cache_unget(cc, *current_page);
       }
-      *current_page = cache_alloc(cc, addr, PAGE_TYPE_TRUNK);
+      *current_page = cache_alloc(cc, addr, PAGE_TYPE_TRUNK, current_storage);
       if (*current_page == NULL) {
          platform_error_log(
             "%s():%d: cache_alloc() failed", __func__, __LINE__);
@@ -2684,7 +2727,8 @@ static trunk_ondisk_node_ref *
 trunk_node_serialize(trunk_context *context, trunk_node *node)
 {
    platform_status        rc;
-   uint64                 header_addr  = 0;
+   uint64                 header_addr = 0;
+   page_handle            header_storage, current_storage;
    page_handle           *header_page  = NULL;
    page_handle           *current_page = NULL;
    trunk_ondisk_node_ref *result       = NULL;
@@ -2739,7 +2783,8 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
       goto cleanup;
    }
 
-   header_page = cache_alloc(context->cc, header_addr, PAGE_TYPE_TRUNK);
+   header_page =
+      cache_alloc(context->cc, header_addr, PAGE_TYPE_TRUNK, &header_storage);
    if (header_page == NULL) {
       platform_error_log("%s():%d: cache_alloc() failed", __func__, __LINE__);
       rc = STATUS_NO_MEMORY;
@@ -2749,9 +2794,10 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
    int64 min_inflight_bundle_start =
       trunk_node_first_live_inflight_bundle(node);
 
-   trunk_ondisk_node *odnode = (trunk_ondisk_node *)header_page->data;
-   odnode->height            = node->height;
-   odnode->num_pivots        = vector_length(&node->pivots);
+   trunk_ondisk_node *odnode =
+      (trunk_ondisk_node *)page_handle_data(header_page);
+   odnode->height     = node->height;
+   odnode->num_pivots = vector_length(&node->pivots);
    odnode->num_inflight_bundles =
       vector_length(&node->inflight_bundles) - min_inflight_bundle_start;
 
@@ -2780,8 +2826,12 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
          }
       }
 
-      rc = trunk_node_serialize_maybe_setup_next_page(
-         context->cc, required_space, header_page, &current_page, &page_offset);
+      rc = trunk_node_serialize_maybe_setup_next_page(context->cc,
+                                                      required_space,
+                                                      header_page,
+                                                      &current_page,
+                                                      &current_storage,
+                                                      &page_offset);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "%s():%d: node_serialize_maybe_setup_next_page() failed: %s",
@@ -2792,16 +2842,17 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
       }
 
       odnode->pivot_offsets[i] =
-         current_page->disk_addr - header_addr + page_offset;
-      pivot_serialize(context,
-                      node,
-                      i,
-                      (trunk_ondisk_pivot *)(current_page->data + page_offset));
+         page_handle_addr(current_page) - header_addr + page_offset;
+      pivot_serialize(
+         context,
+         node,
+         i,
+         (trunk_ondisk_pivot *)(page_handle_data(current_page) + page_offset));
       page_offset += pivot_size;
       if (i < vector_length(&node->pivots) - 1) {
-         bundle_serialize(
-            pivot_bundle,
-            (trunk_ondisk_bundle *)(current_page->data + page_offset));
+         bundle_serialize(pivot_bundle,
+                          (trunk_ondisk_bundle *)(page_handle_data(current_page)
+                                                  + page_offset));
          page_offset += bundle_size;
       }
    }
@@ -2815,8 +2866,12 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
       bundle *bndl        = vector_get_ptr(&node->inflight_bundles, i);
       uint64  bundle_size = bundle_ondisk_size(bndl);
 
-      rc = trunk_node_serialize_maybe_setup_next_page(
-         context->cc, bundle_size, header_page, &current_page, &page_offset);
+      rc = trunk_node_serialize_maybe_setup_next_page(context->cc,
+                                                      bundle_size,
+                                                      header_page,
+                                                      &current_page,
+                                                      &current_storage,
+                                                      &page_offset);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "%s():%d: node_serialize_maybe_setup_next_page() failed: %s",
@@ -2828,10 +2883,11 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
 
       if (i == vector_length(&node->inflight_bundles) - 1) {
          odnode->inflight_bundles_offset =
-            current_page->disk_addr - header_addr + page_offset;
+            page_handle_addr(current_page) - header_addr + page_offset;
       }
       bundle_serialize(
-         bndl, (trunk_ondisk_bundle *)(current_page->data + page_offset));
+         bndl,
+         (trunk_ondisk_bundle *)(page_handle_data(current_page) + page_offset));
       page_offset += bundle_size;
    }
 
@@ -2849,7 +2905,7 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
 
    if (context->stats) {
       uint64 num_pages = 1
-                         + (current_page->disk_addr - header_addr)
+                         + (page_handle_addr(current_page) - header_addr)
                               / cache_page_size(context->cc);
       if (TRUNK_MAX_DISTRIBUTION_VALUE <= num_pages) {
          num_pages = TRUNK_MAX_DISTRIBUTION_VALUE - 1;
@@ -3248,9 +3304,9 @@ trunk_init_root_handle(trunk_context *context, trunk_ondisk_node_handle *handle)
       handle->cc                   = context->cc;
       handle->page_size            = cache_page_size(context->cc);
       handle->extent_size          = cache_extent_size(context->cc);
-      handle->header_page          = NULL;
-      handle->pivot_page           = NULL;
-      handle->inflight_bundle_page = NULL;
+      handle->header_page          = (page_handle){0};
+      handle->pivot_page           = (page_handle){0};
+      handle->inflight_bundle_page = (page_handle){0};
       rc                           = STATUS_OK;
    } else {
       rc = trunk_ondisk_node_handle_init(
@@ -3269,8 +3325,9 @@ trunk_get_height(trunk_context *context, uint64 *height)
       return rc;
    }
 
-   *height =
-      (handle.header_page == NULL) ? 0 : trunk_ondisk_node_height(&handle);
+   *height = (page_handle_is_null(&handle.header_page))
+                ? 0
+                : trunk_ondisk_node_height(&handle);
    trunk_ondisk_node_handle_deinit(&handle);
 
    return STATUS_OK;
@@ -3279,7 +3336,9 @@ trunk_get_height(trunk_context *context, uint64 *height)
 uint64
 trunk_ondisk_node_handle_addr(const trunk_ondisk_node_handle *handle)
 {
-   return handle->header_page == NULL ? 0 : handle->header_page->disk_addr;
+   return page_handle_is_null(&handle->header_page)
+             ? 0
+             : page_handle_addr(&handle->header_page);
 }
 
 void
@@ -3344,7 +3403,7 @@ typedef platform_status(trunk_apply_changes_fn)(trunk_context *context,
                                                 trunk_node    *node,
                                                 void          *arg);
 
-static trunk_ondisk_node_ref *
+static platform_status
 trunk_apply_changes_internal(trunk_context          *context,
                              uint64                  addr,
                              key                     minkey,
@@ -3352,8 +3411,10 @@ trunk_apply_changes_internal(trunk_context          *context,
                              uint64                  height,
                              uint64                  expected_height,
                              trunk_apply_changes_fn *func,
-                             void                   *arg)
+                             void                   *arg,
+                             trunk_ondisk_node_ref **result)
 {
+   *result = NULL;
    platform_status rc;
 
    trunk_node node;
@@ -3363,13 +3424,16 @@ trunk_apply_changes_internal(trunk_context          *context,
                          __func__,
                          __LINE__,
                          platform_status_to_string(rc));
-      return NULL;
+      return rc;
    }
    rc = trunk_node_validate_expected_height(&node, expected_height);
-   if (!SUCCESS(rc) || trunk_node_height(&node) < height) {
+   if (SUCCESS(rc) && trunk_node_height(&node) < height) {
+      rc = STATUS_INVALID_STATE;
+   }
+   if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: invalid node height", __func__, __LINE__);
       trunk_node_deinit(&node, context);
-      return NULL;
+      return rc;
    }
 
    trunk_ondisk_node_ref_vector new_child_refs;
@@ -3392,20 +3456,20 @@ trunk_apply_changes_internal(trunk_context          *context,
                       < 0)
             {
                uint64 child_addr = trunk_pivot_child_addr(child_pivot);
-               trunk_ondisk_node_ref *new_child_ref =
-                  trunk_apply_changes_internal(context,
-                                               child_addr,
-                                               minkey,
-                                               maxkey,
-                                               height,
-                                               trunk_node_height(&node) - 1,
-                                               func,
-                                               arg);
-               if (new_child_ref == NULL) {
+               trunk_ondisk_node_ref *new_child_ref;
+               rc = trunk_apply_changes_internal(context,
+                                                 child_addr,
+                                                 minkey,
+                                                 maxkey,
+                                                 height,
+                                                 trunk_node_height(&node) - 1,
+                                                 func,
+                                                 arg,
+                                                 &new_child_ref);
+               if (!SUCCESS(rc)) {
                   platform_error_log("%s():%d: apply_changes_internal() failed",
                                      __func__,
                                      __LINE__);
-                  rc = STATUS_NO_MEMORY;
                   break;
                }
                rc = vector_append(&new_child_refs, new_child_ref);
@@ -3417,9 +3481,11 @@ trunk_apply_changes_internal(trunk_context          *context,
       }
    }
 
-   trunk_ondisk_node_ref *result = NULL;
    if (SUCCESS(rc)) {
-      result = trunk_node_serialize(context, &node);
+      *result = trunk_node_serialize(context, &node);
+      if (*result == NULL) {
+         rc = STATUS_NO_MEMORY;
+      }
    }
 
    trunk_node_deinit(&node, context);
@@ -3427,7 +3493,7 @@ trunk_apply_changes_internal(trunk_context          *context,
       &new_child_refs, trunk_ondisk_node_ref_destroy, context, context->hid);
    vector_deinit(&new_child_refs);
 
-   return result;
+   return rc;
 }
 
 static platform_status
@@ -3438,22 +3504,23 @@ trunk_apply_changes(trunk_context          *context,
                     trunk_apply_changes_fn *func,
                     void                   *arg)
 {
-   trunk_ondisk_node_ref *new_root_ref =
-      trunk_apply_changes_internal(context,
-                                   context->root->ref.addr,
-                                   minkey,
-                                   maxkey,
-                                   height,
-                                   TRUNK_HEIGHT_UNKNOWN,
-                                   func,
-                                   arg);
-   if (new_root_ref != NULL) {
+   trunk_ondisk_node_ref *new_root_ref;
+   platform_status        rc = trunk_apply_changes_internal(context,
+                                                     context->root->ref.addr,
+                                                     minkey,
+                                                     maxkey,
+                                                     height,
+                                                     TRUNK_HEIGHT_UNKNOWN,
+                                                     func,
+                                                     arg,
+                                                     &new_root_ref);
+   if (SUCCESS(rc)) {
       trunk_set_root(context, new_root_ref);
    } else {
       platform_error_log(
          "%s():%d: apply_changes_internal() failed", __func__, __LINE__);
    }
-   return new_root_ref == NULL ? STATUS_NO_MEMORY : STATUS_OK;
+   return rc;
 }
 
 /*******************************************************************************
@@ -6793,12 +6860,13 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
    trunk_ondisk_pivot *min_pivot = NULL;
    while (min + 1 < max) {
       uint64              mid = (min + max) / 2;
-      trunk_ondisk_pivot *mid_pivot =
-         trunk_ondisk_node_read_pivot_key(handle, mid);
-      if (mid_pivot == NULL) {
+      trunk_ondisk_pivot *mid_pivot;
+      platform_status     rc =
+         trunk_ondisk_node_read_pivot_key(handle, mid, &mid_pivot);
+      if (!SUCCESS(rc)) {
          platform_error_log("ondisk_node_find_pivot: "
                             "ondisk_node_get_pivot failed\n");
-         return STATUS_IO_ERROR;
+         return rc;
       }
       key mid_key = trunk_ondisk_pivot_key(mid_pivot);
       int cmp     = data_key_compare(context->cfg->data_cfg, tgt, mid_key);
@@ -6816,7 +6884,11 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
    */
    if (0 < min && last_cmp == 0 && cmp == less_than) {
       min--;
-      min_pivot = trunk_ondisk_node_read_pivot_key(handle, min);
+      platform_status rc =
+         trunk_ondisk_node_read_pivot_key(handle, min, &min_pivot);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
 
    /* A later probe can replace pivot_page and invalidate min_pivot. If the
@@ -6824,12 +6896,14 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
     * the already-validated offset rather than validating it a second time. */
    if (min_pivot != NULL) {
       trunk_ondisk_node *header =
-         (trunk_ondisk_node *)handle->header_page->data;
+         (trunk_ondisk_node *)page_handle_data(&handle->header_page);
       uint64 offset = header->pivot_offsets[min];
-      if (offset_is_in_content_page(handle, handle->pivot_page, offset)) {
-         min_pivot = (trunk_ondisk_pivot *)(handle->pivot_page->data + offset
-                                            - content_page_offset(
-                                               handle, handle->pivot_page));
+      if (offset_is_in_content_page(handle, &handle->pivot_page, offset)) {
+         min_pivot =
+            (trunk_ondisk_pivot *)(page_handle_data(&handle->pivot_page)
+                                   + offset
+                                   - content_page_offset(handle,
+                                                         &handle->pivot_page));
          if (!SUCCESS(
                 trunk_ondisk_node_read_pivot_fields(handle, min, min_pivot)))
          {
@@ -6841,14 +6915,7 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
       }
    }
 
-   min_pivot = trunk_ondisk_node_read_pivot(handle, min);
-   if (min_pivot == NULL) {
-      *pivot = NULL;
-      return STATUS_INVALID_STATE;
-   }
-
-   *pivot = min_pivot;
-   return STATUS_OK;
+   return trunk_ondisk_node_read_pivot(handle, min, pivot);
 }
 
 /*
@@ -7235,20 +7302,21 @@ trunk_merge_lookup(trunk_context            *context,
    trunk_ondisk_node_handle *handlep;
    handlep = inhandle;
 
-   while (handlep && handlep->header_page) {
+   while (handlep && !page_handle_is_null(&handlep->header_page)) {
       uint64 height = trunk_ondisk_node_height(handlep);
 
       if (log) {
          trunk_node node;
          rc = trunk_node_deserialize(
-            context, handlep->header_page->disk_addr, &node);
+            context, page_handle_addr(&handlep->header_page), &node);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_merge_lookup: "
                                "node_deserialize failed: %d\n",
                                rc.r);
             goto cleanup;
          }
-         platform_log(log, "addr: %lu\n", handlep->header_page->disk_addr);
+         platform_log(
+            log, "addr: %lu\n", page_handle_addr(&handlep->header_page));
          trunk_node_print(&node, log, context->cfg->data_cfg, 0);
          trunk_node_deinit(&node, context);
       }
@@ -7292,7 +7360,11 @@ trunk_merge_lookup(trunk_context            *context,
             goto cleanup;
          }
          if (i < pivot->num_live_inflight_bundles - 1) {
-            bndl = trunk_ondisk_node_get_next_inflight_bundle(handlep, bndl);
+            rc =
+               trunk_ondisk_node_get_next_inflight_bundle(handlep, bndl, &bndl);
+            if (!SUCCESS(rc)) {
+               goto cleanup;
+            }
          }
       }
 
@@ -7360,22 +7432,26 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
    state->rc      = STATUS_OK;
    state->handlep = state->inhandle;
 
-   while (state->handlep && state->handlep->header_page) {
+   while (state->handlep && !page_handle_is_null(&state->handlep->header_page))
+   {
       state->height = trunk_ondisk_node_height(state->handlep);
 
       if (state->log) {
          // Sorry, but we're not going to perform the logging asynchronously.
          trunk_node node;
          state->rc = trunk_node_deserialize(
-            state->context, state->handlep->header_page->disk_addr, &node);
+            state->context,
+            page_handle_addr(&state->handlep->header_page),
+            &node);
          if (!SUCCESS(state->rc)) {
             platform_error_log("trunk_merge_lookup_async: "
                                "node_deserialize failed: %d\n",
                                state->rc.r);
             goto cleanup;
          }
-         platform_log(
-            state->log, "addr: %lu\n", state->handlep->header_page->disk_addr);
+         platform_log(state->log,
+                      "addr: %lu\n",
+                      page_handle_addr(&state->handlep->header_page));
          trunk_node_print(&node, state->log, state->context->cfg->data_cfg, 0);
          trunk_node_deinit(&node, state->context);
       }
@@ -7426,11 +7502,10 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
          {
             async_await_subroutine(
                state, trunk_ondisk_node_get_next_inflight_bundle_async);
-            if (state->bndl == NULL) {
+            if (!SUCCESS(state->rc)) {
                platform_error_log(
                   "trunk_merge_lookup_async: "
                   "ondisk_node_get_next_inflight_bundle_async failed\n");
-               state->rc = STATUS_IO_ERROR;
                goto cleanup;
             }
          }
@@ -7565,7 +7640,7 @@ trunk_collect_branches(const trunk_context            *context,
       return rc;
    }
 
-   while (handle.header_page) {
+   while (!page_handle_is_null(&handle.header_page)) {
       uint64              height = trunk_ondisk_node_height(&handle);
       trunk_ondisk_pivot *pivot;
       if (start_type != less_than) {
@@ -7607,7 +7682,11 @@ trunk_collect_branches(const trunk_context            *context,
 
 
          if (i < num_inflight_bundles - 1) {
-            bndl = trunk_ondisk_node_get_next_inflight_bundle(&handle, bndl);
+            rc =
+               trunk_ondisk_node_get_next_inflight_bundle(&handle, bndl, &bndl);
+            if (!SUCCESS(rc)) {
+               goto cleanup;
+            }
          }
       }
 
@@ -7684,7 +7763,7 @@ trunk_collect_branches(const trunk_context            *context,
    }
 
 cleanup:
-   if (handle.header_page) {
+   if (!page_handle_is_null(&handle.header_page)) {
       trunk_ondisk_node_handle_deinit(&handle);
    }
    if (!SUCCESS(rc)) {
@@ -7905,7 +7984,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle,
                          rc.r);
       return;
    }
-   if (root_handle.header_page == NULL) {
+   if (page_handle_is_null(&root_handle.header_page)) {
       platform_log(log_handle, "No root node\n");
       trunk_ondisk_node_handle_deinit(&root_handle);
       return;
@@ -8210,7 +8289,7 @@ visit_nodes(trunk_context *context,
                          rc.r);
       return rc;
    }
-   if (root_handle.header_page == NULL) {
+   if (page_handle_is_null(&root_handle.header_page)) {
       *found_root = FALSE;
       trunk_ondisk_node_handle_deinit(&root_handle);
       return STATUS_OK;
@@ -8219,7 +8298,7 @@ visit_nodes(trunk_context *context,
 
    trunk_node node;
    rc = trunk_node_deserialize(
-      context, root_handle.header_page->disk_addr, &node);
+      context, page_handle_addr(&root_handle.header_page), &node);
    if (!SUCCESS(rc)) {
       trunk_ondisk_node_handle_deinit(&root_handle);
       platform_error_log("visit_nodes_internal: "
@@ -8245,9 +8324,10 @@ visit_nodes(trunk_context *context,
  ************************************/
 
 typedef struct space_use_stats {
-   uint64 trunk_bytes[TRUNK_MAX_HEIGHT];
-   uint64 maplet_bytes[TRUNK_MAX_HEIGHT];
-   uint64 branch_bytes[TRUNK_MAX_HEIGHT];
+   platform_status status;
+   uint64          trunk_bytes[TRUNK_MAX_HEIGHT];
+   uint64          maplet_bytes[TRUNK_MAX_HEIGHT];
+   uint64          branch_bytes[TRUNK_MAX_HEIGHT];
 } space_use_stats;
 
 static void
@@ -8256,10 +8336,18 @@ accumulate_space_use_branch(const branch_ref bref,
                             space_use_stats *dst,
                             uint64           height)
 {
-   dst->branch_bytes[height] += btree_space_use_bytes(context->cc,
-                                                      context->cfg->btree_cfg,
-                                                      branch_ref_addr(bref),
-                                                      PAGE_TYPE_BRANCH);
+   if (!SUCCESS(dst->status)) {
+      return;
+   }
+   uint64 bytes;
+   dst->status = btree_space_use_bytes(context->cc,
+                                       context->cfg->btree_cfg,
+                                       branch_ref_addr(bref),
+                                       PAGE_TYPE_BRANCH,
+                                       &bytes);
+   if (SUCCESS(dst->status)) {
+      dst->branch_bytes[height] += bytes;
+   }
 }
 
 static void
@@ -8268,9 +8356,17 @@ accumulate_space_use_bundle(const bundle    *bndl,
                             space_use_stats *dst,
                             uint64           height)
 {
+   if (!SUCCESS(dst->status)) {
+      return;
+   }
    if (!routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
-      dst->maplet_bytes[height] +=
-         routing_filter_space_use_bytes(context->cc, &bndl->maplet);
+      uint64 bytes;
+      dst->status =
+         routing_filter_space_use_bytes(context->cc, &bndl->maplet, &bytes);
+      if (!SUCCESS(dst->status)) {
+         return;
+      }
+      dst->maplet_bytes[height] += bytes;
    }
    VECTOR_APPLY_TO_ELTS(
       &bndl->branches, accumulate_space_use_branch, context, dst, height);
@@ -8294,7 +8390,7 @@ accumulate_space_use_node(trunk_context *context, trunk_node *src, void *arg)
                         context,
                         dst,
                         src->height);
-   return STATUS_OK;
+   return dst->status;
 }
 
 void

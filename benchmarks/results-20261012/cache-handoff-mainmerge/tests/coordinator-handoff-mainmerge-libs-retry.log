@@ -1,0 +1,48 @@
+Starting handoff-mainmerge-libs build
+Checking for mismatched config...No mismatched config found
+Saving config to build-mainmerge/debug/build-config.e33dfc688a9c2bf2dad4e17ef758ec3e
+Compiling            src/PackedArray.c                                  [build-mainmerge/debug/obj/src/PackedArray.o]
+Compiling            src/batch_rwlock.c                                 [build-mainmerge/debug/obj/src/batch_rwlock.o]
+Compiling            src/core.c                                         [build-mainmerge/debug/obj/src/core.o]
+Compiling            src/default_data_config.c                          [build-mainmerge/debug/obj/src/default_data_config.o]
+Compiling            src/memtable.c                                     [build-mainmerge/debug/obj/src/memtable.o]
+Compiling            src/merge.c                                        [build-mainmerge/debug/obj/src/merge.o]
+Compiling            src/notification.c                                 [build-mainmerge/debug/obj/src/notification.o]
+Compiling            src/routing_filter.c                               [build-mainmerge/debug/obj/src/routing_filter.o]
+Compiling            src/shard_log.c                                    [build-mainmerge/debug/obj/src/shard_log.o]
+Compiling            src/splinterdb.c                                   [build-mainmerge/debug/obj/src/splinterdb.o]
+Compiling            src/superblock.c                                   [build-mainmerge/debug/obj/src/superblock.o]
+Compiling            src/trunk.c                                        [build-mainmerge/debug/obj/src/trunk.o]
+Compiling            src/allocator.c                                    [build-mainmerge/debug/obj/src/allocator.o]
+Compiling            src/blob.c                                         [build-mainmerge/debug/obj/src/blob.o]
+Compiling            src/blob_build.c                                   [build-mainmerge/debug/obj/src/blob_build.o]
+Compiling            src/btree.c                                        [build-mainmerge/debug/obj/src/btree.o]
+Compiling            src/clockcache.c                                   [build-mainmerge/debug/obj/src/clockcache.o]
+Compiling            src/data_blob_build.c                              [build-mainmerge/debug/obj/src/data_blob_build.o]
+Compiling            src/data_internal.c                                [build-mainmerge/debug/obj/src/data_internal.o]
+Compiling            src/histogram.c                                    [build-mainmerge/debug/obj/src/histogram.o]
+Compiling            src/mini_allocator.c                               [build-mainmerge/debug/obj/src/mini_allocator.o]
+Compiling            src/ondisk_ref.c                                   [build-mainmerge/debug/obj/src/ondisk_ref.o]
+Compiling            src/platform_linux/laio.c                          [build-mainmerge/debug/obj/src/platform_linux/laio.o]
+Compiling            src/platform_linux/platform_assert.c               [build-mainmerge/debug/obj/src/platform_linux/platform_assert.o]
+Compiling            src/platform_linux/platform_buffer.c               [build-mainmerge/debug/obj/src/platform_linux/platform_buffer.o]
+Compiling            src/platform_linux/platform_condvar.c              [build-mainmerge/debug/obj/src/platform_linux/platform_condvar.o]
+Compiling            src/platform_linux/platform_heap.c                 [build-mainmerge/debug/obj/src/platform_linux/platform_heap.o]
+Compiling            src/platform_linux/platform_io.c                   [build-mainmerge/debug/obj/src/platform_linux/platform_io.o]
+Compiling            src/platform_linux/platform_log.c                  [build-mainmerge/debug/obj/src/platform_linux/platform_log.o]
+Compiling            src/platform_linux/platform_mutex.c                [build-mainmerge/debug/obj/src/platform_linux/platform_mutex.o]
+Compiling            src/platform_linux/platform_threads.c              [build-mainmerge/debug/obj/src/platform_linux/platform_threads.o]
+Compiling            src/platform_linux/platform_trace.c                [build-mainmerge/debug/obj/src/platform_linux/platform_trace.o]
+Compiling            src/platform_linux/shmalloc.c                      [build-mainmerge/debug/obj/src/platform_linux/shmalloc.o]
+Compiling            src/rc_allocator.c                                 [build-mainmerge/debug/obj/src/rc_allocator.o]
+Compiling            src/task.c                                         [build-mainmerge/debug/obj/src/task.o]
+Compiling            src/util.c                                         [build-mainmerge/debug/obj/src/util.o]
+Compiling            src/writeback_set.c                                [build-mainmerge/debug/obj/src/writeback_set.o]
+In file included from src/PackedArray.c:296,
+                 from src/PackedArray.c:356:
+src/PackedArray.c: In function ‘__PackedArray_unpack_21’:
+src/PackedArray.c:177: note: ‘-Wmisleading-indentation’ is disabled from this point onwards, since column-tracking was disabled due to the size of the code/headers
+  177 |         PACKEDARRAY_IMPL_UNPACK_CASE_BREAK
+src/PackedArray.c:177: note: adding ‘-flarge-source-files’ will allow for more column-tracking support, at the expense of compilation time and memory
+Linking              build-mainmerge/debug/lib/libsplinterdb.so
+Building archive     build-mainmerge/debug/lib/libsplinterdb.a
