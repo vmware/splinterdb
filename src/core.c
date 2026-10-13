@@ -3264,7 +3264,8 @@ core_close_contexts(core_handle *spl)
 static platform_status
 core_rebuild_allocations(core_handle                  *spl,
                          const superblock_tree_record *rec,
-                         bool32                        include_logs)
+                         bool32                        include_logs,
+                         uint64                        first_invalid_group[2])
 {
    /* A partial walk is never eligible to become durable allocator state. */
    spl->allocator_map_needs_rebuild = TRUE;
@@ -3293,7 +3294,12 @@ core_rebuild_allocations(core_handle                  *spl,
          }
          log_head head = slots[i].head;
 
-         rc = shard_log_recover_allocations(spl->cc, log_cfg, head);
+         rc = shard_log_recover_allocations_from(
+            spl->cc,
+            log_cfg,
+            head,
+            rec->first_unincorporated_generation,
+            &first_invalid_group[i]);
          if (!SUCCESS(rc)) {
             platform_error_log("core_mount: could not rebuild the allocations "
                                "of the log at %lu: %s\n",
@@ -3322,6 +3328,7 @@ static platform_status
 core_replay_log(core_handle *spl,
                 log_head     head,
                 uint64       first_unincorporated_generation,
+                uint64       first_invalid_group,
                 bool32      *ran_to_end)
 {
    // An absent slot has no tail to have lost, so it does not stop the next one.
@@ -3332,12 +3339,13 @@ core_replay_log(core_handle *spl,
 
    log_iterator   *itor;
    platform_status rc =
-      shard_log_iterator_create(spl->cc,
-                                (shard_log_config *)spl->cfg.log_cfg,
-                                spl->heap_id,
-                                head,
-                                first_unincorporated_generation,
-                                &itor);
+      shard_log_iterator_create_recovered(spl->cc,
+                                          (shard_log_config *)spl->cfg.log_cfg,
+                                          spl->heap_id,
+                                          head,
+                                          first_unincorporated_generation,
+                                          first_invalid_group,
+                                          &itor);
    if (!SUCCESS(rc)) {
       platform_error_log("core_mount: could not read the log at %lu for "
                          "replay: %s\n",
@@ -3394,7 +3402,9 @@ core_replay_log(core_handle *spl,
  * is reading back out, and the new log must be allocated from the second map.
  */
 static platform_status
-core_recover_replay(core_handle *spl, const superblock_tree_record *rec)
+core_recover_replay(core_handle                  *spl,
+                    const superblock_tree_record *rec,
+                    const uint64                  first_invalid_group[2])
 {
    platform_assert(spl->log == NULL);
 
@@ -3413,8 +3423,11 @@ core_recover_replay(core_handle *spl, const superblock_tree_record *rec)
    superblock_log_head slots[2] = {rec->sealed_log, rec->live_log};
    for (uint64 i = 0; i < ARRAY_SIZE(slots); i++) {
       bool32          ran_to_end;
-      platform_status rc = core_replay_log(
-         spl, slots[i].head, rec->first_unincorporated_generation, &ran_to_end);
+      platform_status rc = core_replay_log(spl,
+                                           slots[i].head,
+                                           rec->first_unincorporated_generation,
+                                           first_invalid_group[i],
+                                           &ran_to_end);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -3652,12 +3665,13 @@ core_mount(core_handle      *spl,
     * points at.  Both must happen before trunk_snapshot_create_from_addr(),
     * which increments the root's refcount in the resulting map.
     */
+   uint64 first_invalid_group[2] = {UINT64_MAX, UINT64_MAX};
    bool32 recovering = !superblock_allocation_state_valid(&spl->superblock);
    if (recovering) {
       platform_default_log("core_mount: root id %lu was not cleanly unmounted; "
                            "recovering\n",
                            spl->id);
-      rc = core_rebuild_allocations(spl, &rec, TRUE);
+      rc = core_rebuild_allocations(spl, &rec, TRUE, first_invalid_group);
    } else {
       rc = allocator_load_refcounts(al);
       if (!SUCCESS(rc)) {
@@ -3696,7 +3710,7 @@ core_mount(core_handle      *spl,
     * behind rather than the one that still counts the logs being replayed.
     */
    if (recovering) {
-      rc = core_recover_replay(spl, &rec);
+      rc = core_recover_replay(spl, &rec, first_invalid_group);
       if (!SUCCESS(rc)) {
          /*
           * Replay may have rotated memtables and queued their flush or
@@ -3736,7 +3750,7 @@ core_mount(core_handle      *spl,
 
       // The recovery publish advanced the root and cleared both log slots.
       superblock_get_tree_record(&spl->superblock, &rec);
-      rc = core_rebuild_allocations(spl, &rec, FALSE);
+      rc = core_rebuild_allocations(spl, &rec, FALSE, NULL);
       if (SUCCESS(rc)) {
          rc = core_open_contexts(
             spl, rec.root_addr, rec.first_unincorporated_generation);
@@ -4388,6 +4402,20 @@ core_unmount(core_handle *spl, bool32 force)
                          "incomplete; the allocator map will be rebuilt: %s\n",
                          platform_status_to_string(trunk_rc));
       spl->allocator_map_needs_rebuild = TRUE;
+   }
+
+   /* Reclamation may first fail during the destructive teardown above. Its
+    * external references were consumed, so retrying would double-decrement.
+    * Part A and normal mount/checkpoint publications leave the allocation
+    * state invalid; suppress the only clean-marker publication below. */
+   platform_status reclamation_rc = allocator_reclamation_status(spl->al);
+   if (!SUCCESS(reclamation_rc)) {
+      spl->allocator_map_needs_rebuild = TRUE;
+      platform_error_log(
+         "WARNING: core_unmount: reclamation failed (%s); remaining space "
+         "was retained. Shutdown requires recovery and the next open will "
+         "rebuild allocation state.\n",
+         platform_status_to_string(reclamation_rc));
    }
 
    /*

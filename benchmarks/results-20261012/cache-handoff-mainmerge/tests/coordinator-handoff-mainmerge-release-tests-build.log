@@ -1,0 +1,16 @@
+Checking for mismatched config...No mismatched config found
+Compiling            tests/unit/main.c                                  [build-mainmerge/release/obj/tests/unit/main.o]
+Compiling            tests/unit/writeback_set_test.c                    [build-mainmerge/release/obj/tests/unit/writeback_set_test.o]
+Compiling            tests/unit/btree_test_common.c                     [build-mainmerge/release/obj/tests/unit/btree_test_common.o]
+Compiling            tests/config.c                                     [build-mainmerge/release/obj/tests/config.o]
+Compiling            tests/test_data.c                                  [build-mainmerge/release/obj/tests/test_data.o]
+Compiling            tests/unit/unit_tests_common.c                     [build-mainmerge/release/obj/tests/unit/unit_tests_common.o]
+Compiling            tests/unit/splinterdb_quick_test.c                 [build-mainmerge/release/obj/tests/unit/splinterdb_quick_test.o]
+Compiling            tests/test_common.c                                [build-mainmerge/release/obj/tests/test_common.o]
+Compiling            tests/functional/test_async.c                      [build-mainmerge/release/obj/tests/functional/test_async.o]
+Linking              build-mainmerge/release/bin/unit/writeback_set_test
+lto-wrapper: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper: note: see the ‘-flto’ option documentation for more information
+Linking              build-mainmerge/release/bin/unit/splinterdb_quick_test
+lto-wrapper: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper: note: see the ‘-flto’ option documentation for more information

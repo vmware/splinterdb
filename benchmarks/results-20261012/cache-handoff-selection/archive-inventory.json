@@ -1,0 +1,237 @@
+[
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/0-before.log",
+    "archived": "resident/0-before.log",
+    "sha256": "04ecfb82ecdd49832adcc788ef4b4c4cdf9a06755fa3bebae196dce07ca43216"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/1-selected.log",
+    "archived": "resident/1-selected.log",
+    "sha256": "569ab1d0b8365f9a8a7882f74a15cd3f7dd20e0603d8ffb07bd6d56703ec225c"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/2-selected.log",
+    "archived": "resident/2-selected.log",
+    "sha256": "9b7dd309aeaa7fb919394bffc0d1c9d21e8809978cc18fb0f05cc1bc7f2ce215"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/3-before.log",
+    "archived": "resident/3-before.log",
+    "sha256": "31bce7c27fa77e26924d52ae0dfbb653728fbb35ada6db8339ce70e5b7487a7b"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/handoff_selection_compare.py",
+    "archived": "resident/handoff_selection_compare.py",
+    "sha256": "3cd7035486d948c8690f145b6a7714d400638a5c1cf3f9078519484f062b114e"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/kvbench.c",
+    "archived": "resident/kvbench.c",
+    "sha256": "45cf9d2e1f74e90719885955d5a78651cc5c1d97cda2daed534a3c0cb07f48a9"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/manifest.json",
+    "archived": "resident/manifest.json",
+    "sha256": "98bb61b163602bee468157e7c746a81b04842090ceda8ffa9f5951197c74d141"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/results.csv",
+    "archived": "resident/results.csv",
+    "sha256": "16a037a3f60955a2d9992b9d58f181277bcdc5a315f80c6204ae923b267ee65e"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident/summary.csv",
+    "archived": "resident/summary.csv",
+    "sha256": "4f4701781d184312578ce1c8e0eb57d44a114e4e45f9e2d312e0ca759cab7ec0"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/0-before.log",
+    "archived": "disk/0-before.log",
+    "sha256": "88b4c38433377de7a6860f7c77e377364b1c7f9e6fb5748c271a87068ee8be03"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/1-selected.log",
+    "archived": "disk/1-selected.log",
+    "sha256": "fb1b325c7d21745b55019d3b8fed8288afaf563747020e2a13dd2f71dfa5aff7"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/2-selected.log",
+    "archived": "disk/2-selected.log",
+    "sha256": "bdef7ebb5b1357cef615200d2c70760be4ab74de41eaba5321adf627a507b40a"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/3-before.log",
+    "archived": "disk/3-before.log",
+    "sha256": "66f15de7c6ce2b2af150d00088aa67f5f8bb3dfa9fbe106d494db86a6dbf2204"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/handoff_selection_compare.py",
+    "archived": "disk/handoff_selection_compare.py",
+    "sha256": "3cd7035486d948c8690f145b6a7714d400638a5c1cf3f9078519484f062b114e"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/kvbench.c",
+    "archived": "disk/kvbench.c",
+    "sha256": "45cf9d2e1f74e90719885955d5a78651cc5c1d97cda2daed534a3c0cb07f48a9"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/manifest.json",
+    "archived": "disk/manifest.json",
+    "sha256": "63eae36102bf7fc9fc99d49d6f0176be53a50de89d1188a1fec10d7600a0cc50"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/results.csv",
+    "archived": "disk/results.csv",
+    "sha256": "a3f85aa1c21590500cba99b2f14819f137040c5626e017f898b0e1b73e7deedb"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/disk/summary.csv",
+    "archived": "disk/summary.csv",
+    "sha256": "0cca9fa1b6b77330f679a13c6b80af2a30cbeb1021734960b509633db3fdeaf5"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/0-selected.log",
+    "archived": "resident-point8-repeat20/0-selected.log",
+    "sha256": "e03d7499232d8e665e27c72bd2ed3b8cc037387e6add55b068521394fe5668b6"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/1-before.log",
+    "archived": "resident-point8-repeat20/1-before.log",
+    "sha256": "71f1cb4e16d982a2849f93b565e992feb1833542b7a7458e7b4fbcb5182a6528"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/2-before.log",
+    "archived": "resident-point8-repeat20/2-before.log",
+    "sha256": "7ef72238d7bd1002db9afd2675c1a3539e33b83c0b7f49c2187bf76a05c154de"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/3-selected.log",
+    "archived": "resident-point8-repeat20/3-selected.log",
+    "sha256": "813da09faaa024ceb08011a7cbbf7e912bbdbf6d629d6dbba7a723630f45716e"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/handoff_selection_point8.py",
+    "archived": "resident-point8-repeat20/handoff_selection_point8.py",
+    "sha256": "1a3e05ea827534ce41314967196f8a17d961118afbcd902a4189cb4aaac945f1"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/kvbench.c",
+    "archived": "resident-point8-repeat20/kvbench.c",
+    "sha256": "45cf9d2e1f74e90719885955d5a78651cc5c1d97cda2daed534a3c0cb07f48a9"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/manifest.json",
+    "archived": "resident-point8-repeat20/manifest.json",
+    "sha256": "065e23273377bd130c45e245fcb0503f323bd2939ae211ebacbff33853c0da79"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/results.csv",
+    "archived": "resident-point8-repeat20/results.csv",
+    "sha256": "8a296759be65f14eefca7c80091198b30b0d1280375b21203e9ee1ef944121b4"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-handoff-selection/resident-point8-repeat20/summary.csv",
+    "archived": "resident-point8-repeat20/summary.csv",
+    "sha256": "f21b28b027b497905db9c9dd9fa74158c2c87848e58724a431872c08e55080e0"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/assembly-notes.txt",
+    "archived": "provenance/assembly-notes.txt",
+    "sha256": "b2f75cc78d445b2e319e9108f2f5ee54cbd0d72b0d2073fcecadff08fd78ac98"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/before-build-config.txt",
+    "archived": "provenance/before-build-config.txt",
+    "sha256": "407f25bb96d7e27e01460cbdc60e0bbc3fd06c5274efeb23814c42ed02639c85"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/before-cache-get-disassembly.txt",
+    "archived": "provenance/before-cache-get-disassembly.txt",
+    "sha256": "32d79cb42befb99514628f6bd5128009269d5b496d19219b086201313109b311"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/before-symbols.txt",
+    "archived": "provenance/before-symbols.txt",
+    "sha256": "8009eaa87c7b1ad926c23b032389ede51e03ae0a865b2e1775aaef67d65efa0b"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/build_handoff_selection.py",
+    "archived": "provenance/build_handoff_selection.py",
+    "sha256": "8b17fa0f3ba3b8f2c4a6203a4f4fe5adb25f682ff4bf3f44fc8e68fde4bebc0e"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/builds.json",
+    "archived": "provenance/builds.json",
+    "sha256": "77faa9da9b75daf5bf97493fed3156fd2f2f3cd85e1be5db09c6a3b4f6f69b83"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/campaigns.json",
+    "archived": "provenance/campaigns.json",
+    "sha256": "cf7aec6fa17e06e03b9584f994b1549b9272d4f23ad221bb76034688974f2ba4"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/disk-benchmark.log",
+    "archived": "provenance/disk-benchmark.log",
+    "sha256": "1d03765a2d58e6f4a6ac775eca35b31727953bce96adfffc2e7669d54874282a"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/measured-guard-fix.patch",
+    "archived": "provenance/measured-guard-fix.patch",
+    "sha256": "703db9f62b75ed34f277420e515d78a7ef485053b97c31190392cdb358517d7c"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/resident-benchmark.log",
+    "archived": "provenance/resident-benchmark.log",
+    "sha256": "213fb07c1bb2f6ea0c428b0e96438531130b3aadfe802f8c10468c04af3065a1"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/selected-build-config.txt",
+    "archived": "provenance/selected-build-config.txt",
+    "sha256": "222322835bb6966bd2a4ac73e9fa7eba5e0183e4b5b6f31a8f06353bd13dd905"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/selected-cache-get-disassembly.txt",
+    "archived": "provenance/selected-cache-get-disassembly.txt",
+    "sha256": "47aa33093f1a4fd270765a03092b3039732cc9d4e00b8c74a5caeec74030c5c8"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-selection/selected-symbols.txt",
+    "archived": "provenance/selected-symbols.txt",
+    "sha256": "c81d67ca24f40e5d712e2027bed4c0700411e57326bac681a0b399d1f5255fbf"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/handoff_selection_compare.py",
+    "archived": "scripts/handoff_selection_compare.py",
+    "sha256": "3cd7035486d948c8690f145b6a7714d400638a5c1cf3f9078519484f062b114e"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/build_handoff_selection.py",
+    "archived": "scripts/build_handoff_selection.py",
+    "sha256": "8b17fa0f3ba3b8f2c4a6203a4f4fe5adb25f682ff4bf3f44fc8e68fde4bebc0e"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_handoff_selection.py",
+    "archived": "scripts/run_handoff_selection.py",
+    "sha256": "b66364c15e173ee461d2f04126bb6a55837e429e2d01bc16a1fe7a5b87702b28"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/archive_handoff_selection.py",
+    "archived": "scripts/archive_handoff_selection.py",
+    "sha256": "0c377637d94090b82ad7c0c3d0f55b36b214fed76cfdfb7d7ad5970f2473f2ec"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/handoff_selection_point8.py",
+    "archived": "scripts/handoff_selection_point8.py",
+    "sha256": "1a3e05ea827534ce41314967196f8a17d961118afbcd902a4189cb4aaac945f1"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+    "archived": "scripts/run_job.py",
+    "sha256": "908d86de805e6efd41b423c919187f2df14715104f047e10fa8a6c57129cc773"
+  },
+  {
+    "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/build_kvbench.py",
+    "archived": "scripts/build_kvbench.py",
+    "sha256": "f9aa193fa44a7d36633957e219fced3075dc06efd91c51c1f983a136d6743a69"
+  }
+]

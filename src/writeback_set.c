@@ -169,11 +169,10 @@ writeback_set_retry_incomplete(writeback_set *set)
          rc = cache_writeback_extent(
             set->cc, entry->request.addr, entry->type, &retry_request);
       } else {
-         page_handle *page =
-            cache_get(set->cc, entry->request.addr, TRUE, entry->type);
-         if (page == NULL) {
-            rc = STATUS_IO_ERROR;
-         } else {
+         page_handle  page_storage;
+         page_handle *page = &page_storage;
+         rc = cache_get(set->cc, entry->request.addr, TRUE, entry->type, page);
+         if (SUCCESS(rc)) {
             rc =
                cache_writeback_page(set->cc, page, entry->type, &retry_request);
             cache_unget(set->cc, page);

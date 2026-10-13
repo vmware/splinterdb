@@ -10,6 +10,27 @@
 #pragma once
 
 #include "clockcache.h"
+
+/* Positive-test convenience: acquisition failures are test failures. Returning
+ * the handle by value keeps the read reference in caller-owned storage. */
+static inline page_handle
+test_cache_get_page(cache *cc, uint64 addr, bool32 blocking, page_type type)
+{
+   page_handle     page;
+   platform_status rc = cache_get(cc, addr, blocking, type, &page);
+   platform_assert_status_ok(rc);
+   return page;
+}
+
+static inline page_handle
+test_cache_get_async_page(page_get_async_state_buffer *state)
+{
+   page_handle     page;
+   platform_status rc = cache_get_async_state_result(state, &page);
+   platform_assert_status_ok(rc);
+   return page;
+}
+
 #include "../config.h"
 #include "splinterdb/data.h"
 #include "shard_log.h"
@@ -269,6 +290,16 @@ test_config_init(system_config *system_cfg, // OUT
 
    shard_log_config_init(
       &system_cfg->log_cfg, &system_cfg->cache_cfg.super, system_cfg->data_cfg);
+   uint64 blob_limit = master_cfg->blob_max_descriptor_size;
+   if (blob_limit == 0) {
+      blob_limit = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE;
+   }
+   if (blob_limit < BLOB_MIN_MAX_DESCRIPTOR_SIZE
+       || blob_limit > MAX_INLINE_MESSAGE_SIZE(master_cfg->page_size))
+   {
+      return STATUS_BAD_PARAM;
+   }
+   system_cfg->log_cfg.blob_cfg.blob_max_descriptor_size = blob_limit;
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_NORMAL]      = master_cfg->num_normal_bg_threads;
@@ -291,6 +322,7 @@ test_config_init(system_config *system_cfg, // OUT
    btree_config_init(&system_cfg->btree_cfg,
                      &system_cfg->cache_cfg.super,
                      system_cfg->data_cfg);
+   system_cfg->btree_cfg.blob_cfg.blob_max_descriptor_size = blob_limit;
 
    trunk_config_init(&system_cfg->trunk_node_cfg,
                      system_cfg->data_cfg,

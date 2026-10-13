@@ -147,3 +147,21 @@ resident long-scan cost.
 Compact CSVs, manifests, build hashes and campaign runners are retained in
 `benchmarks/results-20261011/`. Full original artifacts and images remain in
 `.cache/projects-20261011/benchmarks/branch-prefix/` in the main checkout.
+
+# Main integration, 2026-10-13
+
+Merged `origin/main` at `7bb5fab305b9c6179e31f75998dabea833537a08`,
+including caller-owned transferable cache handles, cache-read error propagation,
+hierarchical blobs, and wide B-tree statistics. The merge required no source
+adaptations. Lexical opt-in, per-leaf prefix encoding, full-key reconstruction,
+and the independent experimental superblock format remain in place.
+
+Debug and release each passed 77 checks: 50 public API quick tests, eight
+B-tree tests, 15 superblock tests, and four blob tests. This covers compressed
+point/async lookups, forward/reverse scans and seeks, reopen, iterator transfer,
+three-level blob trees, wide statistics, and injected cache-read failures.
+The builds use `BUILD_ROOT=build-main-7bb5fab` with the default compiler. Raw
+logs, commands, binary hashes, and the source manifest are recorded in the
+main checkout under `.cache/projects-20261011/coordination/main-7bb5fab/branch-prefix/`.
+The performance measurements above predate this merge and do not establish the
+performance of the merged implementation.
