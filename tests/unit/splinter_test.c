@@ -70,18 +70,19 @@ typedef struct ONDISK test_log_entry {
    ondisk_tuple tuple;
 } test_log_entry;
 
-static page_handle *
+static page_handle
 test_splinter_claim_page(cache *cc, uint64 addr, page_type type)
 {
-   page_handle *page = cache_get(cc, addr, TRUE, type);
+   page_handle  acquired_page = test_cache_get_page(cc, addr, TRUE, type);
+   page_handle *page          = &acquired_page;
    platform_assert(page != NULL);
    while (!cache_try_claim(cc, page)) {
       cache_unget(cc, page);
-      page = cache_get(cc, addr, TRUE, type);
+      *page = test_cache_get_page(cc, addr, TRUE, type);
       platform_assert(page != NULL);
    }
    cache_lock(cc, page);
-   return page;
+   return *page;
 }
 
 static void
@@ -99,13 +100,15 @@ test_splinter_pivot_bundle(page_handle *page,
 {
    uint64 page_offset = pivot_offset % page_size;
    platform_assert(page_size - page_offset >= sizeof(test_trunk_pivot));
-   test_trunk_pivot *pivot    = (test_trunk_pivot *)(page->data + page_offset);
-   uint64            key_size = sizeof_ondisk_key_data(&pivot->key);
+   test_trunk_pivot *pivot =
+      (test_trunk_pivot *)(page_handle_data(page) + page_offset);
+   uint64 key_size = sizeof_ondisk_key_data(&pivot->key);
    platform_assert(key_size
                    <= page_size - page_offset - sizeof(test_trunk_pivot));
    test_trunk_bundle *bundle =
       (test_trunk_bundle *)((char *)pivot + sizeof(*pivot) + key_size);
-   platform_assert((char *)bundle + sizeof(*bundle) <= page->data + page_size);
+   platform_assert((char *)bundle + sizeof(*bundle)
+                   <= page_handle_data(page) + page_size);
    return bundle;
 }
 
@@ -114,7 +117,7 @@ test_splinter_pivot(page_handle *page, uint64 pivot_offset, uint64 page_size)
 {
    uint64 page_offset = pivot_offset % page_size;
    platform_assert(page_size - page_offset >= sizeof(test_trunk_pivot));
-   return (test_trunk_pivot *)(page->data + page_offset);
+   return (test_trunk_pivot *)(page_handle_data(page) + page_offset);
 }
 
 typedef struct shadow_entry {
@@ -1184,17 +1187,19 @@ CTEST2(splinter, test_blob_checksums)
    uint64 corrupt_page_offset = iter.fragment.offset;
    blob_page_iterator_deinit(&iter);
 
-   page_handle *page = cache_get(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   page_handle acquired_page =
+      test_cache_get_page(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+   page_handle *page = &acquired_page;
    if (page == NULL) {
       rc = STATUS_IO_ERROR;
       goto cleanup;
    }
    while (!cache_try_claim(cc, page)) {
       cache_unget(cc, page);
-      page = cache_get(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
+      *page = test_cache_get_page(cc, corrupt_page_addr, TRUE, PAGE_TYPE_BLOB);
    }
    cache_lock(cc, page);
-   page->data[corrupt_page_offset] ^= 0x80;
+   page_handle_data(page)[corrupt_page_offset] ^= 0x80;
    cache_unlock(cc, page);
    cache_unclaim(cc, page);
    cache_unget(cc, page);
@@ -1317,8 +1322,8 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
    merge_accumulator_deinit(&msg);
 }
 
-/* Packed branches persist exact subtree counters in uint32 fields, with
- * INT32_MAX reserved to mean unknown. Reject an unrepresentable total before
+/* Packed branches persist exact subtree counters in up to 64 bits, with
+ * UINT64_MAX reserved to mean unknown. Reject an unrepresentable total before
  * copying the tuple or publishing any part of the output tree. */
 CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
 {
@@ -1329,9 +1334,9 @@ CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
 
    pack_abort_test_iterator itor = {
       .super     = {.ops = &pack_abort_test_ops},
-      .tuple_key = key_create(FALSE, INT32_MAX, &key_byte),
+      .tuple_key = key_create(FALSE, 1, &key_byte),
       .msg       = message_create(
-         MESSAGE_TYPE_INSERT, NULL, slice_create(1, &value_byte)),
+         MESSAGE_TYPE_INSERT, NULL, slice_create(UINT64_MAX, &value_byte)),
    };
    btree_pack_req  req;
    platform_status rc = btree_pack_req_init(&req,
@@ -1393,11 +1398,13 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    merge_accumulator_deinit(&insert_msg);
    ASSERT_NOT_NULL(spl.trunk_context.root);
 
-   uint64       root_addr = spl.trunk_context.root->ref.addr;
-   uint64       page_size = cache_page_size(cc);
-   page_handle *root_page =
+   uint64      root_addr = spl.trunk_context.root->ref.addr;
+   uint64      page_size = cache_page_size(cc);
+   page_handle root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
-   test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
+   page_handle         *root_page = &root_page_handle;
+   test_trunk_node_hdr *node =
+      (test_trunk_node_hdr *)page_handle_data(root_page);
    ASSERT_TRUE(node->num_pivots >= 2);
    uint64  num_bundles = node->num_pivots - 1;
    uint32 *pivot_offsets =
@@ -1413,8 +1420,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    for (uint64 i = 0; i < num_bundles; i++) {
       uint64 pivot_page_addr =
          root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
-      page_handle *pivot_page =
+      page_handle pivot_page_handle =
          test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      page_handle       *pivot_page = &pivot_page_handle;
       test_trunk_bundle *bundle =
          test_splinter_pivot_bundle(pivot_page, pivot_offsets[i], page_size);
       saved_num_branches[i] = bundle->num_branches;
@@ -1477,8 +1485,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    for (uint64 i = 0; i < num_bundles; i++) {
       uint64 pivot_page_addr =
          root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
-      page_handle *pivot_page =
+      page_handle pivot_page_handle =
          test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      page_handle       *pivot_page = &pivot_page_handle;
       test_trunk_bundle *bundle =
          test_splinter_pivot_bundle(pivot_page, pivot_offsets[i], page_size);
       bundle->num_branches = saved_num_branches[i];
@@ -1518,19 +1527,23 @@ CTEST2(splinter, test_invalid_branch_reference_rejected)
    merge_accumulator_deinit(&msg);
    ASSERT_TRUE(SUCCESS(core_checkpoint(&spl, 0)));
 
-   uint64       root_addr = spl.trunk_context.root->ref.addr;
-   uint64       page_size = cache_page_size(cc);
-   page_handle *root_page =
+   uint64      root_addr = spl.trunk_context.root->ref.addr;
+   uint64      page_size = cache_page_size(cc);
+   page_handle root_page_storage =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
-   test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
+   page_handle         *root_page = &root_page_storage;
+   test_trunk_node_hdr *node =
+      (test_trunk_node_hdr *)page_handle_data(root_page);
    /* The single freshly incorporated branch is still an inflight bundle. */
    ASSERT_TRUE(node->num_inflight_bundles != 0);
    uint64 offset = node->inflight_bundles_offset;
    test_splinter_unclaim_page(cc, root_page);
-   uint64       page_addr = root_addr + offset - offset % page_size;
-   page_handle *page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+   uint64      page_addr = root_addr + offset - offset % page_size;
+   page_handle page_storage =
+      test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+   page_handle       *page = &page_storage;
    test_trunk_bundle *bundle =
-      (test_trunk_bundle *)(page->data + offset % page_size);
+      (test_trunk_bundle *)(page_handle_data(page) + offset % page_size);
    ASSERT_TRUE(bundle->num_branches != 0);
    branch_ref     saved_branch = bundle->branches[0];
    routing_filter saved_maplet = bundle->maplet;
@@ -1571,8 +1584,9 @@ CTEST2(splinter, test_invalid_branch_reference_rejected)
    bool32          sync_miss_ok[2];
    bool32          async_miss_ok[2];
    for (uint64 invalid_field = 0; invalid_field < 2; invalid_field++) {
-      page           = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
-      bundle         = (test_trunk_bundle *)(page->data + offset % page_size);
+      *page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      bundle =
+         (test_trunk_bundle *)(page_handle_data(page) + offset % page_size);
       bundle->maplet = filter;
       if (invalid_field == 0) {
          bundle->branches[0].format_version++;
@@ -1619,8 +1633,9 @@ CTEST2(splinter, test_invalid_branch_reference_rejected)
       }
 
       /* Restore the owning reference before cleanup can release it. */
-      page   = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
-      bundle = (test_trunk_bundle *)(page->data + offset % page_size);
+      *page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      bundle =
+         (test_trunk_bundle *)(page_handle_data(page) + offset % page_size);
       bundle->branches[0] = saved_branch;
       bundle->maplet      = saved_maplet;
       test_splinter_unclaim_page(cc, page);
@@ -1670,11 +1685,13 @@ CTEST2(splinter, test_malformed_trunk_pivot_stats)
    merge_accumulator_deinit(&insert_msg);
    ASSERT_NOT_NULL(spl.trunk_context.root);
 
-   uint64       root_addr = spl.trunk_context.root->ref.addr;
-   uint64       page_size = cache_page_size(cc);
-   page_handle *root_page =
+   uint64      root_addr = spl.trunk_context.root->ref.addr;
+   uint64      page_size = cache_page_size(cc);
+   page_handle root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
-   test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
+   page_handle         *root_page = &root_page_handle;
+   test_trunk_node_hdr *node =
+      (test_trunk_node_hdr *)page_handle_data(root_page);
    ASSERT_TRUE(node->num_pivots >= 2);
    uint16  num_pivots = node->num_pivots;
    uint32 *pivot_offsets =
@@ -1690,8 +1707,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_stats)
    for (uint64 i = 0; i < num_pivots; i++) {
       uint64 pivot_page_addr =
          root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
-      page_handle *pivot_page =
+      page_handle pivot_page_handle =
          test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      page_handle      *pivot_page = &pivot_page_handle;
       test_trunk_pivot *pivot =
          test_splinter_pivot(pivot_page, pivot_offsets[i], page_size);
       saved_stats[i]            = pivot->stats;
@@ -1735,8 +1753,9 @@ CTEST2(splinter, test_malformed_trunk_pivot_stats)
    for (uint64 i = 0; i < num_pivots; i++) {
       uint64 pivot_page_addr =
          root_addr + pivot_offsets[i] - pivot_offsets[i] % page_size;
-      page_handle *pivot_page =
+      page_handle pivot_page_handle =
          test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+      page_handle      *pivot_page = &pivot_page_handle;
       test_trunk_pivot *pivot =
          test_splinter_pivot(pivot_page, pivot_offsets[i], page_size);
       pivot->stats = saved_stats[i];
@@ -1787,11 +1806,13 @@ CTEST2(splinter, test_malformed_trunk_child_height)
    merge_accumulator_deinit(&insert_msg);
    ASSERT_NOT_NULL(spl.trunk_context.root);
 
-   uint64       root_addr = spl.trunk_context.root->ref.addr;
-   uint64       page_size = cache_page_size(cc);
-   page_handle *root_page =
+   uint64      root_addr = spl.trunk_context.root->ref.addr;
+   uint64      page_size = cache_page_size(cc);
+   page_handle root_page_handle =
       test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
-   test_trunk_node_hdr *node = (test_trunk_node_hdr *)root_page->data;
+   page_handle         *root_page = &root_page_handle;
+   test_trunk_node_hdr *node =
+      (test_trunk_node_hdr *)page_handle_data(root_page);
    ASSERT_EQUAL(0, node->height);
    ASSERT_TRUE(node->num_pivots >= 2);
    uint16 saved_height = node->height;
@@ -1800,8 +1821,9 @@ CTEST2(splinter, test_malformed_trunk_child_height)
    test_splinter_unclaim_page(cc, root_page);
 
    uint64 pivot_page_addr = root_addr + pivot_offset - pivot_offset % page_size;
-   page_handle *pivot_page =
+   page_handle pivot_page_handle =
       test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+   page_handle      *pivot_page = &pivot_page_handle;
    test_trunk_pivot *pivot =
       test_splinter_pivot(pivot_page, pivot_offset, page_size);
    uint64 saved_child_addr = pivot->child_addr;
@@ -1862,12 +1884,12 @@ CTEST2(splinter, test_malformed_trunk_child_height)
       trunk_ondisk_node_handle_deinit(&handle);
    }
 
-   pivot_page = test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
-   pivot      = test_splinter_pivot(pivot_page, pivot_offset, page_size);
+   *pivot_page = test_splinter_claim_page(cc, pivot_page_addr, PAGE_TYPE_TRUNK);
+   pivot       = test_splinter_pivot(pivot_page, pivot_offset, page_size);
    pivot->child_addr = saved_child_addr;
    test_splinter_unclaim_page(cc, pivot_page);
-   root_page    = test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
-   node         = (test_trunk_node_hdr *)root_page->data;
+   *root_page   = test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
+   node         = (test_trunk_node_hdr *)page_handle_data(root_page);
    node->height = saved_height;
    test_splinter_unclaim_page(cc, root_page);
 
@@ -2781,7 +2803,10 @@ typedef struct shard_log_page_alloc_fault {
 static shard_log_page_alloc_fault *active_shard_log_page_alloc_fault;
 
 static page_handle *
-shard_log_test_page_alloc(cache *cc, uint64 addr, page_type type)
+shard_log_test_page_alloc(cache       *cc,
+                          uint64       addr,
+                          page_type    type,
+                          page_handle *page)
 {
    shard_log_page_alloc_fault *fault =
       __atomic_load_n(&active_shard_log_page_alloc_fault, __ATOMIC_ACQUIRE);
@@ -2794,7 +2819,7 @@ shard_log_test_page_alloc(cache *cc, uint64 addr, page_type type)
       __atomic_fetch_add(&fault->failures, 1, __ATOMIC_RELAXED);
       return NULL;
    }
-   return fault->saved_ops->page_alloc(cc, addr, type);
+   return fault->saved_ops->page_alloc(cc, addr, type, page);
 }
 
 static void
@@ -2837,7 +2862,10 @@ typedef struct checkpoint_trunk_alloc_fault {
 static checkpoint_trunk_alloc_fault *active_checkpoint_trunk_alloc_fault;
 
 static page_handle *
-checkpoint_test_trunk_page_alloc(cache *cc, uint64 addr, page_type type)
+checkpoint_test_trunk_page_alloc(cache       *cc,
+                                 uint64       addr,
+                                 page_type    type,
+                                 page_handle *page)
 {
    checkpoint_trunk_alloc_fault *fault =
       __atomic_load_n(&active_checkpoint_trunk_alloc_fault, __ATOMIC_ACQUIRE);
@@ -2850,7 +2878,7 @@ checkpoint_test_trunk_page_alloc(cache *cc, uint64 addr, page_type type)
       __atomic_fetch_add(&fault->failures, 1, __ATOMIC_RELAXED);
       return NULL;
    }
-   return fault->saved_ops->page_alloc(cc, addr, type);
+   return fault->saved_ops->page_alloc(cc, addr, type, page);
 }
 
 static void
@@ -2929,11 +2957,12 @@ CTEST2(splinter, test_shard_log_page_alloc_failure_retries_open_buffer)
          writeback_requests +=
             writeback_set_num_requests(&group->thread_data[tid].wbset);
       }
-      group_is_retryable =
-         group->state == SHARD_LOG_GROUP_TERMINATING
-         && final->state == SHARD_LOG_BUFFER_OPEN
-         && final->offset > sizeof(shard_log_hdr) && final->incache_page == NULL
-         && group->next_page_no == 0 && writeback_requests == 0;
+      group_is_retryable = group->state == SHARD_LOG_GROUP_TERMINATING
+                           && final->state == SHARD_LOG_BUFFER_OPEN
+                           && final->offset > sizeof(shard_log_hdr)
+                           && page_handle_is_null(&final->incache_page)
+                           && group->next_page_no == 0
+                           && writeback_requests == 0;
    }
    platform_mutex_unlock(&slog->graduate_lock);
    ASSERT_TRUE(group_is_retryable,
@@ -4626,6 +4655,148 @@ CTEST2(splinter, test_unmount_skips_allocator_map_that_needs_rebuild)
    core_destroy(&cleanup);
 }
 
+/* Inject a real metadata-read failure after close has published its durable
+ * root and entered destructive teardown. Keep the unreadable metadata behind
+ * the hook during reopen: recovery must never visit this unreachable root. */
+static const cache_ops *late_reclaim_saved_ops;
+static cache_ops        late_reclaim_fault_ops;
+static uint64           late_reclaim_addr;
+static uint64           late_reclaim_reads;
+static bool32           late_reclaim_pending;
+
+static platform_status
+late_reclaim_get(cache       *cc,
+                 uint64       addr,
+                 bool32       blocking,
+                 page_type    type,
+                 page_handle *page)
+{
+   if (addr == late_reclaim_addr) {
+      late_reclaim_reads++;
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
+   }
+   return late_reclaim_saved_ops->page_get(cc, addr, blocking, type, page);
+}
+
+static void
+late_reclaim_flush(cache *cc)
+{
+   late_reclaim_saved_ops->flush(cc);
+   if (late_reclaim_pending) {
+      late_reclaim_pending = FALSE;
+      ASSERT_EQUAL(0, mini_dec_ref(cc, late_reclaim_addr, PAGE_TYPE_MISC));
+   }
+}
+
+CTEST2(splinter, test_late_reclamation_failure_requires_recovery)
+{
+   allocator        *alp     = (allocator *)&data->al;
+   allocator_config *acfg    = allocator_get_config(alp);
+   allocator_root_id root_id = test_generate_allocator_root_id();
+   core_handle       created, recovered, cleanup;
+   platform_status   rc;
+
+   rc = core_mkfs(&created,
+                  &data->system_cfg->splinter_cfg,
+                  alp,
+                  (cache *)data->clock_cache,
+                  data->io,
+                  &data->tasks,
+                  root_id,
+                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   rc = core_insert(&created,
+                    key_buffer_key(&keybuf),
+                    merge_accumulator_to_message(&msg),
+                    NULL);
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   cache *cc = (cache *)data->clock_cache;
+   ASSERT_TRUE(
+      SUCCESS(allocator_alloc(alp, &late_reclaim_addr, PAGE_TYPE_MISC)));
+   mini_allocator abandoned;
+   ASSERT_TRUE(SUCCESS(mini_init(
+      &abandoned, cc, late_reclaim_addr, 0, 1, PAGE_TYPE_MISC, NULL)));
+   mini_release(&abandoned);
+   late_reclaim_saved_ops          = cc->ops;
+   late_reclaim_fault_ops          = *cc->ops;
+   late_reclaim_fault_ops.page_get = late_reclaim_get;
+   late_reclaim_fault_ops.flush    = late_reclaim_flush;
+   late_reclaim_reads              = 0;
+   late_reclaim_pending            = TRUE;
+   cc->ops                         = &late_reclaim_fault_ops;
+   rc                              = core_unmount(&created, FALSE);
+   ASSERT_FALSE(late_reclaim_pending);
+   ASSERT_EQUAL(1, late_reclaim_reads);
+   ASSERT_TRUE(
+      STATUS_IS_EQ(allocator_reclamation_status(alp), STATUS_TIMEDOUT));
+   ASSERT_TRUE(SUCCESS(rc));
+
+   superblock_context sb;
+   rc = superblock_context_init(&sb, data->io, acfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+   ASSERT_FALSE(superblock_allocation_state_valid(&sb));
+   superblock_context_deinit(&sb);
+
+   rc = core_mount(&recovered,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_FALSE(recovered.allocator_map_needs_rebuild);
+   ASSERT_EQUAL(1, late_reclaim_reads);
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(alp, late_reclaim_addr));
+   ASSERT_TRUE(SUCCESS(allocator_reclamation_status(alp)));
+   cc->ops = late_reclaim_saved_ops;
+
+   lookup_result qdata;
+   lookup_result_init(
+      &qdata, recovered.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   rc = core_lookup(&recovered, key_buffer_key(&keybuf), &qdata);
+   ASSERT_TRUE(SUCCESS(rc));
+   verify_tuple(&recovered,
+                &data->gen,
+                1,
+                key_buffer_key(&keybuf),
+                merge_accumulator_to_message(lookup_result_accumulator(&qdata)),
+                TRUE);
+   lookup_result_deinit(&qdata);
+
+   rc = core_unmount(&recovered, FALSE);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   rc = superblock_context_init(&sb, data->io, acfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+   ASSERT_TRUE(superblock_allocation_state_valid(&sb));
+   superblock_context_deinit(&sb);
+
+   rc = core_mount(&cleanup,
+                   &data->system_cfg->splinter_cfg,
+                   alp,
+                   (cache *)data->clock_cache,
+                   data->io,
+                   &data->tasks,
+                   root_id,
+                   data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   core_destroy(&cleanup);
+}
+
+
 /*
  * The second checkpoint slot is a torn-write fallback, not permission for a
  * normal mount to silently roll back past a newer, valid active record.  A
@@ -5353,4 +5524,543 @@ test_lookup_by_range(void         *datap,
                   num_ranges);
 
    return rc;
+}
+
+static const cache_ops *core_read_saved_ops;
+static cache_ops        core_read_fault_ops;
+static page_type        core_read_failed_type;
+static bool32           core_read_fail_async;
+
+static platform_status
+core_read_fail_get(cache       *cc,
+                   uint64       addr,
+                   bool32       blocking,
+                   page_type    type,
+                   page_handle *page)
+{
+   if (type == core_read_failed_type) {
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
+   }
+   return core_read_saved_ops->page_get(cc, addr, blocking, type, page);
+}
+
+static cache *core_read_cache;
+
+static platform_status
+core_read_fail_async_result(void *payload, page_handle *page)
+{
+   platform_status rc =
+      core_read_saved_ops->page_get_async_result(payload, page);
+   if (SUCCESS(rc) && core_read_fail_async) {
+      core_read_saved_ops->page_unget(core_read_cache, page);
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
+   }
+   return rc;
+}
+
+static void
+core_read_ready(void *arg)
+{
+   *(bool32 *)arg = TRUE;
+}
+
+CTEST2(splinter, test_cache_read_errors_reach_core_operations)
+{
+   allocator      *al = (allocator *)&data->al;
+   cache          *cc = (cache *)data->clock_cache;
+   core_handle     spl;
+   platform_status rc = core_mkfs(&spl,
+                                  &data->system_cfg->splinter_cfg,
+                                  al,
+                                  cc,
+                                  data->io,
+                                  &data->tasks,
+                                  test_generate_allocator_root_id(),
+                                  data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   generate_test_message(&data->gen, 1, &msg);
+
+   core_read_cache                           = cc;
+   core_read_saved_ops                       = cc->ops;
+   core_read_fault_ops                       = *cc->ops;
+   core_read_fault_ops.page_get              = core_read_fail_get;
+   core_read_fault_ops.page_get_async_result = core_read_fail_async_result;
+   core_read_failed_type                     = PAGE_TYPE_MEMTABLE;
+   core_read_fail_async                      = FALSE;
+   cc->ops                                   = &core_read_fault_ops;
+   rc                                        = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   cc->ops = core_read_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+   ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                   key_buffer_key(&keybuf),
+                                   merge_accumulator_to_message(&msg),
+                                   NULL)));
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(core_checkpoint(&spl, 0)));
+
+   /* Read through each foreground layer with a non-generic error. */
+   page_type failed_types[] = {
+      PAGE_TYPE_MEMTABLE, PAGE_TYPE_TRUNK, PAGE_TYPE_BRANCH};
+   for (unsigned i = 0; i < ARRAY_SIZE(failed_types); i++) {
+      core_read_failed_type = failed_types[i];
+      lookup_result result;
+      lookup_result_init(
+         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      cc->ops = &core_read_fault_ops;
+      rc      = core_lookup(&spl, key_buffer_key(&keybuf), &result);
+      cc->ops = core_read_saved_ops;
+      lookup_result_deinit(&result);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT),
+                  "page type %d: %s",
+                  failed_types[i],
+                  platform_status_to_string(rc));
+   }
+   /* Async cache result failures also reach a public lookup and the range
+    * initializer, which starts branch iterators asynchronously. */
+   core_read_failed_type = PAGE_TYPE_INVALID;
+   core_read_fail_async  = TRUE;
+   lookup_result result;
+   lookup_result_init(
+      &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   core_lookup_async_state state;
+   bool32                  ready = FALSE;
+   core_lookup_async_state_init(
+      &state, &spl, key_buffer_key(&keybuf), &result, core_read_ready, &ready);
+   cc->ops = &core_read_fault_ops;
+   while (core_lookup_async(&state) != ASYNC_STATUS_DONE) {
+      cache_cleanup(cc);
+   }
+   rc      = async_result(&state);
+   cc->ops = core_read_saved_ops;
+   lookup_result_deinit(&result);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+
+   core_range_iterator itor;
+   cc->ops = &core_read_fault_ops;
+   rc      = core_range_iterator_init(&spl,
+                                 &itor,
+                                 greater_than_or_equal,
+                                 NEGATIVE_INFINITY_KEY,
+                                 less_than,
+                                 POSITIVE_INFINITY_KEY,
+                                 greater_than_or_equal,
+                                 NEGATIVE_INFINITY_KEY);
+   cc->ops = core_read_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+   core_read_fail_async = FALSE;
+
+   lookup_result_init(
+      &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_TRUE(SUCCESS(core_lookup(&spl, key_buffer_key(&keybuf), &result)));
+   ASSERT_TRUE(lookup_result_found(&result));
+   lookup_result_deinit(&result);
+   core_destroy(&spl);
+}
+
+/* The reservation bound must remain valid at tree-height transitions, without
+ * allocating or multiplying a rounded capacity past UINT64_MAX. */
+CTEST2(splinter, test_blob_descriptor_sizes)
+{
+   uint64            extent = cache_extent_size((cache *)data->clock_cache);
+   uint64            fanout = extent / sizeof(uint64);
+   uint64            roots  = (512 - sizeof(blob)) / sizeof(uint64);
+   blob_build_config cfg    = {.blob_max_descriptor_size = 512};
+   const struct {
+      uint64 length;
+      uint64 addresses;
+   } cases[] = {
+      {roots * extent, roots},
+      {roots * extent + 1, 1},
+      {fanout * extent + 1, 2},
+      {roots * fanout * extent, roots},
+      {roots * fanout * extent + 1, 1},
+   };
+   for (uint64 i = 0; i < ARRAY_SIZE(cases); i++) {
+      uint64 size;
+      ASSERT_TRUE(SUCCESS(
+         blob_descriptor_size_bound(&cfg, extent, cases[i].length, &size)));
+      ASSERT_EQUAL(sizeof(blob) + cases[i].addresses * sizeof(uint64), size);
+   }
+   uint64 size;
+   ASSERT_TRUE(
+      SUCCESS(blob_descriptor_size_bound(&cfg, extent, UINT64_MAX, &size)));
+   ASSERT_TRUE(size <= 512);
+   cfg.blob_max_descriptor_size = 0;
+   ASSERT_TRUE(
+      SUCCESS(blob_descriptor_size_bound(&cfg, extent, roots * extent, &size)));
+   ASSERT_EQUAL(sizeof(blob) + roots * sizeof(uint64), size);
+   cfg.blob_max_descriptor_size = BLOB_MIN_MAX_DESCRIPTOR_SIZE - 1;
+   ASSERT_TRUE(
+      STATUS_IS_EQ(blob_descriptor_size_bound(&cfg, extent, extent, &size),
+                   STATUS_BAD_PARAM));
+}
+
+/* Exercise both old flat descriptors and pointer trees, including a pointer
+ * page boundary. Releasing the source before reading the clone checks that
+ * the clone owns every level, not just its descriptor's children. */
+CTEST2(splinter, test_blob_trees)
+{
+   cache            *cc        = (cache *)data->clock_cache;
+   uint64            extent    = cache_extent_size(cc);
+   uint64            page      = cache_page_size(cc);
+   blob_build_config cfg       = {.extent_batch             = 0,
+                                  .page_batch               = 1,
+                                  .subpage_batch            = 2,
+                                  .blob_max_descriptor_size = 512};
+   uint64            roots     = (512 - sizeof(blob)) / sizeof(uint64);
+   uint64            lengths[] = {roots * extent - 1,
+                                  roots * extent,
+                                  roots * extent + 1,
+                                  (page / sizeof(uint64) + 1) * extent + 17};
+   for (uint64 trial = 0; trial < ARRAY_SIZE(lengths); trial++) {
+      uint64         length = lengths[trial];
+      mini_allocator source, target;
+      uint64         source_head, target_head;
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_init(cc, &target, &target_head)));
+      writable_buffer bytes, desc, cloned, result;
+      writable_buffer_init(&bytes, data->hid);
+      writable_buffer_init(&desc, data->hid);
+      writable_buffer_init(&cloned, data->hid);
+      writable_buffer_init(&result, data->hid);
+      ASSERT_TRUE(SUCCESS(writable_buffer_resize(&bytes, length)));
+      blob_checksum_test_fill(&bytes, length);
+      ASSERT_TRUE(SUCCESS(blob_build(
+         &cfg, cc, &source, writable_buffer_to_slice(&bytes), &desc)));
+      slice       descriptor = writable_buffer_to_slice(&desc);
+      parsed_blob parsed;
+      ASSERT_TRUE(SUCCESS(blob_parse_descriptor(cc, descriptor, &parsed)));
+      ASSERT_EQUAL(trial < 2 ? 1 : 2, parsed.height);
+      ASSERT_TRUE(slice_length(descriptor) <= 512);
+      uint64 bound;
+      ASSERT_TRUE(
+         SUCCESS(blob_descriptor_size_bound(&cfg, extent, length, &bound)));
+      ASSERT_EQUAL(slice_length(descriptor), bound);
+
+      writeback_set set;
+      writeback_set_init(&set, cc, data->hid);
+      ASSERT_TRUE(SUCCESS(blob_writeback(cc, descriptor, &set)));
+      uint64 leaves = length / extent + (length % extent != 0);
+      ASSERT_EQUAL(leaves + (parsed.height == 2 ? parsed.num_extents : 0),
+                   writeback_set_num_requests(&set));
+      ASSERT_TRUE(SUCCESS(writeback_set_wait(&set)));
+      writeback_set_deinit(&set);
+      ASSERT_TRUE(SUCCESS(blob_validate(cc, descriptor)));
+      ASSERT_TRUE(SUCCESS(blob_clone(&cfg, cc, &target, descriptor, &cloned)));
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
+      ASSERT_TRUE(
+         SUCCESS(blob_validate(cc, writable_buffer_to_slice(&cloned))));
+      uint64 starts[] = {0,
+                         page - 3,
+                         extent - 5,
+                         page / sizeof(uint64) * extent - 7,
+                         length - 17};
+      for (uint64 i = 0; i < ARRAY_SIZE(starts); i++) {
+         if (starts[i] >= length) {
+            continue;
+         }
+         uint64 end = MIN(length, starts[i] + page + 31);
+         ASSERT_TRUE(SUCCESS(blob_materialize(
+            cc, writable_buffer_to_slice(&cloned), starts[i], end, &result)));
+         ASSERT_EQUAL(0,
+                      memcmp(writable_buffer_data(&result),
+                             (char *)writable_buffer_data(&bytes) + starts[i],
+                             end - starts[i]));
+      }
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_deinit(cc, &target, target_head)));
+      writable_buffer_deinit(&result);
+      writable_buffer_deinit(&cloned);
+      writable_buffer_deinit(&desc);
+      writable_buffer_deinit(&bytes);
+   }
+
+   /* A legacy descriptor larger than the current encoder budget is readable;
+    * cloning it under a smaller budget rewrites only the pointer topology. */
+   mini_allocator source, target;
+   uint64         source_head, target_head;
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &target, &target_head)));
+   writable_buffer bytes, desc, cloned, result;
+   writable_buffer_init(&bytes, data->hid);
+   writable_buffer_init(&desc, data->hid);
+   writable_buffer_init(&cloned, data->hid);
+   writable_buffer_init(&result, data->hid);
+   cfg.blob_max_descriptor_size = 1024;
+   ASSERT_TRUE(SUCCESS(blob_checksum_test_build_and_check(
+      &cfg, cc, &source, (roots + 1) * extent, &bytes, &desc, &result)));
+   parsed_blob parsed;
+   ASSERT_TRUE(SUCCESS(
+      blob_parse_descriptor(cc, writable_buffer_to_slice(&desc), &parsed)));
+   ASSERT_EQUAL(1, parsed.height);
+   ASSERT_TRUE(writable_buffer_length(&desc) > 512);
+   cfg.blob_max_descriptor_size = 512;
+   ASSERT_TRUE(SUCCESS(
+      blob_clone(&cfg, cc, &target, writable_buffer_to_slice(&desc), &cloned)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
+   ASSERT_TRUE(SUCCESS(
+      blob_checksum_test_writeback(cc, writable_buffer_to_slice(&cloned))));
+   ASSERT_TRUE(SUCCESS(blob_validate(cc, writable_buffer_to_slice(&cloned))));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_roundtrip(cc,
+                                           writable_buffer_to_slice(&cloned),
+                                           writable_buffer_to_slice(&bytes),
+                                           &result)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &target, target_head)));
+   writable_buffer_deinit(&result);
+   writable_buffer_deinit(&cloned);
+   writable_buffer_deinit(&desc);
+   writable_buffer_deinit(&bytes);
+}
+
+/* Sparse data extents keep this >2 GiB, height-three test small on disk and in
+ * RAM. All pointer pages are real and every leaf has distinct ownership. */
+typedef struct blob_tree_pack_iterator {
+   iterator super;
+   uint64   pos;
+   char     key_bytes[512];
+   message  msg;
+} blob_tree_pack_iterator;
+
+static void
+blob_tree_pack_curr(iterator *base, key *tuple_key, message *msg)
+{
+   blob_tree_pack_iterator *iter = (blob_tree_pack_iterator *)base;
+   iter->key_bytes[0]            = iter->pos;
+   *tuple_key = key_create(FALSE, sizeof(iter->key_bytes), iter->key_bytes);
+   *msg       = iter->msg;
+}
+
+static bool32
+blob_tree_pack_can_next(iterator *base)
+{
+   return ((blob_tree_pack_iterator *)base)->pos < 16;
+}
+
+static platform_status
+blob_tree_pack_next(iterator *base)
+{
+   ((blob_tree_pack_iterator *)base)->pos++;
+   return STATUS_OK;
+}
+
+static const iterator_ops blob_tree_pack_ops = {
+   .curr     = blob_tree_pack_curr,
+   .can_next = blob_tree_pack_can_next,
+   .next     = blob_tree_pack_next,
+};
+
+static const cache_ops *blob_tree_read_saved_ops;
+static uint64           blob_tree_read_failed_addr;
+static uint64           blob_tree_read_failures;
+
+static platform_status
+blob_tree_fail_get(cache       *cc,
+                   uint64       addr,
+                   bool32       blocking,
+                   page_type    type,
+                   page_handle *page)
+{
+   if (type == PAGE_TYPE_BLOB && addr == blob_tree_read_failed_addr) {
+      *page = (page_handle){0};
+      blob_tree_read_failures++;
+      return STATUS_TIMEDOUT;
+   }
+   return blob_tree_read_saved_ops->page_get(cc, addr, blocking, type, page);
+}
+
+typedef struct blob_tree_handoff {
+   blob_page_iterator *iter;
+   platform_status     rc;
+   threadid            receiver_tid;
+} blob_tree_handoff;
+
+static void
+blob_tree_handoff_receive(void *arg)
+{
+   blob_tree_handoff *handoff = arg;
+   handoff->receiver_tid      = platform_get_tid();
+   for (uint64 i = 0; i < 2; i++) {
+      uint64 offset;
+      slice  bytes;
+      handoff->rc = blob_page_iterator_get_curr(handoff->iter, &offset, &bytes);
+      if (!SUCCESS(handoff->rc)) {
+         break;
+      }
+      if (slice_length(bytes) != 1
+          || *(const char *)slice_data(bytes) != "XY"[i])
+      {
+         handoff->rc = STATUS_TEST_FAILED;
+         break;
+      }
+      blob_page_iterator_advance_page(handoff->iter);
+   }
+   blob_page_iterator_deinit(handoff->iter);
+}
+
+CTEST2(splinter, test_blob_height_three_and_large_stats)
+{
+   cache *cc        = (cache *)data->clock_cache;
+   uint64 extent    = cache_extent_size(cc);
+   uint64 page_size = cache_page_size(cc);
+   uint64 fanout    = extent / sizeof(uint64);
+   uint64 roots =
+      (BLOB_MIN_MAX_DESCRIPTOR_SIZE - sizeof(blob)) / sizeof(uint64);
+   uint64         leaves = roots * fanout + 1;
+   uint64         length = (leaves - 1) * extent + 1;
+   mini_allocator source, target;
+   uint64         source_head, target_head;
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &target, &target_head)));
+   writable_buffer flat, descriptor, result;
+   writable_buffer_init(&flat, data->hid);
+   writable_buffer_init(&descriptor, data->hid);
+   writable_buffer_init(&result, data->hid);
+   ASSERT_TRUE(SUCCESS(
+      writable_buffer_resize(&flat, sizeof(blob) + leaves * sizeof(uint64))));
+   blob *b = writable_buffer_data(&flat);
+   *b      = (blob){.length = length, .format = BLOB_FORMAT};
+   for (uint64 i = 0; i < leaves; i++) {
+      uint64 addr;
+      ASSERT_TRUE(SUCCESS(mini_alloc_extent(&source, 0, &addr, NULL)));
+      b->addrs[i] = addr;
+      if (i >= leaves - 2) {
+         uint64 page_addr = addr + (i == leaves - 2 ? extent - page_size : 0);
+         page_handle page;
+         ASSERT_NOT_NULL(cache_alloc(cc, page_addr, PAGE_TYPE_BLOB, &page));
+         memset(
+            page_handle_data(&page), i == leaves - 2 ? 'X' : 'Y', page_size);
+         test_splinter_unclaim_page(cc, &page);
+      }
+   }
+   /* Force the encoder through two levels of pointer extents, sharing the
+    * sparse data instead of materializing tens of GiB in the test process. */
+   blob_build_config cfg = {.extent_batch  = 0,
+                            .page_batch    = 1,
+                            .subpage_batch = 2,
+                            .blob_max_descriptor_size =
+                               BLOB_MIN_MAX_DESCRIPTOR_SIZE};
+   ASSERT_TRUE(SUCCESS(blob_clone(
+      &cfg, cc, &target, writable_buffer_to_slice(&flat), &descriptor)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
+   writable_buffer_deinit(&flat);
+   slice       desc = writable_buffer_to_slice(&descriptor);
+   parsed_blob parsed;
+   ASSERT_TRUE(SUCCESS(blob_parse_descriptor(cc, desc, &parsed)));
+   ASSERT_EQUAL(3, parsed.height);
+   ASSERT_TRUE(
+      SUCCESS(blob_materialize(cc, desc, length - 2, length, &result)));
+   ASSERT_EQUAL(0, memcmp(writable_buffer_data(&result), "XY", 2));
+
+   /* The final two bytes cross a lower pointer subtree. Inject failures at
+    * each pointer level and each data page, including after the first data
+    * page has been consumed. All acquired handles must be released. */
+   blob_page_iterator probe;
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_init(
+      cc, &probe, desc, length - 2, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH)));
+   uint64 offset;
+   slice  bytes;
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_get_curr(&probe, &offset, &bytes)));
+   uint64 path_pages[] = {page_handle_addr(&probe.index_pages[2]),
+                          page_handle_addr(&probe.index_pages[1]),
+                          probe.fragment.addr,
+                          0,
+                          0};
+   blob_page_iterator_advance_page(&probe);
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_get_curr(&probe, &offset, &bytes)));
+   path_pages[3] = page_handle_addr(&probe.index_pages[1]);
+   path_pages[4] = probe.fragment.addr;
+   ASSERT_NOT_EQUAL(path_pages[1], path_pages[3]);
+   blob_page_iterator_deinit(&probe);
+   blob_tree_read_saved_ops = cc->ops;
+   cache_ops fault_ops      = *cc->ops;
+   fault_ops.page_get       = blob_tree_fail_get;
+   for (uint64 i = 0; i < ARRAY_SIZE(path_pages); i++) {
+      blob_tree_read_failed_addr = path_pages[i];
+      blob_tree_read_failures    = 0;
+      cc->ops                    = &fault_ops;
+      platform_status rc =
+         blob_materialize(cc, desc, length - 2, length, &result);
+      cc->ops = blob_tree_read_saved_ops;
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT), "path page %lu", i);
+      ASSERT_EQUAL(1, blob_tree_read_failures);
+      for (uint64 j = 0; j < ARRAY_SIZE(path_pages); j++) {
+         ASSERT_FALSE(cache_in_use(cc, path_pages[j]), "path page %lu", j);
+      }
+      ASSERT_TRUE(
+         SUCCESS(blob_materialize(cc, desc, length - 2, length, &result)));
+      ASSERT_EQUAL(0, memcmp(writable_buffer_data(&result), "XY", 2));
+   }
+
+   /* Transfer already-acquired data and both pointer handles, then advance
+    * into the next subtree and release everything on the receiving thread. */
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_init(
+      cc, &probe, desc, length - 2, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH)));
+   ASSERT_TRUE(SUCCESS(blob_page_iterator_get_curr(&probe, &offset, &bytes)));
+   blob_tree_handoff handoff = {.iter = &probe};
+   platform_thread   receiver;
+   ASSERT_TRUE(SUCCESS(platform_thread_create(
+      &receiver, FALSE, blob_tree_handoff_receive, &handoff, data->hid)));
+   ASSERT_TRUE(SUCCESS(platform_thread_join(&receiver)));
+   ASSERT_TRUE(SUCCESS(handoff.rc));
+   ASSERT_NOT_EQUAL(platform_get_tid(), handoff.receiver_tid);
+   for (uint64 i = 0; i < ARRAY_SIZE(path_pages); i++) {
+      ASSERT_FALSE(cache_in_use(cc, path_pages[i]), "path page %lu", i);
+   }
+
+   blob_tree_pack_iterator iter = {
+      .super = {.ops = &blob_tree_pack_ops},
+      .msg   = message_create(MESSAGE_TYPE_INSERT, cc, desc)};
+   btree_pack_req *req = TYPED_MALLOC(data->hid, req);
+   ASSERT_NOT_NULL(req);
+   ASSERT_TRUE(SUCCESS(btree_pack_req_init(req,
+                                           cc,
+                                           &data->system_cfg->btree_cfg,
+                                           &iter.super,
+                                           16,
+                                           0,
+                                           FALSE,
+                                           data->hid)));
+   ASSERT_TRUE(SUCCESS(btree_pack(req)));
+   ASSERT_EQUAL(16 * length, req->message_bytes);
+   ASSERT_TRUE(req->height > 0);
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &target, target_head)));
+   ASSERT_TRUE(SUCCESS(cache_writeback_dirty(cc)));
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   btree_pivot_stats stats;
+   ASSERT_TRUE(SUCCESS(btree_count_in_range(cc,
+                                            req->cfg,
+                                            req->root_addr,
+                                            BTREE_BRANCH_FORMAT_VERSION,
+                                            NEGATIVE_INFINITY_KEY,
+                                            POSITIVE_INFINITY_KEY,
+                                            &stats)));
+   ASSERT_EQUAL(16, stats.num_kvs);
+   ASSERT_EQUAL(16 * length, stats.message_bytes);
+   ASSERT_TRUE(
+      SUCCESS(blob_materialize(cc, desc, length - 2, length, &result)));
+   ASSERT_EQUAL(0, memcmp(writable_buffer_data(&result), "XY", 2));
+   btree_dec_ref(cc, req->cfg, req->root_addr, PAGE_TYPE_BRANCH);
+   btree_pack_req_deinit(req, data->hid);
+   platform_free(data->hid, req);
+   writable_buffer_deinit(&result);
+   writable_buffer_deinit(&descriptor);
 }

@@ -1,0 +1,58 @@
+Starting handoff-selected-asan-build build
+Checking for mismatched config...No mismatched config found
+Saving config to build-selected/debug-asan/build-config.8c42f2823604ee94c47161879fcb1f2c
+Compiling            tests/unit/main.c                                  [build-selected/debug-asan/obj/tests/unit/main.o]
+Compiling            tests/unit/writeback_set_test.c                    [build-selected/debug-asan/obj/tests/unit/writeback_set_test.o]
+Compiling            tests/unit/btree_test_common.c                     [build-selected/debug-asan/obj/tests/unit/btree_test_common.o]
+Compiling            tests/config.c                                     [build-selected/debug-asan/obj/tests/config.o]
+Compiling            tests/test_data.c                                  [build-selected/debug-asan/obj/tests/test_data.o]
+Compiling            tests/unit/unit_tests_common.c                     [build-selected/debug-asan/obj/tests/unit/unit_tests_common.o]
+Compiling            src/btree.c                                        [build-selected/debug-asan/obj/src/btree.o]
+Compiling            src/blob.c                                         [build-selected/debug-asan/obj/src/blob.o]
+Compiling            src/blob_build.c                                   [build-selected/debug-asan/obj/src/blob_build.o]
+Compiling            src/data_blob_build.c                              [build-selected/debug-asan/obj/src/data_blob_build.o]
+Compiling            src/data_internal.c                                [build-selected/debug-asan/obj/src/data_internal.o]
+Compiling            src/mini_allocator.c                               [build-selected/debug-asan/obj/src/mini_allocator.o]
+Compiling            src/ondisk_ref.c                                   [build-selected/debug-asan/obj/src/ondisk_ref.o]
+Compiling            src/clockcache.c                                   [build-selected/debug-asan/obj/src/clockcache.o]
+Compiling            src/allocator.c                                    [build-selected/debug-asan/obj/src/allocator.o]
+Compiling            src/rc_allocator.c                                 [build-selected/debug-asan/obj/src/rc_allocator.o]
+Compiling            src/task.c                                         [build-selected/debug-asan/obj/src/task.o]
+Compiling            src/writeback_set.c                                [build-selected/debug-asan/obj/src/writeback_set.o]
+Compiling            src/util.c                                         [build-selected/debug-asan/obj/src/util.o]
+Compiling            src/platform_linux/platform_assert.c               [build-selected/debug-asan/obj/src/platform_linux/platform_assert.o]
+Compiling            src/platform_linux/platform_buffer.c               [build-selected/debug-asan/obj/src/platform_linux/platform_buffer.o]
+Compiling            src/platform_linux/platform_condvar.c              [build-selected/debug-asan/obj/src/platform_linux/platform_condvar.o]
+Compiling            src/platform_linux/platform_heap.c                 [build-selected/debug-asan/obj/src/platform_linux/platform_heap.o]
+Compiling            src/platform_linux/platform_log.c                  [build-selected/debug-asan/obj/src/platform_linux/platform_log.o]
+Compiling            src/platform_linux/platform_mutex.c                [build-selected/debug-asan/obj/src/platform_linux/platform_mutex.o]
+Compiling            src/platform_linux/platform_threads.c              [build-selected/debug-asan/obj/src/platform_linux/platform_threads.o]
+Compiling            src/platform_linux/platform_trace.c                [build-selected/debug-asan/obj/src/platform_linux/platform_trace.o]
+Compiling            src/platform_linux/shmalloc.c                      [build-selected/debug-asan/obj/src/platform_linux/shmalloc.o]
+Compiling            src/platform_linux/platform_io.c                   [build-selected/debug-asan/obj/src/platform_linux/platform_io.o]
+Compiling            src/platform_linux/laio.c                          [build-selected/debug-asan/obj/src/platform_linux/laio.o]
+Compiling            src/PackedArray.c                                  [build-selected/debug-asan/obj/src/PackedArray.o]
+Compiling            src/batch_rwlock.c                                 [build-selected/debug-asan/obj/src/batch_rwlock.o]
+Compiling            src/core.c                                         [build-selected/debug-asan/obj/src/core.o]
+Compiling            src/default_data_config.c                          [build-selected/debug-asan/obj/src/default_data_config.o]
+Compiling            src/memtable.c                                     [build-selected/debug-asan/obj/src/memtable.o]
+Compiling            src/merge.c                                        [build-selected/debug-asan/obj/src/merge.o]
+Compiling            src/notification.c                                 [build-selected/debug-asan/obj/src/notification.o]
+Compiling            src/routing_filter.c                               [build-selected/debug-asan/obj/src/routing_filter.o]
+Compiling            src/shard_log.c                                    [build-selected/debug-asan/obj/src/shard_log.o]
+Compiling            src/splinterdb.c                                   [build-selected/debug-asan/obj/src/splinterdb.o]
+Compiling            src/superblock.c                                   [build-selected/debug-asan/obj/src/superblock.o]
+Compiling            src/trunk.c                                        [build-selected/debug-asan/obj/src/trunk.o]
+Compiling            tests/unit/splinterdb_quick_test.c                 [build-selected/debug-asan/obj/tests/unit/splinterdb_quick_test.o]
+Compiling            tests/test_common.c                                [build-selected/debug-asan/obj/tests/test_common.o]
+Compiling            tests/functional/test_async.c                      [build-selected/debug-asan/obj/tests/functional/test_async.o]
+Compiling            src/histogram.c                                    [build-selected/debug-asan/obj/src/histogram.o]
+Linking              build-selected/debug-asan/bin/unit/writeback_set_test
+In file included from src/PackedArray.c:296,
+                 from src/PackedArray.c:356:
+src/PackedArray.c: In function ‘__PackedArray_unpack_21’:
+src/PackedArray.c:177: note: ‘-Wmisleading-indentation’ is disabled from this point onwards, since column-tracking was disabled due to the size of the code/headers
+  177 |         PACKEDARRAY_IMPL_UNPACK_CASE_BREAK
+src/PackedArray.c:177: note: adding ‘-flarge-source-files’ will allow for more column-tracking support, at the expense of compilation time and memory
+Linking              build-selected/debug-asan/lib/libsplinterdb.so
+Linking              build-selected/debug-asan/bin/unit/splinterdb_quick_test

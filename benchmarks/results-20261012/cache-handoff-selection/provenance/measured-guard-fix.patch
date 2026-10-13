@@ -1,0 +1,66 @@
+diff --git a/src/clockcache.c b/src/clockcache.c
+index c4a900c..a4871ae 100644
+--- a/src/clockcache.c
++++ b/src/clockcache.c
+@@ -2178,7 +2178,7 @@ clockcache_get_in_cache(clockcache      *cc,           // IN
+       }
+    } else {
+       get_rc result = clockcache_try_get_read(cc, entry_number, TRUE);
+-#ifdef SPLINTER_DEBUG
++#if SPLINTER_DEBUG
+       if (cc->after_candidate_ref_attempt != NULL) {
+          cc->after_candidate_ref_attempt(cc,
+                                          addr,
+@@ -2410,7 +2410,7 @@ clockcache_get_internal(clockcache      *cc,       // IN
+    uint32 entry_number = clockcache_lookup(cc, addr);
+ 
+    if (entry_number != CC_UNMAPPED_ENTRY) {
+-#ifdef SPLINTER_DEBUG
++#if SPLINTER_DEBUG
+       if (cc->before_candidate_ref != NULL) {
+          cc->before_candidate_ref(
+             cc, addr, entry_number, cc->before_candidate_ref_arg);
+@@ -3487,7 +3487,7 @@ clockcache_prefetch_pages(clockcache *cc,
+             clockcache_entry_set_addr(entry, addr);
+             entry->type      = type;
+             uint64 lookup_no = clockcache_lookup_number(cc, addr);
+-#ifdef SPLINTER_DEBUG
++#if SPLINTER_DEBUG
+             if (cc->before_prefetch_publish != NULL) {
+                cc->before_prefetch_publish(
+                   cc, addr, free_entry_no, cc->before_prefetch_publish_arg);
+diff --git a/src/clockcache.h b/src/clockcache.h
+index dfca387..cf4e15a 100644
+--- a/src/clockcache.h
++++ b/src/clockcache.h
+@@ -153,7 +153,7 @@ struct clockcache {
+    platform_log_handle *logfile;
+    platform_heap_id     heap_id;
+ 
+-#ifdef SPLINTER_DEBUG
++#if SPLINTER_DEBUG
+    // Deterministic admission test; configure only on a quiescent cache.
+    void (*before_candidate_ref)(clockcache *, uint64, uint32, void *);
+    void *before_candidate_ref_arg;
+diff --git a/tests/functional/cache_test.c b/tests/functional/cache_test.c
+index a050d37..ae975e6 100644
+--- a/tests/functional/cache_test.c
++++ b/tests/functional/cache_test.c
+@@ -2371,7 +2371,7 @@ test_cache_idle_batches(clockcache *main_cc, platform_heap_id hid)
+       "cache_test: idle and exited batch owners test passed\n");
+ }
+ 
+-#ifdef SPLINTER_DEBUG
++#if SPLINTER_DEBUG
+ typedef struct {
+    clockcache      *clock;
+    platform_heap_id hid;
+@@ -2718,7 +2718,7 @@ cache_test(int argc, char *argv[])
+    cache *ccp = (cache *)cc;
+ 
+    if (prefetch_admission) {
+-#ifdef SPLINTER_DEBUG
++#if SPLINTER_DEBUG
+       test_cache_prefetch_unpublished_admission(cc, hid);
+ #else
+       platform_error_log("--prefetch-admission requires SPLINTER_DEBUG\n");

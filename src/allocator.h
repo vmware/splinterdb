@@ -204,7 +204,32 @@ typedef struct allocator_ops {
 // To sub-class allocator, make an allocator your first field;
 struct allocator {
    const allocator_ops *ops;
+   /* First abandoned reclamation error. Extents may remain allocated until a
+    * reachability rebuild; never persist this map as a clean allocation state.
+    */
+   platform_status reclamation_status;
 };
+
+static inline void
+allocator_record_reclamation_failure(allocator *al, platform_status status)
+{
+   platform_assert(!SUCCESS(status));
+   internal_platform_status expected = 0;
+   __atomic_compare_exchange_n(&al->reclamation_status.r,
+                               &expected,
+                               status.r,
+                               FALSE,
+                               __ATOMIC_RELEASE,
+                               __ATOMIC_RELAXED);
+}
+
+static inline platform_status
+allocator_reclamation_status(const allocator *al)
+{
+   return CONST_STATUS(
+      __atomic_load_n(&al->reclamation_status.r, __ATOMIC_ACQUIRE));
+}
+
 
 static inline allocator_config *
 allocator_get_config(allocator *al)
@@ -265,6 +290,7 @@ static inline void
 allocator_recovery_finish(allocator *al)
 {
    al->ops->recovery_finish(al);
+   __atomic_store_n(&al->reclamation_status.r, 0, __ATOMIC_RELEASE);
 }
 
 
@@ -277,6 +303,13 @@ allocator_load_refcounts(allocator *al)
 static inline platform_status
 allocator_persist(allocator *al, uint64 *state_addr)
 {
+   platform_status rc = allocator_reclamation_status(al);
+   if (!SUCCESS(rc)) {
+      if (state_addr != NULL) {
+         *state_addr = 0;
+      }
+      return rc;
+   }
    return al->ops->persist(al, state_addr);
 }
 

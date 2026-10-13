@@ -89,18 +89,19 @@ _Static_assert(BTREE_MAX_HEIGHT + NUM_BLOB_BATCHES <= MINI_MAX_BATCHES,
  *----------------------------------------------------------------------
  */
 typedef struct btree_config {
-   cache_config *cache_cfg;
-   data_config  *data_cfg;
-   uint64        page_size;
-   uint64        extent_size;
+   cache_config     *cache_cfg;
+   data_config      *data_cfg;
+   uint64            page_size;
+   uint64            extent_size;
+   blob_build_config blob_cfg;
 } btree_config;
 
 typedef struct ONDISK btree_hdr btree_hdr;
 
 typedef struct btree_node {
-   uint64       addr;
-   page_handle *page;
-   btree_hdr   *hdr;
+   uint64      addr;
+   page_handle page;
+   btree_hdr  *hdr;
 } btree_node;
 
 typedef struct {
@@ -128,13 +129,15 @@ btree_scratch_size(const btree_config *cfg)
  * Iterators at (height > 0) return this struct as a value for each pivot.
  * *************************************************************************
  */
-typedef struct ONDISK btree_pivot_stats {
-   uint32 num_kvs;
-   uint32 key_bytes;
-   uint32 message_bytes;
+/* In-memory counters. Index entries retain the legacy narrow representation
+ * unless a flagged high-word extension is needed; see btree_private.h. */
+typedef struct btree_pivot_stats {
+   uint64 num_kvs;
+   uint64 key_bytes;
+   uint64 message_bytes;
 } btree_pivot_stats;
 
-typedef struct ONDISK btree_pivot_data {
+typedef struct btree_pivot_data {
    uint64            child_addr;
    btree_pivot_stats stats;
 } btree_pivot_data;
@@ -213,6 +216,7 @@ typedef struct btree_iterator {
    const void *validated_entry;
 
    btree_prefetch_cursor prefetch;
+   btree_pivot_data      pivot_data;
 } btree_iterator;
 
 typedef struct btree_pack_req {
@@ -538,7 +542,7 @@ btree_count_in_range(cache              *cc,
                      key                 max_key,
                      btree_pivot_stats  *stats);
 
-void
+platform_status
 btree_count_in_range_by_iterator(cache             *cc,
                                  btree_config      *cfg,
                                  uint64             root_addr,
@@ -595,11 +599,12 @@ btree_verify_tree(cache *cc, btree_config *cfg, uint64 addr, page_type type);
 uint64
 btree_extent_count(cache *cc, btree_config *cfg, uint64 root_addr);
 
-uint64
+platform_status
 btree_space_use_bytes(cache              *cc,
                       const btree_config *cfg,
                       uint64              root_addr,
-                      page_type           type);
+                      page_type           type,
+                      uint64             *bytes);
 
 void
 btree_config_init(btree_config *btree_cfg,

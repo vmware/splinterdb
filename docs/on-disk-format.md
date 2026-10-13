@@ -179,3 +179,30 @@ summaries, test logs, hashes, commands, and the measured source patch are in
 [`benchmarks/results-20261011/layering-20261012/`](../benchmarks/results-20261011/layering-20261012/).
 Full fixtures and preserved measured executables remain in the campaign's
 `benchmarks/disk-format/resident-layering-20261012/` directory.
+
+## Main integration (2026-10-13)
+
+Merged `origin/main` at `7bb5fab305b9c6179e31f75998dabea833537a08`.
+The reader retains module-owned version checks, saved routing-filter settings,
+and saved log checksum seeds while adopting caller-owned transferable cache
+handles and propagating cache errors. Log recovery preserves the upstream
+invalid-group cutoff for multi-level blobs. The new large-blob statistics test
+passes the branch version to B-tree range counting.
+
+The superblock remains format 8: upstream's wider B-tree counters preserve the
+legacy narrow disk encoding and add flagged high words when needed. This merge
+does not make earlier format-8 pages unreadable.
+
+Debug and release each passed 116 unit cases: B-tree 11, superblock 16, core 38,
+public quick API 49, and async trunk 2. Both also passed the complete functional
+routing-filter suite and the log suite with 10,000 inserts. These cover changed
+configuration across reopen, invalid structure versions, cache read failures,
+recovery, multi-level blobs, and cross-thread iterator handoff. The first core
+run used the old 4 GiB test device limit and could not allocate the sparse
+height-three blob fixture; the passing runs use 64 GiB logical capacity on
+ext4. Debug and release inspection tools also built successfully.
+
+Commands, logs, source and executable hashes are retained in the main checkout's
+`.cache/projects-20261011/coordination/main-7bb5fab/disk-format/` directory.
+The measurements above predate this integration; they do not establish current
+performance neutrality.
