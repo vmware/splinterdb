@@ -1,0 +1,2 @@
+Unsupported superblock format version 7; this build requires version 8.
+Cannot inspect '/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/fixtures/resident-main-ordinary.db': no valid superblock for this format version

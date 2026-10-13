@@ -525,6 +525,11 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
                                              $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                              $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/notification_test: $(COMMON_TESTOBJ) \
+                                         $(COMMON_UNIT_TESTOBJ) \
+                                         $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                         $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(UNITDIR)/splinterdb_optimize_test: $(COMMON_TESTOBJ)      \
                                                $(COMMON_UNIT_TESTOBJ) \
                                                $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
@@ -598,6 +603,7 @@ unit/trunk_split_test:             $(BINDIR)/$(UNITDIR)/trunk_split_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
+unit/notification_test:           $(BINDIR)/$(UNITDIR)/notification_test
 unit/splinterdb_optimize_test:     $(BINDIR)/$(UNITDIR)/splinterdb_optimize_test
 unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
 unit/config_parse_test:            $(BINDIR)/$(UNITDIR)/config_parse_test

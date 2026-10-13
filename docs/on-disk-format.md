@@ -31,11 +31,12 @@ construction settings. Split sizing respects the smallest capacity among the
 existing maplets it may extend. Cardinality estimation across different seeds
 uses a conservative count because their fingerprint samples cannot be compared.
 
-When combined with optional hash-filtered ranges, an old maplet whose seed
-differs from the range predicate's seed must conservatively include branches;
-the exact range predicate then uses one common query seed. Hashing the query
-under each old seed alone can exclude keys that collide only under the query
-seed. The independent range-filtering branch requires this integration change.
+An optional range predicate must be compatible with every persisted routing
+hash seed: keys that satisfy the predicate must hash equally for each such
+seed. A reader can then hash its filter key using each maplet's saved seed,
+while an exact predicate rejects hash collisions. Equality under only one
+query-time seed does not satisfy this contract. Range filtering remains a
+separate project; it is not introduced by this format change.
 
 Each recovered log reads with its saved checksum seed. Newly constructed logs
 may use the current creation configuration.
@@ -215,4 +216,25 @@ These are updated-feature comparisons against main `7bb5fab`, not an isolated
 measurement of merge cost. Main controls drifted; observed range overlap is
 descriptive, not a statistical confidence interval. Exact samples, build/source
 hashes, commands, verification scope and fresh correctness evidence are in
-[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
+[the integration archive](../benchmarks/results-20261013/disk-format-main-7bb5fab/README.md).
+
+## PR preparation against async-barrier main
+
+Merged `origin/main` at `0fa3bd6c` (async durable barriers). Module-owned format
+validation and stored configuration remain intact. The main notification,
+durability and checkpoint paths are retained, including the two-argument public
+barrier API and blocking `NULL` notification semantics. The disk format remains 8.
+
+Debug and release each passed 150 unit cases and the complete functional
+routing-filter and 10,000-insert log suites. Each mode intentionally skipped the
+allocation-failure notification case twice because fault injection is disabled.
+Both inspection tools read the previous format-8 fixture; the release tool
+clearly rejects main's format-7 fixture. All builds, tools, benchmarks and the
+CI formatting check pass. The full compiler/sanitizer CI matrix was not rerun.
+No new benchmark was run for this merge, so earlier timings remain scoped to
+main `7bb5fab`.
+
+Main's archived evidence retains its paths. The conflicting disk-format
+integration archive is now in `disk-format-main-7bb5fab`, with all historical
+bytes preserved. Commands, counts, provenance and preservation checks are in
+[the PR preparation archive](../benchmarks/results-20261013/disk-format-pr-0fa3bd6c/README.md).

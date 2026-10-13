@@ -162,7 +162,28 @@ struct task_system {
    platform_heap_id          heap_id;
    // task groups
    task_group group[NUM_TASK_TYPES];
+   /* A blocking task may pump this same queue. Opt-in wait guards let such
+    * tasks defer recursive waits instead of growing a chain on the stack.
+    * Each registered thread exclusively accesses its own slot. */
+   bool32 blocking_wait_active[MAX_THREADS];
 };
+
+static inline bool32
+task_try_begin_blocking_wait(task_system *ts)
+{
+   threadid tid = platform_get_tid();
+   if (ts->blocking_wait_active[tid]) {
+      return FALSE;
+   }
+   ts->blocking_wait_active[tid] = TRUE;
+   return TRUE;
+}
+
+static inline void
+task_end_blocking_wait(task_system *ts)
+{
+   ts->blocking_wait_active[platform_get_tid()] = FALSE;
+}
 
 /*
  * Initialize a task system and register the calling thread.
@@ -189,6 +210,7 @@ task_system_init(task_system              *system,
 void
 task_system_deinit(task_system *ts);
 
+/* Success transfers ownership to the queue; failure leaves it with caller. */
 platform_status
 task_enqueue(task_system *ts,
              task_type    type,

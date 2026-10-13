@@ -510,15 +510,12 @@ scan_benchmark_run_optimize(const splinterdb_config *cfg)
 
    io_reset_stats((io_handle *)splinterdb_get_io_handle(kvs));
 
-   splinterdb_notification notification;
-   splinterdb_notification_init_blocking(&notification);
-
    platform_default_log(
       "scan_benchmark: running blocking full-leaf optimize\n");
    timestamp start_time = platform_get_timestamp();
-   rc = splinterdb_optimize(kvs, NULL_SLICE, NULL_SLICE, TRUE, &notification);
+   rc                   = splinterdb_optimize(
+      kvs, NULL_SLICE, NULL_SLICE, TRUE, SPLINTERDB_NOTIFICATION_BLOCKING);
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
-   splinterdb_notification_deinit(&notification);
 
    platform_default_log("optimize complete: rc=%d, %.3fs elapsed\n",
                         rc,

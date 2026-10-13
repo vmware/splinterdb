@@ -1,0 +1,2 @@
+label,mode,log,workers,batch,barriers,depth,seconds,updates_s,cpu_s,launch_mean_us,launch_p50_us,launch_p99_us,observed_completion_mean_us,observed_completion_p50_us,observed_completion_p99_us,verified
+baseline,sync,0,1,256,128,1,0.855292,38312.058,0.154525,6615.114,6424.258,9764.777,6615.114,6424.258,9764.777,1

@@ -1,19 +1,19 @@
-# Metadata benchmark evidence, 2026-10-11
+# Durable-barrier evidence, 2026-10-11
 
-See ../../docs/on-disk-format.md for interpretation and validation.
-CSV files and manifests preserve the raw samples, commands, timestamps and
-binary/source provenance. Absolute paths in manifests identify the original
-workspace. Database images and perf recordings are deliberately omitted.
+See ../../docs/async-durable-barriers.md for interpretation and validation.
+Baseline is db3047a; production implementation is 9d66eee. The final changes
+outside that commit only extend the benchmark/report. Exact measured harness
+sources are retained here because the final source also received whitespace
+formatting. Build JSON files and manifests identify their source/binary hashes.
 
-The final implementation uses the scalar reader. `resident-log0` is the initial
-reader; the two `*-final-singleload` campaigns and `resident-profile` precede
-the scalar change. `resident-scalar-fixed` compares the old and final readers
-on copies of exactly the same candidate image, with its own incompatible
-baseline image. The retained runners document fixture sources and run order.
-Baseline source is db3047a; the final implementation milestone is 33389f3.
+The four initial matrices contain 48 measured runs plus four pilot runs. The
+two *-io-control matrices add 24 measured runs with getrusage block-I/O counters.
+All 72 measured runs and four pilots passed process-exit crash recovery and full
+key/value verification. Commands, original absolute paths, timestamps and run
+orders are in manifests; the archived runner documents the campaign layout.
 
-Method caveat: `resident-scalar-fixed` used buffered fixture copies without an
-explicit fsync before O_DIRECT open/warm/timing. Pending copy writeback could
-confound those samples; it is not an established explanation of any difference.
-The earlier fresh-create matrices did not use copied fixtures. Original evidence
-is preserved without modification; there is no fsynced metadata repeat.
+The initial verified scratch images were deleted only after completed runs;
+that reclamation is marked in their manifests. The controls use one scratch
+path per campaign, unlinking after each successfully verified subprocess and
+creating a fresh image next time. No databases are included. Full logs remain
+in the original campaign directory under the main checkout's .cache.
