@@ -1,0 +1,275 @@
+[
+  {
+    "name": "filter-disk-driver-debug",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "make",
+      "-j6",
+      "BUILD_ROOT=build-filter-disk-integration",
+      "BUILD_MODE=debug",
+      "libs",
+      "build-filter-disk-integration/debug/bin/driver_test"
+    ],
+    "started": 1791922620.5308237,
+    "pid": 7,
+    "returncode": 0,
+    "finished": 1791922623.9168468
+  },
+  {
+    "name": "filter-disk-debug-filter",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "debug",
+      "filter"
+    ],
+    "started": 1791922648.7307503,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922657.0874186
+  },
+  {
+    "name": "filter-disk-debug-units",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "build",
+      "debug"
+    ],
+    "started": 1791922711.957664,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922712.9268866
+  },
+  {
+    "name": "filter-disk-release-build",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "build",
+      "release"
+    ],
+    "started": 1791922725.1478148,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922760.5831618
+  },
+  {
+    "name": "mixed-seeds-debug-diagnostics",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j6",
+      "BUILD_ROOT=build-filter-disk-integration",
+      "BUILD_MODE=debug",
+      "build-filter-disk-integration/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "started": 1791922783.153071,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922783.7419517
+  },
+  {
+    "name": "mixed-seeds-debug-diagnostics",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "debug",
+      "mixed-seeds"
+    ],
+    "started": 1791922786.9226942,
+    "pid": 2,
+    "returncode": 1,
+    "finished": 1791922787.486486
+  },
+  {
+    "name": "mixed-seeds-debug-diagnostic-output",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "env",
+      "VERBOSE=6",
+      "python3",
+      ".cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "debug",
+      "mixed-seeds"
+    ],
+    "started": 1791922803.743446,
+    "pid": 2,
+    "returncode": 1,
+    "finished": 1791922804.3185909
+  },
+  {
+    "name": "mixed-seeds-debug-keyfix",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j6",
+      "BUILD_ROOT=build-filter-disk-integration",
+      "BUILD_MODE=debug",
+      "build-filter-disk-integration/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "started": 1791922830.2891743,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922830.8428564
+  },
+  {
+    "name": "mixed-seeds-debug-keyfix",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "env",
+      "VERBOSE=6",
+      "python3",
+      ".cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "debug",
+      "mixed-seeds"
+    ],
+    "started": 1791922834.9992442,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922835.7671387
+  },
+  {
+    "name": "filter-disk-release-core",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "release",
+      "filter",
+      "merge",
+      "splinter",
+      "superblock",
+      "trunk-async"
+    ],
+    "started": 1791922787.7213922,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922854.5343177
+  },
+  {
+    "name": "mixed-seeds-debug-final",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j6",
+      "BUILD_ROOT=build-filter-disk-integration",
+      "BUILD_MODE=debug",
+      "build-filter-disk-integration/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "started": 1791922867.3230345,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922867.8840835
+  },
+  {
+    "name": "filter-disk-debug-core",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "debug",
+      "merge",
+      "splinter",
+      "superblock",
+      "trunk-async"
+    ],
+    "started": 1791922725.148267,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922870.230244
+  },
+  {
+    "name": "mixed-seeds-debug-final",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "env",
+      "VERBOSE=6",
+      "python3",
+      ".cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "debug",
+      "mixed-seeds"
+    ],
+    "started": 1791922871.1780121,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922872.1936688
+  },
+  {
+    "name": "filter-disk-release-quick-final",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j6",
+      "BUILD_ROOT=build-filter-disk-integration",
+      "BUILD_MODE=release",
+      "unit/splinterdb_quick_test"
+    ],
+    "started": 1791922877.577207,
+    "pid": 6,
+    "returncode": 0,
+    "finished": 1791922880.1630259
+  },
+  {
+    "name": "filter-disk-debug-quick-final",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "debug",
+      "quick"
+    ],
+    "started": 1791922898.5290153,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922914.7184303
+  },
+  {
+    "name": "filter-disk-release-quick-final",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/validate.py",
+      "test",
+      "release",
+      "quick",
+      "mixed-seeds"
+    ],
+    "started": 1791922906.9071052,
+    "pid": 2,
+    "returncode": 0,
+    "finished": 1791922920.1873102
+  }
+]

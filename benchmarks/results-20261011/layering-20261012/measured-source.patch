@@ -1,0 +1,1744 @@
+diff --git a/docs/on-disk-format.md b/docs/on-disk-format.md
+index 1d08e05..bf15d21 100644
+--- a/docs/on-disk-format.md
++++ b/docs/on-disk-format.md
+@@ -106,3 +106,34 @@ committed under `benchmarks/results-20261011/`. Full campaign artifacts remain
+ at `.cache/projects-20261011/benchmarks/disk-format/` in the main checkout;
+ benchmark database files were on a verified disk filesystem, with the shared
+ benchmark lock excluding other benchmarks, builds and tests.
++
++## Format ownership follow-up (2026-10-12)
++
++Branch compatibility now belongs to the B-tree. Point queries pass the selected
++branch's persisted version to synchronous/asynchronous B-tree entry points;
++`trunk_ondisk_bundle_readable()` no longer scans every branch. The B-tree rejects
++unsupported versions or null roots before reading pages. Range initialization,
++compaction, root-height/count queries, and allocation recovery preserve the
++version alongside the address. Memtables do not acquire a format requirement.
++
++Reference acquisition needs validation before iterator initialization: a null
++root would otherwise target extent zero through the mini allocator. Existing
++bundle-deserialization and range-collection loops therefore call the B-tree's
++root validator before admitting references. Failed collection discards the
++unreferenced partial bundle, preserving correct cleanup. These checks add no
++branch scan to the ordinary point-query bundle decoder.
++
++The ownership audit also moved trunk/allocator version constants and support
++checks to their modules. Superblock reading still selects the newest valid
++record before invoking owner validators for trunk, allocator, and both logs;
++it never silently falls back to an older record with supported components.
++Routing-filter instance-capacity calculation now lives in the routing-filter
++module instead of reconstructing its encoding configuration in the trunk.
++Routing-filter descriptor validation and mini-allocator private-header
++validation were already correctly owned. No on-disk layout or version changed
++in this follow-up.
++
++Direct B-tree regressions cover old/future versions and null roots before any
++cache access, including safe iterator cleanup. The core corruption regression
++covers synchronous/asynchronous point hits and ranges, and verifies that
++routing-filter misses succeed without inspecting the irrelevant branch.
+diff --git a/src/btree.c b/src/btree.c
+index a9d6009..b95c3a8 100644
+--- a/src/btree.c
++++ b/src/btree.c
+@@ -1679,6 +1679,26 @@ btree_create(cache              *cc,
+    return STATUS_OK;
+ }
+ 
++/* The B-tree owns branch format compatibility, independent of its container. */
++platform_status
++btree_validate_root(uint64 root_addr, uint16 format_version, page_type type)
++{
++   if (type == PAGE_TYPE_BRANCH
++       && format_version != BTREE_BRANCH_FORMAT_VERSION)
++   {
++      platform_error_log("Unsupported branch format version %u at %lu; "
++                         "this build requires version %u.\n",
++                         format_version,
++                         root_addr,
++                         BTREE_BRANCH_FORMAT_VERSION);
++      return STATUS_INVALID_STATE;
++   }
++   if (root_addr == 0) {
++      return STATUS_INVALID_STATE;
++   }
++   return STATUS_OK;
++}
++
+ void
+ btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr)
+ {
+@@ -1696,8 +1716,15 @@ platform_status
+ btree_recover_allocations(cache              *cc,
+                           const btree_config *cfg,
+                           uint64              root_addr,
++                          uint16              format_version,
+                           page_type           type)
+ {
++   platform_status version_rc =
++      btree_validate_root(root_addr, format_version, type);
++   if (!SUCCESS(version_rc)) {
++      return version_rc;
++   }
++
+    return mini_recover_references(
+       cc, btree_root_to_meta_addr(cfg, root_addr, 0), type);
+ }
+@@ -1717,9 +1744,16 @@ platform_status
+ btree_get_root_height(cache              *cc,
+                       const btree_config *cfg,
+                       uint64              root_addr,
++                      uint16              format_version,
+                       page_type           type,
+                       uint32             *height)
+ {
++   platform_status version_rc =
++      btree_validate_root(root_addr, format_version, type);
++   if (!SUCCESS(version_rc)) {
++      return version_rc;
++   }
++
+    if (height == NULL
+        || (type != PAGE_TYPE_BRANCH && type != PAGE_TYPE_MEMTABLE))
+    {
+@@ -3040,27 +3074,39 @@ btree_lookup_with_ref(cache              *cc,        // IN
+ }
+ 
+ platform_status
+-btree_lookup(cache         *cc,        // IN
+-             btree_config  *cfg,       // IN
+-             uint64         root_addr, // IN
+-             page_type      type,      // IN
+-             key            target,    // IN
+-             lookup_result *result)    // OUT
++btree_lookup(cache         *cc,             // IN
++             btree_config  *cfg,            // IN
++             uint64         root_addr,      // IN
++             uint16         format_version, // IN
++             page_type      type,           // IN
++             key            target,         // IN
++             lookup_result *result)         // OUT
+ {
+    lookup_result_reset(result);
+    return btree_lookup_and_merge(
+-      cc, cfg, root_addr, type, target, result, NULL);
++      cc, cfg, root_addr, format_version, type, target, result, NULL);
+ }
+ 
+ platform_status
+-btree_lookup_and_merge(cache              *cc,        // IN
+-                       const btree_config *cfg,       // IN
+-                       uint64              root_addr, // IN
+-                       page_type           type,      // IN
+-                       key                 target,    // IN
+-                       lookup_result      *result,    // IN/OUT
+-                       bool32             *local_found)           // OUT
++btree_lookup_and_merge(cache              *cc,             // IN
++                       const btree_config *cfg,            // IN
++                       uint64              root_addr,      // IN
++                       uint16              format_version, // IN
++                       page_type           type,           // IN
++                       key                 target,         // IN
++                       lookup_result      *result,         // IN/OUT
++                       bool32             *local_found)                // OUT
+ {
++   if (local_found != NULL) {
++      *local_found = FALSE;
++   }
++
++   platform_status version_rc =
++      btree_validate_root(root_addr, format_version, type);
++   if (!SUCCESS(version_rc)) {
++      return version_rc;
++   }
++
+    btree_node      node;
+    key             found_key;
+    message         local_data;
+@@ -3068,10 +3114,6 @@ btree_lookup_and_merge(cache              *cc,        // IN
+ 
+    log_trace_key(target, "btree_lookup");
+ 
+-   if (local_found != NULL) {
+-      *local_found = FALSE;
+-   }
+-
+    rc = btree_lookup_with_ref(
+       cc, cfg, root_addr, type, target, &node, &found_key, &local_data);
+    if (!SUCCESS(rc)) {
+@@ -3116,6 +3158,12 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state)
+ {
+    async_begin(state, 0);
+ 
++   platform_status version_rc =
++      btree_validate_root(state->root_addr, state->format_version, state->type);
++   if (!SUCCESS(version_rc)) {
++      async_return(state, version_rc);
++   }
++
+    async_await_subroutine(state, btree_lookup_with_ref_async);
+ 
+    if (!SUCCESS(state->__async_result)) {
+@@ -3660,6 +3708,7 @@ btree_iterator_find_end_addr_async(btree_iterator_async_state *state,
+                                  state->itor->cc,
+                                  state->itor->cfg,
+                                  state->itor->root_addr,
++                                 state->format_version,
+                                  state->itor->page_type,
+                                  state->itor->max_key,
+                                  NULL,
+@@ -4670,6 +4719,7 @@ find_btree_node_and_get_idx_bounds_async(btree_iterator_async_state *state,
+                                  state->itor->cc,
+                                  state->itor->cfg,
+                                  state->itor->root_addr,
++                                 state->format_version,
+                                  state->itor->page_type,
+                                  state->target,
+                                  NULL,
+@@ -4874,6 +4924,7 @@ btree_iterator_init_common(cache              *cc,
+                            const btree_config *cfg,
+                            btree_iterator     *itor,
+                            uint64              root_addr,
++                           uint16              format_version,
+                            page_type           page_type,
+                            comparison          min_key_comparison,
+                            key                 min_key,
+@@ -4885,7 +4936,12 @@ btree_iterator_init_common(cache              *cc,
+                            uint32              prefetch_lookahead,
+                            key                *normalized_start_key)
+ {
+-   platform_assert(root_addr != 0);
++   ZERO_CONTENTS(itor);
++   platform_status version_rc =
++      btree_validate_root(root_addr, format_version, page_type);
++   if (!SUCCESS(version_rc)) {
++      return version_rc;
++   }
+    debug_assert(page_type == PAGE_TYPE_MEMTABLE
+                 || page_type == PAGE_TYPE_BRANCH);
+ 
+@@ -4908,7 +4964,6 @@ btree_iterator_init_common(cache              *cc,
+       start_key = max_key;
+    }
+ 
+-   ZERO_CONTENTS(itor);
+    itor->cc                 = cc;
+    itor->cfg                = cfg;
+    itor->root_addr          = root_addr;
+@@ -4940,6 +4995,7 @@ btree_iterator_init(cache              *cc,
+                     const btree_config *cfg,
+                     btree_iterator     *itor,
+                     uint64              root_addr,
++                    uint16              format_version,
+                     page_type           page_type,
+                     comparison          min_key_comparison,
+                     key                 min_key,
+@@ -4955,6 +5011,7 @@ btree_iterator_init(cache              *cc,
+                                                    cfg,
+                                                    itor,
+                                                    root_addr,
++                                                   format_version,
+                                                    page_type,
+                                                    min_key_comparison,
+                                                    min_key,
+@@ -4993,6 +5050,7 @@ btree_iterator_init_async(btree_iterator_async_state *state)
+                                                    state->cfg,
+                                                    state->itor,
+                                                    state->root_addr,
++                                                   state->format_version,
+                                                    state->type,
+                                                    state->min_key_comparison,
+                                                    state->min_key,
+@@ -5523,6 +5581,7 @@ platform_status
+ btree_count_in_range(cache              *cc,
+                      const btree_config *cfg,
+                      uint64              root_addr,
++                     uint16              format_version,
+                      key                 min_key,
+                      key                 max_key,
+                      btree_pivot_stats  *stats)
+@@ -5532,6 +5591,12 @@ btree_count_in_range(cache              *cc,
+    debug_assert(!key_is_null(min_key) && !key_is_null(max_key));
+    memset(stats, 0, sizeof(*stats));
+ 
++   platform_status version_rc =
++      btree_validate_root(root_addr, format_version, PAGE_TYPE_BRANCH);
++   if (!SUCCESS(version_rc)) {
++      return version_rc;
++   }
++
+    platform_status rc = btree_get_rank(cc, cfg, root_addr, min_key, &min_stats);
+    if (!SUCCESS(rc)) {
+       return rc;
+@@ -5560,6 +5625,7 @@ void
+ btree_count_in_range_by_iterator(cache             *cc,
+                                  btree_config      *cfg,
+                                  uint64             root_addr,
++                                 uint16             format_version,
+                                  key                min_key,
+                                  key                max_key,
+                                  btree_pivot_stats *stats)
+@@ -5570,6 +5636,7 @@ btree_count_in_range_by_iterator(cache             *cc,
+                                             cfg,
+                                             &btree_itor,
+                                             root_addr,
++                                            format_version,
+                                             PAGE_TYPE_BRANCH,
+                                             greater_than_or_equal,
+                                             min_key,
+diff --git a/src/btree.h b/src/btree.h
+index 96b495e..adc6493 100644
+--- a/src/btree.h
++++ b/src/btree.h
+@@ -33,7 +33,11 @@
+  */
+ #define BTREE_MAX_HEIGHT (8)
+ 
+-/* Immutable branch version is stored in its trunk branch_ref. */
++/*
++ * Immutable branch versions travel with the root address. Query and recovery
++ * entry points validate the version before interpreting branch pages. The
++ * version argument is ignored for PAGE_TYPE_MEMTABLE (an in-memory structure).
++ */
+ #define BTREE_BRANCH_FORMAT_VERSION (1)
+ 
+ /*
+@@ -298,6 +302,12 @@ btree_create(cache              *cc,
+              page_type           type,
+              uint64             *root_addr);
+ 
++/* Validate persisted roots before acquiring references. Query entry points
++ * also validate before reading pages. Refcount operations below require a
++ * validated root or one freshly created by this module. */
++platform_status
++btree_validate_root(uint64 root_addr, uint16 format_version, page_type type);
++
+ void
+ btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr);
+ 
+@@ -311,6 +321,7 @@ platform_status
+ btree_get_root_height(cache              *cc,
+                       const btree_config *cfg,
+                       uint64              root_addr,
++                      uint16              format_version,
+                       page_type           type,
+                       uint32             *height);
+ 
+@@ -322,6 +333,7 @@ platform_status
+ btree_recover_allocations(cache              *cc,
+                           const btree_config *cfg,
+                           uint64              root_addr,
++                          uint16              format_version,
+                           page_type           type);
+ 
+ void
+@@ -331,6 +343,7 @@ platform_status
+ btree_lookup(cache         *cc,
+              btree_config  *cfg,
+              uint64         root_addr,
++             uint16         format_version,
+              page_type      type,
+              key            target,
+              lookup_result *result);
+@@ -345,6 +358,7 @@ platform_status
+ btree_lookup_and_merge(cache              *cc,
+                        const btree_config *cfg,
+                        uint64              root_addr,
++                       uint16              format_version,
+                        page_type           type,
+                        key                 target,
+                        lookup_result      *result,
+@@ -355,6 +369,7 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
+    param, cache *,                      cc,
+    param, const btree_config *,         cfg,
+    param, uint64,                       root_addr,
++   param, uint16,                       format_version,
+    param, page_type,                    type,
+    param, key,                          target,
+    param, lookup_result *,              result,
+@@ -377,14 +392,23 @@ btree_lookup_and_merge_async_state_init(btree_lookup_async_state *state,
+                                         cache                    *cc,
+                                         const btree_config       *cfg,
+                                         uint64                    root_addr,
+-                                        page_type                 type,
+-                                        key                       target,
+-                                        lookup_result            *result,
+-                                        async_callback_fn         callback,
+-                                        void                     *callback_arg)
++                                        uint16            format_version,
++                                        page_type         type,
++                                        key               target,
++                                        lookup_result    *result,
++                                        async_callback_fn callback,
++                                        void             *callback_arg)
+ {
+-   btree_lookup_async_state_init(
+-      state, cc, cfg, root_addr, type, target, result, callback, callback_arg);
++   btree_lookup_async_state_init(state,
++                                 cc,
++                                 cfg,
++                                 root_addr,
++                                 format_version,
++                                 type,
++                                 target,
++                                 result,
++                                 callback,
++                                 callback_arg);
+ }
+ 
+ async_status
+@@ -403,6 +427,7 @@ btree_iterator_init(cache              *cc,
+                     const btree_config *cfg,
+                     btree_iterator     *itor,
+                     uint64              root_addr,
++                    uint16              format_version,
+                     page_type           page_type,
+                     comparison          min_key_comparison,
+                     key                 min_key,
+@@ -420,6 +445,7 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
+    param, const btree_config *,         cfg,
+    param, btree_iterator *,             itor,
+    param, uint64,                       root_addr,
++   param, uint16,                       format_version,
+    param, page_type,                    type,
+    param, comparison,                   min_key_comparison,
+    param, key,                          min_key,
+@@ -446,7 +472,6 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
+    local, uint64,                       next_addr,
+    local, uint64,                       prev_addr,
+    local, uint64,                       expected_page_no,
+-   local, uint64,                       num_entries,
+    local, key,                          first_key,
+    local, key,                          last_key)
+ // clang-format on
+@@ -508,6 +533,7 @@ platform_status
+ btree_count_in_range(cache              *cc,
+                      const btree_config *cfg,
+                      uint64              root_addr,
++                     uint16              format_version,
+                      key                 min_key,
+                      key                 max_key,
+                      btree_pivot_stats  *stats);
+@@ -516,6 +542,7 @@ void
+ btree_count_in_range_by_iterator(cache             *cc,
+                                  btree_config      *cfg,
+                                  uint64             root_addr,
++                                 uint16             format_version,
+                                  key                min_key,
+                                  key                max_key,
+                                  btree_pivot_stats *stats);
+diff --git a/src/core.c b/src/core.c
+index d20844f..8951084 100644
+--- a/src/core.c
++++ b/src/core.c
+@@ -1247,6 +1247,7 @@ core_memtable_iterator_init(core_handle    *spl,
+                               spl->cfg.btree_cfg,
+                               itor,
+                               root_addr,
++                              0,
+                               PAGE_TYPE_MEMTABLE,
+                               min_key_comparison,
+                               min_key,
+@@ -1832,8 +1833,14 @@ core_memtable_lookup(core_handle   *spl,
+    page_type type =
+       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
+ 
+-   return btree_lookup_and_merge(
+-      cc, cfg, root_addr, type, target, result, NULL);
++   return btree_lookup_and_merge(cc,
++                                 cfg,
++                                 root_addr,
++                                 BTREE_BRANCH_FORMAT_VERSION,
++                                 type,
++                                 target,
++                                 result,
++                                 NULL);
+ }
+ 
+ static platform_status
+@@ -1920,6 +1927,7 @@ core_start_btree_iterator_init_async(
+    core_btree_iterator_init_async_context *ctxt,
+    btree_iterator                         *itor,
+    uint64                                  root_addr,
++   uint16                                  format_version,
+    page_type                               page_type,
+    comparison                              min_key_comparison,
+    key                                     min_key,
+@@ -1935,6 +1943,7 @@ core_start_btree_iterator_init_async(
+                                    spl->cfg.btree_cfg,
+                                    itor,
+                                    root_addr,
++                                   format_version,
+                                    page_type,
+                                    min_key_comparison,
+                                    min_key,
+@@ -2171,6 +2180,8 @@ core_range_iterator_init(core_handle         *spl,
+       }
+ 
+       range_itor->branch[range_itor->num_branches].addr = root_addr;
++      range_itor->branch[range_itor->num_branches].format_version =
++         compacted ? BTREE_BRANCH_FORMAT_VERSION : 0;
+       range_itor->branch[range_itor->num_branches].type =
+          compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
+       range_itor->num_branches++;
+@@ -2278,6 +2289,7 @@ core_range_iterator_init(core_handle         *spl,
+          &init_ctxt[i],
+          btree_itor,
+          branch_addr,
++         range_itor->branch[branch_no].format_version,
+          page_type,
+          range_itor->local_min_key_comparison,
+          key_buffer_key(&range_itor->local_min_key),
+@@ -2693,6 +2705,7 @@ core_fetch_and_update_catch_up(core_handle         *spl,
+       rc = btree_lookup_and_merge(spl->cc,
+                                   spl->cfg.btree_cfg,
+                                   refs[i].root_addr,
++                                  BTREE_BRANCH_FORMAT_VERSION,
+                                   refs[i].type,
+                                   tuple_key,
+                                   catch_up_result,
+@@ -4758,6 +4771,7 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
+       rc = btree_lookup(spl->cc,
+                         spl->cfg.btree_cfg,
+                         root_addr,
++                        0,
+                         PAGE_TYPE_MEMTABLE,
+                         target,
+                         &lookup);
+diff --git a/src/rc_allocator.c b/src/rc_allocator.c
+index aba2f3b..d9d1088 100644
+--- a/src/rc_allocator.c
++++ b/src/rc_allocator.c
+@@ -17,6 +17,19 @@
+ #include "platform_typed_alloc.h"
+ #include "poison.h"
+ 
++platform_status
++rc_allocator_validate_format_version(uint16 format_version)
++{
++   if (format_version != RC_ALLOCATOR_FORMAT_VERSION) {
++      platform_error_log("Unsupported allocator format version %u; "
++                         "this build requires version %u.\n",
++                         format_version,
++                         RC_ALLOCATOR_FORMAT_VERSION);
++      return STATUS_INVALID_STATE;
++   }
++   return STATUS_OK;
++}
++
+ /*
+  * The refcount map is the allocator's only durable structure.  It lives in a
+  * fixed run of extents starting at extent 1 (extent 0 is reserved for the
+diff --git a/src/rc_allocator.h b/src/rc_allocator.h
+index 91eccb7..954bb77 100644
+--- a/src/rc_allocator.h
++++ b/src/rc_allocator.h
+@@ -15,6 +15,12 @@
+ #include "allocator.h"
+ #include "util.h"
+ 
++#define RC_ALLOCATOR_FORMAT_VERSION (1)
++
++/* Validate the allocator version stored in the database superblock. */
++platform_status
++rc_allocator_validate_format_version(uint16 format_version);
++
+ /*
+  *----------------------------------------------------------------------
+  * rc_allocator_stats --
+diff --git a/src/routing_filter.c b/src/routing_filter.c
+index 4eb8a4b..318e71f 100644
+--- a/src/routing_filter.c
++++ b/src/routing_filter.c
+@@ -252,6 +252,19 @@ routing_filter_get_params(const routing_config  *cfg,
+    return STATUS_OK;
+ }
+ 
++uint64
++routing_filter_max_fingerprints_for_filter(cache_config         *cache_cfg,
++                                           const routing_filter *filter)
++{
++   debug_assert(routing_filter_descriptor_is_valid(filter));
++   debug_assert(filter->addr != 0);
++   routing_config cfg = {
++      .fingerprint_size = filter->fingerprint_size,
++      .log_index_size   = filter->log_index_size,
++   };
++   return routing_filter_max_fingerprints(cache_cfg, &cfg);
++}
++
+ static platform_status
+ routing_get_header(cache                *cc,
+                    const routing_config *cfg,
+diff --git a/src/routing_filter.h b/src/routing_filter.h
+index cac429f..3188318 100644
+--- a/src/routing_filter.h
++++ b/src/routing_filter.h
+@@ -184,6 +184,11 @@ routing_filter_max_fingerprints(cache_config         *cache_cfg,
+    return MIN(UINT32_MAX, MIN(index_limit, fingerprint_limit));
+ }
+ 
++/* Capacity of an existing instance, independent of new-filter settings. */
++uint64
++routing_filter_max_fingerprints_for_filter(cache_config         *cache_cfg,
++                                           const routing_filter *filter);
++
+ // clang-format off
+ DEFINE_ASYNC_STATE(routing_filter_lookup_async_state, 2,
+    param, cache *,                      cc,
+diff --git a/src/shard_log.c b/src/shard_log.c
+index 1983b2a..e3610aa 100644
+--- a/src/shard_log.c
++++ b/src/shard_log.c
+@@ -21,6 +21,19 @@
+ #include "platform_sort.h"
+ #include "poison.h"
+ 
++platform_status
++shard_log_validate_format_version(uint16 format_version)
++{
++   if (format_version != SHARD_LOG_FORMAT_VERSION) {
++      platform_error_log("Unsupported log format version %u; "
++                         "this build requires version %u.\n",
++                         format_version,
++                         SHARD_LOG_FORMAT_VERSION);
++      return STATUS_INVALID_STATE;
++   }
++   return STATUS_OK;
++}
++
+ static const page_type shard_log_page_type_table[NUM_BLOB_BATCHES + 1] = {
+    PAGE_TYPE_LOG,
+    [1 ... NUM_BLOB_BATCHES] = PAGE_TYPE_BLOB,
+@@ -2189,8 +2202,9 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
+    if (head.addr == 0) {
+       return STATUS_OK; // no such log
+    }
+-   if (head.format_version != SHARD_LOG_FORMAT_VERSION) {
+-      return STATUS_INVALID_STATE;
++   platform_status rc = shard_log_validate_format_version(head.format_version);
++   if (!SUCCESS(rc)) {
++      return rc;
+    }
+    shard_log_config read_cfg = *cfg;
+    read_cfg.seed             = head.checksum_seed;
+@@ -2202,10 +2216,9 @@ shard_log_recover_allocations(cache *cc, shard_log_config *cfg, log_head head)
+     * page-header chain never reaches it.  It has to be recorded on its own or
+     * the extent is left looking free while the durable record still names it.
+     */
+-   allocator      *al        = cache_get_allocator(cc);
+-   uint64          meta_base = shard_log_extent_base(cc, head.meta_addr);
+-   platform_status rc =
+-      allocator_recovery_record_reference(al, meta_base, PAGE_TYPE_LOG);
++   allocator *al        = cache_get_allocator(cc);
++   uint64     meta_base = shard_log_extent_base(cc, head.meta_addr);
++   rc = allocator_recovery_record_reference(al, meta_base, PAGE_TYPE_LOG);
+    if (!SUCCESS(rc)) {
+       return rc;
+    }
+@@ -3015,9 +3028,10 @@ shard_log_iterator_create(cache            *cc,
+    if (itor_out == NULL) {
+       return STATUS_BAD_PARAM;
+    }
+-   *itor_out = NULL;
+-   if (head.format_version != SHARD_LOG_FORMAT_VERSION) {
+-      return STATUS_INVALID_STATE;
++   *itor_out          = NULL;
++   platform_status rc = shard_log_validate_format_version(head.format_version);
++   if (!SUCCESS(rc)) {
++      return rc;
+    }
+ 
+    shard_log_iterator *itor = TYPED_MALLOC(hid, itor);
+@@ -3026,7 +3040,7 @@ shard_log_iterator_create(cache            *cc,
+                          "shard_log_iterator\n");
+       return STATUS_NO_MEMORY;
+    }
+-   platform_status rc = shard_log_iterator_init(
++   rc = shard_log_iterator_init(
+       cc, cfg, hid, head.addr, head, first_needed_generation, itor);
+    if (!SUCCESS(rc)) {
+       platform_error_log("shard_log_iterator_create: shard_log_iterator_init "
+diff --git a/src/shard_log.h b/src/shard_log.h
+index b0a61e4..c3a2f35 100644
+--- a/src/shard_log.h
++++ b/src/shard_log.h
+@@ -20,6 +20,10 @@
+ #include "platform_mutex.h"
+ #include "writeback_set.h"
+ 
++/* Validate the version persisted in a log head before accessing its stream. */
++platform_status
++shard_log_validate_format_version(uint16 format_version);
++
+ /*
+  * Configuration structure to set up the sharded log sub-system.
+  */
+diff --git a/src/splinterdb.c b/src/splinterdb.c
+index 144fc96..e830dd1 100644
+--- a/src/splinterdb.c
++++ b/src/splinterdb.c
+@@ -753,6 +753,7 @@ splinterdb_get_cost_stats(splinterdb *kvs, splinterdb_cost_stats *stats)
+       status = btree_get_root_height(mt_ctxt->cc,
+                                      mt_ctxt->cfg.btree_cfg,
+                                      memtable_root_addr(&mt_ctxt->mt[mt_no]),
++                                     0,
+                                      PAGE_TYPE_MEMTABLE,
+                                      &height);
+       if (!SUCCESS(status)) {
+diff --git a/src/superblock.c b/src/superblock.c
+index da36f73..acb3fea 100644
+--- a/src/superblock.c
++++ b/src/superblock.c
+@@ -8,6 +8,9 @@
+  */
+ 
+ #include "superblock.h"
++#include "trunk.h"
++#include "rc_allocator.h"
++#include "shard_log.h"
+ #include "poison.h"
+ 
+ #define SUPERBLOCK_CSUM_SEED (0x53555045524231ULL) // "SUPERB1"
+@@ -130,21 +133,24 @@ superblock_check_versions(const superblock *sb)
+    if (sb->format_version != SUPERBLOCK_FORMAT_VERSION) {
+       return superblock_unsupported_version(sb->format_version);
+    }
+-   if (sb->trunk_format_version != TRUNK_FORMAT_VERSION
+-       || sb->allocator_format_version != RC_ALLOCATOR_FORMAT_VERSION
+-       || (!SUPERBLOCK_NO_LOG(sb->tree.live_log)
+-           && sb->tree.live_log.head.format_version != SHARD_LOG_FORMAT_VERSION)
+-       || (!SUPERBLOCK_NO_LOG(sb->tree.sealed_log)
+-           && sb->tree.sealed_log.head.format_version
+-                 != SHARD_LOG_FORMAT_VERSION))
+-   {
+-      platform_error_log("Unsupported on-disk structure version: "
+-                         "trunk=%u allocator=%u live-log=%u sealed-log=%u\n",
+-                         sb->trunk_format_version,
+-                         sb->allocator_format_version,
+-                         sb->tree.live_log.head.format_version,
+-                         sb->tree.sealed_log.head.format_version);
+-      return STATUS_INVALID_STATE;
++   platform_status rc = trunk_validate_format_version(sb->trunk_format_version);
++   if (!SUCCESS(rc)) {
++      return rc;
++   }
++   rc = rc_allocator_validate_format_version(sb->allocator_format_version);
++   if (!SUCCESS(rc)) {
++      return rc;
++   }
++   if (!SUPERBLOCK_NO_LOG(sb->tree.live_log)) {
++      rc = shard_log_validate_format_version(
++         sb->tree.live_log.head.format_version);
++      if (!SUCCESS(rc)) {
++         return rc;
++      }
++   }
++   if (!SUPERBLOCK_NO_LOG(sb->tree.sealed_log)) {
++      return shard_log_validate_format_version(
++         sb->tree.sealed_log.head.format_version);
+    }
+    return STATUS_OK;
+ }
+diff --git a/src/superblock.h b/src/superblock.h
+index 3343e91..fff86ab 100644
+--- a/src/superblock.h
++++ b/src/superblock.h
+@@ -48,9 +48,7 @@
+  * descriptors carry their format version and fingerprint size; v8 adds
+  * independent structure versions and complete routing-filter/log read config.
+  */
+-#define SUPERBLOCK_FORMAT_VERSION   (8)
+-#define TRUNK_FORMAT_VERSION        (1)
+-#define RC_ALLOCATOR_FORMAT_VERSION (1)
++#define SUPERBLOCK_FORMAT_VERSION (8)
+ 
+ /* The two physical superblock copies live at pages 0 and 1. */
+ #define SUPERBLOCK_NUM_SLOTS (2)
+diff --git a/src/trunk.c b/src/trunk.c
+index e4c8b56..a89fa71 100644
+--- a/src/trunk.c
++++ b/src/trunk.c
+@@ -1528,13 +1528,6 @@ trunk_ondisk_bundle_readable(trunk_ondisk_bundle *bundle,
+    {
+       return FALSE;
+    }
+-   for (uint64 i = 0; i < bundle->num_branches; i++) {
+-      if (bundle->branches[i].addr == 0
+-          || bundle->branches[i].format_version != BTREE_BRANCH_FORMAT_VERSION)
+-      {
+-         return FALSE;
+-      }
+-   }
+    if (!routing_filter_descriptor_is_valid(&bundle->maplet)) {
+       return FALSE;
+    }
+@@ -1904,6 +1897,13 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, trunk_ondisk_bundle *odb)
+    bndl->maplet = odb->maplet;
+ 
+    for (uint64 i = 0; i < odb->num_branches; i++) {
++      rc = btree_validate_root(odb->branches[i].addr,
++                               odb->branches[i].format_version,
++                               trunk_ondisk_bundle_branch_type(odb));
++      if (!SUCCESS(rc)) {
++         bundle_deinit(bndl);
++         return rc;
++      }
+       rc = vector_append(&bndl->branches, odb->branches[i]);
+       platform_assert_status_ok(rc);
+    }
+@@ -2337,8 +2337,11 @@ trunk_recover_bundle_refs(const trunk_context *context, bundle *bndl)
+    page_type type = bundle_branch_type(bndl);
+    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
+       branch_ref      bref = vector_get(&bndl->branches, i);
+-      platform_status rc   = btree_recover_allocations(
+-         context->cc, context->cfg->btree_cfg, branch_ref_addr(bref), type);
++      platform_status rc   = btree_recover_allocations(context->cc,
++                                                     context->cfg->btree_cfg,
++                                                     branch_ref_addr(bref),
++                                                     bref.format_version,
++                                                     type);
+       if (!SUCCESS(rc)) {
+          return rc;
+       }
+@@ -2973,13 +2976,14 @@ trunk_branch_merger_init(trunk_branch_merger *merger,
+ static platform_status
+ trunk_branch_merger_add_branch(trunk_branch_merger *merger,
+                                uint64               addr,
++                               uint16               format_version,
+                                page_type            type)
+ {
+    platform_assert(merger != NULL);
+    platform_assert(addr != 0);
+    platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
+ 
+-   trunk_branch_info branch = {addr, type};
++   trunk_branch_info branch = {addr, type, format_version};
+    platform_status   rc     = vector_append(&merger->branches, branch);
+    if (!SUCCESS(rc)) {
+       platform_error_log("%s():%d: vector_append() failed: %s",
+@@ -3010,8 +3014,10 @@ trunk_branch_merger_add_branches(trunk_branch_merger     *merger,
+    }
+ 
+    for (uint64 i = 0; i < num_branches; i++) {
+-      rc = trunk_branch_merger_add_branch(
+-         merger, branches[i].addr, branches[i].type);
++      rc = trunk_branch_merger_add_branch(merger,
++                                          branches[i].addr,
++                                          branches[i].format_version,
++                                          branches[i].type);
+       if (!SUCCESS(rc)) {
+          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
+                             __func__,
+@@ -3043,8 +3049,10 @@ trunk_branch_merger_add_bundle(trunk_branch_merger *merger,
+ 
+    for (uint64 i = 0; i < bundle_num_branches(routed); i++) {
+       branch_ref bref = vector_get(&routed->branches, i);
+-      rc              = trunk_branch_merger_add_branch(
+-         merger, branch_ref_addr(bref), bundle_branch_type(routed));
++      rc              = trunk_branch_merger_add_branch(merger,
++                                          branch_ref_addr(bref),
++                                          bref.format_version,
++                                          bundle_branch_type(routed));
+       if (!SUCCESS(rc)) {
+          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
+                             __func__,
+@@ -3095,8 +3103,12 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
+       for (uint64 i = 0; i < num_branches; i++) {
+          trunk_branch_info branch = vector_get(&merger->branches, i);
+          uint32            root_height;
+-         rc = btree_get_root_height(
+-            cc, merger->cfg->btree_cfg, branch.addr, branch.type, &root_height);
++         rc = btree_get_root_height(cc,
++                                    merger->cfg->btree_cfg,
++                                    branch.addr,
++                                    branch.format_version,
++                                    branch.type,
++                                    &root_height);
+          if (!SUCCESS(rc)) {
+             platform_error_log("%s():%d: btree_get_root_height() failed: %s",
+                                __func__,
+@@ -3122,6 +3134,7 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
+                                merger->cfg->btree_cfg,
+                                itor,
+                                branch.addr,
++                               branch.format_version,
+                                branch.type,
+                                greater_than_or_equal,
+                                merger->min_key,
+@@ -3970,7 +3983,7 @@ bundle_compaction_create(trunk_context     *context,
+          btree_inc_ref(
+             context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
+          page_type         type = bundle_branch_type(bndl);
+-         trunk_branch_info bi   = {bref.addr, type};
++         trunk_branch_info bi   = {bref.addr, type, bref.format_version};
+          rc                     = vector_append(&result->input.branches, bi);
+          platform_assert_status_ok(rc);
+          __sync_fetch_and_add(&bc_incs, 1);
+@@ -4728,8 +4741,13 @@ compute_input_stats(trunk_context            *context,
+    for (uint64 i = 0; i < vector_length(branches); i++) {
+       trunk_branch_info bi = vector_get(branches, i);
+       btree_pivot_stats btree_stats;
+-      platform_status   rc = btree_count_in_range(
+-         context->cc, context->cfg->btree_cfg, bi.addr, lb, ub, &btree_stats);
++      platform_status   rc = btree_count_in_range(context->cc,
++                                                context->cfg->btree_cfg,
++                                                bi.addr,
++                                                bi.format_version,
++                                                lb,
++                                                ub,
++                                                &btree_stats);
+       if (!SUCCESS(rc)) {
+          return rc;
+       }
+@@ -5063,6 +5081,7 @@ accumulate_branch_tuple_counts_in_range(branch_ref         bref,
+    platform_status   rc = btree_count_in_range(context->cc,
+                                              context->cfg->btree_cfg,
+                                              branch_ref_addr(bref),
++                                             bref.format_version,
+                                              minkey,
+                                              maxkey,
+                                              &stats);
+@@ -5267,6 +5286,7 @@ leaf_estimate_unique_keys(trunk_context *context,
+          rc = btree_count_in_range(context->cc,
+                                    context->cfg->btree_cfg,
+                                    bundle_branch(bndl, 0).addr,
++                                   bundle_branch(bndl, 0).format_version,
+                                    trunk_node_pivot_min_key(leaf),
+                                    trunk_node_pivot_max_key(leaf),
+                                    &stats);
+@@ -5288,12 +5308,14 @@ leaf_estimate_unique_keys(trunk_context *context,
+       platform_assert(bundle_num_branches(&pivot_bundle) <= 1);
+       if (bundle_num_branches(&pivot_bundle) == 1) {
+          btree_pivot_stats stats;
+-         rc = btree_count_in_range(context->cc,
+-                                   context->cfg->btree_cfg,
+-                                   bundle_branch(&pivot_bundle, 0).addr,
+-                                   trunk_node_pivot_min_key(leaf),
+-                                   trunk_node_pivot_max_key(leaf),
+-                                   &stats);
++         rc =
++            btree_count_in_range(context->cc,
++                                 context->cfg->btree_cfg,
++                                 bundle_branch(&pivot_bundle, 0).addr,
++                                 bundle_branch(&pivot_bundle, 0).format_version,
++                                 trunk_node_pivot_min_key(leaf),
++                                 trunk_node_pivot_max_key(leaf),
++                                 &stats);
+          if (!SUCCESS(rc)) {
+             goto cleanup;
+          }
+@@ -5382,10 +5404,9 @@ trunk_node_filter_limit(const trunk_context *context, const trunk_node *node)
+       const routing_filter *filter =
+          &vector_get_ptr(&node->pivot_bundles, i)->maplet;
+       if (filter->addr != 0) {
+-         routing_config cfg   = *context->cfg->filter_cfg;
+-         cfg.fingerprint_size = filter->fingerprint_size;
+-         cfg.log_index_size   = filter->log_index_size;
+-         limit = MIN(limit, routing_filter_max_fingerprints(cache_cfg, &cfg));
++         limit =
++            MIN(limit,
++                routing_filter_max_fingerprints_for_filter(cache_cfg, filter));
+       }
+    }
+    return limit;
+@@ -7048,6 +7069,7 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
+       rc = btree_lookup_and_merge(context->cc,
+                                   context->cfg->btree_cfg,
+                                   branch_ref_addr(bndl->branches[idx]),
++                                  bndl->branches[idx].format_version,
+                                   trunk_ondisk_bundle_branch_type(bndl),
+                                   tgt,
+                                   result,
+@@ -7080,6 +7102,7 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
+          rc = btree_lookup_and_merge(context->cc,
+                                      context->cfg->btree_cfg,
+                                      branch_ref_addr(bndl->branches[idx]),
++                                     bndl->branches[idx].format_version,
+                                      trunk_ondisk_bundle_branch_type(bndl),
+                                      tgt,
+                                      &temp_result,
+@@ -7185,6 +7208,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
+                        state->context->cc,
+                        state->context->cfg->btree_cfg,
+                        branch_ref_addr(state->bndl->branches[state->idx]),
++                       state->bndl->branches[state->idx].format_version,
+                        trunk_ondisk_bundle_branch_type(state->bndl),
+                        state->tgt,
+                        state->result,
+@@ -7221,6 +7245,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
+             state->context->cc,
+             state->context->cfg->btree_cfg,
+             branch_ref_addr(state->bndl->branches[state->idx]),
++            state->bndl->branches[state->idx].format_version,
+             trunk_ondisk_bundle_branch_type(state->bndl),
+             state->tgt,
+             &temp_result,
+@@ -7537,7 +7562,17 @@ trunk_collect_bundle_branches(trunk_ondisk_bundle *bndl,
+          *num_branches = bundle_start;
+          return STATUS_LIMIT_EXCEEDED;
+       }
++      platform_status rc =
++         btree_validate_root(bndl->branches[i].addr,
++                             bndl->branches[i].format_version,
++                             trunk_ondisk_bundle_branch_type(bndl));
++      if (!SUCCESS(rc)) {
++         /* References are acquired only after the whole bundle is copied. */
++         *num_branches = bundle_start;
++         return rc;
++      }
+       branches[*num_branches].addr = branch_ref_addr(bndl->branches[i]);
++      branches[*num_branches].format_version = bndl->branches[i].format_version;
+       branches[*num_branches].type = trunk_ondisk_bundle_branch_type(bndl);
+ 
+       (*num_branches)++;
+diff --git a/src/trunk.h b/src/trunk.h
+index 19abf28..de7768a 100644
+--- a/src/trunk.h
++++ b/src/trunk.h
+@@ -19,6 +19,23 @@
+ #include "data_internal.h"
+ #include "batch_rwlock.h"
+ 
++#define TRUNK_FORMAT_VERSION (1)
++
++/* The superblock persists this version; the trunk owns its supported readers.
++ */
++static inline platform_status
++trunk_validate_format_version(uint16 format_version)
++{
++   if (format_version != TRUNK_FORMAT_VERSION) {
++      platform_error_log("Unsupported trunk format version %u; "
++                         "this build requires version %u.\n",
++                         format_version,
++                         TRUNK_FORMAT_VERSION);
++      return STATUS_INVALID_STATE;
++   }
++   return STATUS_OK;
++}
++
+ typedef struct trunk_config {
+    const data_config    *data_cfg;
+    const btree_config   *btree_cfg;
+@@ -335,6 +352,7 @@ trunk_merge_lookup(trunk_context            *context,
+ typedef struct trunk_branch_info {
+    uint64    addr;
+    page_type type;
++   uint16    format_version;
+ } trunk_branch_info;
+ 
+ platform_status
+diff --git a/tests/functional/btree_test.c b/tests/functional/btree_test.c
+index 55f3a2c..ab7eb54 100644
+--- a/tests/functional/btree_test.c
++++ b/tests/functional/btree_test.c
+@@ -411,7 +411,8 @@ test_btree_lookup(cache        *cc,
+ 
+    lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+ 
+-   rc = btree_lookup(cc, cfg, root_addr, type, target, &result);
++   rc = btree_lookup(
++      cc, cfg, root_addr, BTREE_BRANCH_FORMAT_VERSION, type, target, &result);
+    platform_assert_status_ok(rc);
+ 
+    message data =
+@@ -648,6 +649,7 @@ test_btree_scan_once(cache        *cc,
+                                             btree_cfg,
+                                             &itor,
+                                             root_addr,
++                                            BTREE_BRANCH_FORMAT_VERSION,
+                                             type,
+                                             greater_than_or_equal,
+                                             min_key,
+@@ -947,6 +949,7 @@ test_btree_scan_perf(cache                         *cc,
+                             btree_cfg,
+                             &itor,
+                             root_addr,
++                            0,
+                             PAGE_TYPE_MEMTABLE,
+                             greater_than_or_equal,
+                             NEGATIVE_INFINITY_KEY,
+@@ -1183,6 +1186,7 @@ test_btree_async_lookup(cache                   *cc,
+                                  cc,
+                                  cfg,
+                                  root_addr,
++                                 BTREE_BRANCH_FORMAT_VERSION,
+                                  type,
+                                  target,
+                                  &async_ctxt->result,
+@@ -1251,7 +1255,8 @@ test_btree_lookup_status(cache        *cc,
+ {
+    lookup_result result;
+    lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+-   platform_status rc = btree_lookup(cc, cfg, root_addr, type, target, &result);
++   platform_status rc = btree_lookup(
++      cc, cfg, root_addr, BTREE_BRANCH_FORMAT_VERSION, type, target, &result);
+    lookup_result_deinit(&result);
+    return rc;
+ }
+@@ -1270,6 +1275,7 @@ test_btree_async_lookup_status(cache        *cc,
+                                  cc,
+                                  cfg,
+                                  root_addr,
++                                 BTREE_BRANCH_FORMAT_VERSION,
+                                  type,
+                                  target,
+                                  &ctxt.result,
+@@ -1334,6 +1340,7 @@ test_btree_iterator_init_status(cache        *cc,
+                                                cfg,
+                                                &itor,
+                                                root_addr,
++                                               BTREE_BRANCH_FORMAT_VERSION,
+                                                PAGE_TYPE_BRANCH,
+                                                greater_than_or_equal,
+                                                NEGATIVE_INFINITY_KEY,
+@@ -1357,6 +1364,7 @@ test_btree_iterator_init_status(cache        *cc,
+                                    cfg,
+                                    &itor,
+                                    root_addr,
++                                   BTREE_BRANCH_FORMAT_VERSION,
+                                    PAGE_TYPE_BRANCH,
+                                    greater_than_or_equal,
+                                    NEGATIVE_INFINITY_KEY,
+@@ -1429,6 +1437,7 @@ test_btree_query_validation(cache           *cc,
+                                             cfg,
+                                             &itor,
+                                             root_addr,
++                                            BTREE_BRANCH_FORMAT_VERSION,
+                                             PAGE_TYPE_BRANCH,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY,
+@@ -1571,6 +1580,7 @@ test_btree_query_validation(cache           *cc,
+                                                     cfg,
+                                                     &sequence_itor,
+                                                     root_addr,
++                                                    BTREE_BRANCH_FORMAT_VERSION,
+                                                     PAGE_TYPE_BRANCH,
+                                                     greater_than_or_equal,
+                                                     NEGATIVE_INFINITY_KEY,
+@@ -1732,6 +1742,7 @@ test_btree_query_validation(cache           *cc,
+                           cfg,
+                           &height_itor,
+                           root_addr,
++                          BTREE_BRANCH_FORMAT_VERSION,
+                           PAGE_TYPE_BRANCH,
+                           greater_than_or_equal,
+                           key_buffer_key(&touched_key),
+@@ -1906,6 +1917,7 @@ test_btree_basic(cache             *cc,
+                             btree_cfg,
+                             &itor,
+                             root_addr,
++                            0,
+                             PAGE_TYPE_MEMTABLE,
+                             greater_than_or_equal,
+                             NEGATIVE_INFINITY_KEY,
+@@ -2098,6 +2110,7 @@ test_btree_create_packed_trees(cache             *cc,
+                                btree_cfg,
+                                &itor,
+                                memtable_root_addr(mt),
++                               0,
+                                PAGE_TYPE_MEMTABLE,
+                                greater_than_or_equal,
+                                NEGATIVE_INFINITY_KEY,
+@@ -2156,6 +2169,7 @@ test_count_tuples_in_range(cache        *cc,
+                                cfg,
+                                &itor,
+                                root_addr[i],
++                               BTREE_BRANCH_FORMAT_VERSION,
+                                type,
+                                greater_than_or_equal,
+                                low_key,
+@@ -2255,6 +2269,7 @@ test_btree_print_all_keys(cache        *cc,
+                                                cfg,
+                                                &itor,
+                                                root_addr[i],
++                                               BTREE_BRANCH_FORMAT_VERSION,
+                                                type,
+                                                greater_than_or_equal,
+                                                low_key,
+@@ -2334,6 +2349,7 @@ test_btree_merge_basic(cache             *cc,
+                                   btree_cfg,
+                                   &btree_itor_arr[tree_no],
+                                   root_addr[tree_no],
++                                  BTREE_BRANCH_FORMAT_VERSION,
+                                   PAGE_TYPE_BRANCH,
+                                   greater_than_or_equal,
+                                   lo,
+@@ -2475,8 +2491,13 @@ test_btree_count_in_range(cache             *cc,
+       btree_pivot_stats stats;
+       key               min_key = key_buffer_key(&bound_key[0]);
+       key               max_key = key_buffer_key(&bound_key[1]);
+-      rc                        = btree_count_in_range(
+-         cc, btree_cfg, root_addr, min_key, max_key, &stats);
++      rc                        = btree_count_in_range(cc,
++                                btree_cfg,
++                                root_addr,
++                                BTREE_BRANCH_FORMAT_VERSION,
++                                min_key,
++                                max_key,
++                                &stats);
+       if (!SUCCESS(rc)) {
+          goto destroy_btree;
+       }
+@@ -2561,6 +2582,7 @@ test_btree_rough_iterator(cache             *cc,
+                                btree_cfg,
+                                &rough_btree_itor[tree_no],
+                                root_addr[tree_no],
++                               BTREE_BRANCH_FORMAT_VERSION,
+                                PAGE_TYPE_BRANCH,
+                                greater_than_or_equal,
+                                NEGATIVE_INFINITY_KEY,
+@@ -2727,6 +2749,7 @@ test_btree_merge_perf(cache             *cc,
+                                      btree_cfg,
+                                      &btree_itor_arr[tree_no],
+                                      root_addr[global_tree_no],
++                                     BTREE_BRANCH_FORMAT_VERSION,
+                                      PAGE_TYPE_BRANCH,
+                                      greater_than_or_equal,
+                                      min_key,
+diff --git a/tests/unit/btree_stress_test.c b/tests/unit/btree_stress_test.c
+index c343f47..5ca2171 100644
+--- a/tests/unit/btree_stress_test.c
++++ b/tests/unit/btree_stress_test.c
+@@ -310,6 +310,7 @@ CTEST2(btree_stress, insert_callback_failure_abandons_insert)
+    rc = btree_lookup((cache *)&data->cc,
+                      &data->dbtree_cfg,
+                      root_addr,
++                     0,
+                      PAGE_TYPE_MEMTABLE,
+                      tuple_key,
+                      &lookup);
+@@ -352,6 +353,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
+    ASSERT_TRUE(SUCCESS(btree_get_root_height((cache *)&data->cc,
+                                              &data->dbtree_cfg,
+                                              root_addr,
++                                             0,
+                                              PAGE_TYPE_MEMTABLE,
+                                              &height)));
+    ASSERT_EQUAL_U(0, height);
+@@ -384,6 +386,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
+    ASSERT_TRUE(SUCCESS(btree_get_root_height((cache *)&data->cc,
+                                              &data->dbtree_cfg,
+                                              root_addr,
++                                             0,
+                                              PAGE_TYPE_MEMTABLE,
+                                              &height)));
+    ASSERT_TRUE(height > 0);
+@@ -396,6 +399,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
+    rc = btree_lookup((cache *)&data->cc,
+                      &data->dbtree_cfg,
+                      root_addr,
++                     0,
+                      PAGE_TYPE_MEMTABLE,
+                      rejected_key,
+                      &lookup);
+@@ -540,8 +544,8 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
+ 
+    lookup_result lookup;
+    lookup_result_init(&lookup, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+-   ASSERT_TRUE(SUCCESS(
+-      btree_lookup(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, target, &lookup)));
++   ASSERT_TRUE(SUCCESS(btree_lookup(
++      cc, cfg, root_addr, 0, PAGE_TYPE_MEMTABLE, target, &lookup)));
+    ASSERT_EQUAL(0,
+                 slice_lex_cmp(merge_accumulator_to_value(
+                                  lookup_result_accumulator(&lookup)),
+@@ -792,6 +796,7 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
+       rc = btree_lookup((cache *)&data->cc,
+                         &data->dbtree_cfg,
+                         root_addr,
++                        0,
+                         PAGE_TYPE_MEMTABLE,
+                         gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
+                         &verify_result);
+@@ -929,6 +934,7 @@ query_tests(cache           *cc,
+       btree_lookup(cc,
+                    cfg,
+                    root_addr,
++                   BTREE_BRANCH_FORMAT_VERSION,
+                    type,
+                    gen_key(cfg, i, keybuf, bt_page_size),
+                    &result);
+@@ -1027,6 +1033,7 @@ iterator_tests(cache           *cc,
+                                             cfg,
+                                             &dbiter,
+                                             root_addr,
++                                            BTREE_BRANCH_FORMAT_VERSION,
+                                             type,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY,
+@@ -1080,6 +1087,7 @@ iterator_seek_tests(cache           *cc,
+                                             cfg,
+                                             &dbiter,
+                                             root_addr,
++                                            0,
+                                             PAGE_TYPE_MEMTABLE,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY,
+@@ -1128,6 +1136,7 @@ pack_tests(cache           *cc,
+                                             cfg,
+                                             &dbiter,
+                                             root_addr,
++                                            0,
+                                             PAGE_TYPE_MEMTABLE,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY,
+@@ -1229,6 +1238,7 @@ bounds_init_with_copy(cache          *cc,
+                                  cfg,
+                                  itor,
+                                  root,
++                                 BTREE_BRANCH_FORMAT_VERSION,
+                                  type,
+                                  lo_cmp,
+                                  lo,
+@@ -1247,6 +1257,7 @@ bounds_init_with_copy(cache          *cc,
+                                    cfg,
+                                    itor,
+                                    root,
++                                   BTREE_BRANCH_FORMAT_VERSION,
+                                    type,
+                                    lo_cmp,
+                                    lo,
+@@ -1368,6 +1379,7 @@ iterator_endpoint_fault_init(cache          *cc,
+                                  cfg,
+                                  itor,
+                                  root,
++                                 BTREE_BRANCH_FORMAT_VERSION,
+                                  PAGE_TYPE_BRANCH,
+                                  greater_than_or_equal,
+                                  NEGATIVE_INFINITY_KEY,
+@@ -1387,6 +1399,7 @@ iterator_endpoint_fault_init(cache          *cc,
+                                    cfg,
+                                    itor,
+                                    root,
++                                   BTREE_BRANCH_FORMAT_VERSION,
+                                    PAGE_TYPE_BRANCH,
+                                    greater_than_or_equal,
+                                    NEGATIVE_INFINITY_KEY,
+@@ -1424,6 +1437,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
+                                             cfg,
+                                             &source,
+                                             source_root,
++                                            0,
+                                             PAGE_TYPE_MEMTABLE,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY,
+@@ -1450,6 +1464,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
+                             cfg,
+                             &probe,
+                             packed_root,
++                            BTREE_BRANCH_FORMAT_VERSION,
+                             PAGE_TYPE_BRANCH,
+                             greater_than_or_equal,
+                             NEGATIVE_INFINITY_KEY,
+@@ -1530,6 +1545,7 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
+                                             cfg,
+                                             &source,
+                                             source_root,
++                                            0,
+                                             PAGE_TYPE_MEMTABLE,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY,
+@@ -1568,7 +1584,13 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
+ 
+       btree_pivot_stats stats = {
+          .num_kvs = 1, .key_bytes = 1, .message_bytes = 1};
+-      rc = btree_count_in_range(cc, cfg, packed_root, min_key, max_key, &stats);
++      rc = btree_count_in_range(cc,
++                                cfg,
++                                packed_root,
++                                BTREE_BRANCH_FORMAT_VERSION,
++                                min_key,
++                                max_key,
++                                &stats);
+ 
+       cc->ops                        = fault.original;
+       active_iterator_endpoint_fault = NULL;
+@@ -1834,6 +1856,7 @@ CTEST2(btree_stress, copied_iterator_split_on_release)
+                                                cfg,
+                                                &probe,
+                                                root,
++                                               0,
+                                                PAGE_TYPE_MEMTABLE,
+                                                greater_than_or_equal,
+                                                NEGATIVE_INFINITY_KEY,
+diff --git a/tests/unit/btree_test.c b/tests/unit/btree_test.c
+index 1885165..5a6e74b 100644
+--- a/tests/unit/btree_test.c
++++ b/tests/unit/btree_test.c
+@@ -195,6 +195,181 @@ CTEST2(btree, test_defragmented_index_bytes)
+    ASSERT_EQUAL(0, rc);
+ }
+ 
++/*
++ * Branch references must be rejected by the btree before any page access.
++ * A NULL cache makes an accidental read fail, including in the async paths.
++ */
++static const struct {
++   uint64 addr;
++   uint16 format_version;
++} invalid_branch_refs[] = {
++   {4096, BTREE_BRANCH_FORMAT_VERSION - 1},
++   {4096, BTREE_BRANCH_FORMAT_VERSION + 1},
++   {0, BTREE_BRANCH_FORMAT_VERSION},
++};
++
++CTEST2(btree, test_invalid_branch_point_lookup)
++{
++   lookup_result result;
++   lookup_result_init(
++      &result, data->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
++   uint64 keybuf = 1;
++   key    target = key_create(FALSE, sizeof(keybuf), &keybuf);
++
++   for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
++      platform_status rc = btree_lookup(NULL,
++                                        &data->dbtree_cfg,
++                                        invalid_branch_refs[i].addr,
++                                        invalid_branch_refs[i].format_version,
++                                        PAGE_TYPE_BRANCH,
++                                        target,
++                                        &result);
++      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
++      ASSERT_FALSE(lookup_result_found(&result));
++
++      bool32 local_found = TRUE;
++      rc                 = btree_lookup_and_merge(NULL,
++                                  &data->dbtree_cfg,
++                                  invalid_branch_refs[i].addr,
++                                  invalid_branch_refs[i].format_version,
++                                  PAGE_TYPE_BRANCH,
++                                  target,
++                                  &result,
++                                  &local_found);
++      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
++      ASSERT_FALSE(local_found);
++      ASSERT_FALSE(lookup_result_found(&result));
++   }
++   lookup_result_deinit(&result);
++}
++
++CTEST2(btree, test_invalid_branch_async_point_lookup)
++{
++   lookup_result result;
++   lookup_result_init(
++      &result, data->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
++   uint64 keybuf = 1;
++   key    target = key_create(FALSE, sizeof(keybuf), &keybuf);
++
++   for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
++      btree_lookup_async_state state;
++      btree_lookup_async_state_init(&state,
++                                    NULL,
++                                    &data->dbtree_cfg,
++                                    invalid_branch_refs[i].addr,
++                                    invalid_branch_refs[i].format_version,
++                                    PAGE_TYPE_BRANCH,
++                                    target,
++                                    &result,
++                                    NULL,
++                                    NULL);
++      ASSERT_EQUAL(ASYNC_STATUS_DONE, btree_lookup_async(&state));
++      ASSERT_TRUE(STATUS_IS_EQ(async_result(&state), STATUS_INVALID_STATE));
++      ASSERT_FALSE(lookup_result_found(&result));
++
++      btree_lookup_and_merge_async_state_init(
++         &state,
++         NULL,
++         &data->dbtree_cfg,
++         invalid_branch_refs[i].addr,
++         invalid_branch_refs[i].format_version,
++         PAGE_TYPE_BRANCH,
++         target,
++         &result,
++         NULL,
++         NULL);
++      ASSERT_EQUAL(ASYNC_STATUS_DONE, btree_lookup_and_merge_async(&state));
++      ASSERT_TRUE(STATUS_IS_EQ(async_result(&state), STATUS_INVALID_STATE));
++      ASSERT_FALSE(lookup_result_found(&result));
++   }
++   lookup_result_deinit(&result);
++}
++
++CTEST2(btree, test_invalid_branch_iterator)
++{
++   for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
++      for (bool32 copy_nodes = FALSE; copy_nodes <= TRUE; copy_nodes++) {
++         btree_iterator itor;
++         memset(&itor, 0xa5, sizeof(itor));
++         platform_status rc =
++            btree_iterator_init(NULL,
++                                &data->dbtree_cfg,
++                                &itor,
++                                invalid_branch_refs[i].addr,
++                                invalid_branch_refs[i].format_version,
++                                PAGE_TYPE_BRANCH,
++                                greater_than_or_equal,
++                                NEGATIVE_INFINITY_KEY,
++                                less_than,
++                                POSITIVE_INFINITY_KEY,
++                                greater_than_or_equal,
++                                NEGATIVE_INFINITY_KEY,
++                                copy_nodes,
++                                0,
++                                1);
++         ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
++         btree_iterator_deinit(&itor);
++
++         memset(&itor, 0xa5, sizeof(itor));
++         btree_iterator_async_state state;
++         btree_iterator_async_state_init(&state,
++                                         NULL,
++                                         &data->dbtree_cfg,
++                                         &itor,
++                                         invalid_branch_refs[i].addr,
++                                         invalid_branch_refs[i].format_version,
++                                         PAGE_TYPE_BRANCH,
++                                         greater_than_or_equal,
++                                         NEGATIVE_INFINITY_KEY,
++                                         less_than,
++                                         POSITIVE_INFINITY_KEY,
++                                         greater_than_or_equal,
++                                         NEGATIVE_INFINITY_KEY,
++                                         copy_nodes,
++                                         0,
++                                         1,
++                                         NULL,
++                                         NULL);
++         ASSERT_EQUAL(ASYNC_STATUS_DONE, btree_iterator_init_async(&state));
++         ASSERT_TRUE(STATUS_IS_EQ(btree_iterator_init_async_result(&state),
++                                  STATUS_INVALID_STATE));
++         btree_iterator_deinit(&itor);
++      }
++   }
++}
++
++CTEST2(btree, test_invalid_branch_metadata_queries)
++{
++   for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
++      uint32          height;
++      platform_status rc =
++         btree_get_root_height(NULL,
++                               &data->dbtree_cfg,
++                               invalid_branch_refs[i].addr,
++                               invalid_branch_refs[i].format_version,
++                               PAGE_TYPE_BRANCH,
++                               &height);
++      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
++
++      btree_pivot_stats stats;
++      rc = btree_count_in_range(NULL,
++                                &data->dbtree_cfg,
++                                invalid_branch_refs[i].addr,
++                                invalid_branch_refs[i].format_version,
++                                NEGATIVE_INFINITY_KEY,
++                                POSITIVE_INFINITY_KEY,
++                                &stats);
++      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
++
++      rc = btree_recover_allocations(NULL,
++                                     &data->dbtree_cfg,
++                                     invalid_branch_refs[i].addr,
++                                     invalid_branch_refs[i].format_version,
++                                     PAGE_TYPE_BRANCH);
++      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
++   }
++}
++
+ /*
+  * *****************************************************************
+  * Helper functions, and actual test-case methods.
+diff --git a/tests/unit/splinter_test.c b/tests/unit/splinter_test.c
+index 85272c9..d1a84a0 100644
+--- a/tests/unit/splinter_test.c
++++ b/tests/unit/splinter_test.c
+@@ -1494,7 +1494,7 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
+    ASSERT_TRUE(range_rejected);
+ }
+ 
+-CTEST2(splinter, test_unknown_branch_version_rejected)
++CTEST2(splinter, test_invalid_branch_reference_rejected)
+ {
+    cache      *cc = (cache *)data->clock_cache;
+    core_handle spl;
+@@ -1532,41 +1532,108 @@ CTEST2(splinter, test_unknown_branch_version_rejected)
+    test_trunk_bundle *bundle =
+       (test_trunk_bundle *)(page->data + offset % page_size);
+    ASSERT_TRUE(bundle->num_branches != 0);
+-   uint16 saved_version = bundle->branches[0].format_version;
+-   bundle->branches[0].format_version++;
++   branch_ref     saved_branch = bundle->branches[0];
++   routing_filter saved_maplet = bundle->maplet;
+    test_splinter_unclaim_page(cc, page);
+ 
+-   lookup_result result;
+-   lookup_result_init(
+-      &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+-   platform_status sync_rc =
+-      core_lookup(&spl, key_buffer_key(&keybuf), &result);
+-   platform_status async_rc = async_call_sync_callback(cache_cleanup(cc),
+-                                                       core_lookup_async,
+-                                                       &spl,
+-                                                       key_buffer_key(&keybuf),
+-                                                       &result);
+-   lookup_result_deinit(&result);
+-   core_range_iterator itor;
+-   platform_status     range_rc = core_range_iterator_init(&spl,
+-                                                       &itor,
+-                                                       greater_than_or_equal,
+-                                                       NEGATIVE_INFINITY_KEY,
+-                                                       less_than,
+-                                                       POSITIVE_INFINITY_KEY,
+-                                                       greater_than_or_equal,
+-                                                       NEGATIVE_INFINITY_KEY);
+-   if (SUCCESS(range_rc)) {
+-      core_range_iterator_deinit(&itor);
+-   }
+-   page   = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+-   bundle = (test_trunk_bundle *)(page->data + offset % page_size);
+-   bundle->branches[0].format_version = saved_version;
+-   test_splinter_unclaim_page(cc, page);
++   /* Select the branch for its key, but skip it for a known filter miss. The
++    * latter must not inspect a branch that the query does not need to read. */
++   const routing_config *filter_cfg  = spl.cfg.trunk_node_cfg->filter_cfg;
++   routing_filter        null_filter = NULL_ROUTING_FILTER;
++   routing_filter        filter      = NULL_ROUTING_FILTER;
++   uint32                fp          = data_key_hash(
++      spl.cfg.data_cfg, key_buffer_key(&keybuf), filter_cfg->seed);
++   ASSERT_TRUE(SUCCESS(
++      routing_filter_add(cc, filter_cfg, &null_filter, &filter, &fp, 1, 0)));
++   uint64 found_values;
++   ASSERT_TRUE(SUCCESS(routing_filter_lookup(
++      cc, filter_cfg, &filter, key_buffer_key(&keybuf), &found_values)));
++   ASSERT_EQUAL_U(1, found_values);
++
++   DECLARE_AUTO_KEY_BUFFER(miss_keybuf, data->hid);
++   for (uint64 i = 2; i < 1002; i++) {
++      test_key(
++         &miss_keybuf, TEST_RANDOM, i, 0, 0, data->workload_cfg->key_size, 0);
++      ASSERT_TRUE(SUCCESS(routing_filter_lookup(cc,
++                                                filter_cfg,
++                                                &filter,
++                                                key_buffer_key(&miss_keybuf),
++                                                &found_values)));
++      if (found_values == 0) {
++         break;
++      }
++   }
++   ASSERT_EQUAL_U(0, found_values);
++
++   platform_status sync_rc[2];
++   platform_status async_rc[2];
++   platform_status range_rc[2];
++   bool32          sync_miss_ok[2];
++   bool32          async_miss_ok[2];
++   for (uint64 invalid_field = 0; invalid_field < 2; invalid_field++) {
++      page           = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
++      bundle         = (test_trunk_bundle *)(page->data + offset % page_size);
++      bundle->maplet = filter;
++      if (invalid_field == 0) {
++         bundle->branches[0].format_version++;
++      } else {
++         bundle->branches[0].addr = 0;
++      }
++      test_splinter_unclaim_page(cc, page);
++
++      lookup_result result;
++      lookup_result_init(
++         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
++      sync_rc[invalid_field] =
++         core_lookup(&spl, key_buffer_key(&keybuf), &result);
++      async_rc[invalid_field] =
++         async_call_sync_callback(cache_cleanup(cc),
++                                  core_lookup_async,
++                                  &spl,
++                                  key_buffer_key(&keybuf),
++                                  &result);
++      platform_status rc =
++         core_lookup(&spl, key_buffer_key(&miss_keybuf), &result);
++      sync_miss_ok[invalid_field] =
++         SUCCESS(rc) && !lookup_result_found(&result);
++      rc = async_call_sync_callback(cache_cleanup(cc),
++                                    core_lookup_async,
++                                    &spl,
++                                    key_buffer_key(&miss_keybuf),
++                                    &result);
++      async_miss_ok[invalid_field] =
++         SUCCESS(rc) && !lookup_result_found(&result);
++      lookup_result_deinit(&result);
++
++      core_range_iterator itor;
++      range_rc[invalid_field] = core_range_iterator_init(&spl,
++                                                         &itor,
++                                                         greater_than_or_equal,
++                                                         NEGATIVE_INFINITY_KEY,
++                                                         less_than,
++                                                         POSITIVE_INFINITY_KEY,
++                                                         greater_than_or_equal,
++                                                         NEGATIVE_INFINITY_KEY);
++      if (SUCCESS(range_rc[invalid_field])) {
++         core_range_iterator_deinit(&itor);
++      }
++
++      /* Restore the owning reference before cleanup can release it. */
++      page   = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
++      bundle = (test_trunk_bundle *)(page->data + offset % page_size);
++      bundle->branches[0] = saved_branch;
++      bundle->maplet      = saved_maplet;
++      test_splinter_unclaim_page(cc, page);
++   }
++   routing_filter_dec_ref(cc, &filter);
+    core_destroy(&spl);
+-   ASSERT_FALSE(SUCCESS(sync_rc));
+-   ASSERT_FALSE(SUCCESS(async_rc));
+-   ASSERT_FALSE(SUCCESS(range_rc));
++   for (uint64 invalid_field = 0; invalid_field < 2; invalid_field++) {
++      ASSERT_TRUE(STATUS_IS_EQ(sync_rc[invalid_field], STATUS_INVALID_STATE));
++      ASSERT_TRUE(STATUS_IS_EQ(async_rc[invalid_field], STATUS_INVALID_STATE));
++      ASSERT_TRUE(STATUS_IS_EQ(range_rc[invalid_field], STATUS_INVALID_STATE));
++      ASSERT_TRUE(sync_miss_ok[invalid_field]);
++      ASSERT_TRUE(async_miss_ok[invalid_field]);
++   }
+ }
+ 
+ /* Persisted pivot statistics are sizing hints, but they still feed arithmetic
+diff --git a/tests/unit/superblock_test.c b/tests/unit/superblock_test.c
+index 6649f87..8f55e86 100644
+--- a/tests/unit/superblock_test.c
++++ b/tests/unit/superblock_test.c
+@@ -715,7 +715,7 @@ CTEST2(superblock, test_bootstrap_geometry_metadata_budget)
+ /* A checksummed newer version is not permission to roll back to its peer. */
+ CTEST2(superblock, test_unknown_structure_version_rejected)
+ {
+-   for (uint64 component = 0; component < 3; component++) {
++   for (uint64 component = 0; component < 4; component++) {
+       superblock_context ctx;
+       platform_status    rc = superblock_context_init(
+          &ctx, data->ioh, &data->allocator_cfg, data->hid);
+@@ -725,9 +725,13 @@ CTEST2(superblock, test_unknown_structure_version_rejected)
+          ctx.image->trunk_format_version++;
+       } else if (component == 1) {
+          ctx.image->allocator_format_version++;
+-      } else {
++      } else if (component == 2) {
+          superblock_log_cut(&ctx, TEST_LOG_L1);
+          ctx.image->tree.live_log.head.format_version++;
++      } else {
++         superblock_log_cut(&ctx, TEST_LOG_L1);
++         superblock_log_cut(&ctx, TEST_LOG_L2);
++         ctx.image->tree.sealed_log.head.format_version++;
+       }
+       ASSERT_TRUE(SUCCESS(superblock_make_durable(&ctx)));
+       superblock image;
+diff --git a/tests/unit/trunk_split_test.c b/tests/unit/trunk_split_test.c
+index ecaa338..bf0baeb 100644
+--- a/tests/unit/trunk_split_test.c
++++ b/tests/unit/trunk_split_test.c
+@@ -237,6 +237,7 @@ CTEST2(trunk_split, split_scan_propagates_io_error)
+                                            data->cfg.btree_cfg,
+                                            &itor,
+                                            branch,
++                                           BTREE_BRANCH_FORMAT_VERSION,
+                                            PAGE_TYPE_BRANCH,
+                                            greater_than_or_equal,
+                                            NEGATIVE_INFINITY_KEY,
