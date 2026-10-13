@@ -59,6 +59,64 @@ The independent lazy-merge experiment also changes `merge.c`. Integration must
 preserve predicate evaluation before message merging and keep the filtered
 iterator operations when restoring deferred ordering.
 
+## Current predicate validation and performance
+
+This branch includes main `0fa3bd6c` (async durable barriers). The measured
+implementation is `cf7dc4f7`; subsequent changes record evidence and documentation.
+Debug and release each passed 70 unit cases and four functional filter cases.
+Fifteen focused ASan cases passed before this main merge. Exact commands, hashes,
+initial fixture/invocation failures and corrected passing runs are in
+[the predicate validation archive](../benchmarks/results-20261013/predicate-pr-0fa3bd6c/README.txt).
+The CI formatter and full PR whitespace checks passed.
+
+The companion `robj/filtered-ranges-disk-format` at `36183807` proves correctness
+with persisted per-filter seeds. Debug and release each passed 125 unit cases
+and the full routing-filter suite. Tests cover six seeds and hash-cache eviction,
+reopen with saved seeds 11/22 while the current construction default is 99,
+noncommutative updates, one-seed collisions, bounds and reverse traversal.
+Another saved seed is first encountered after the caller overwrites its routing
+key buffer; the callback verifies that the iterator retained the original bytes.
+This is a separate correctness integration branch, not a combined performance claim.
+
+Fresh measurements use O_DIRECT files on ext4 on the real disk, serialized with
+all other benchmarks, builds and tests. Four fixtures plus 28 comparison
+processes passed verification across the two independent feature branches.
+Copied fixtures were explicitly fsynced and checked; source/library/executable
+hashes and all raw samples are retained. Ordinary scans use main / predicate /
+disk-format / disk-format / predicate / main order with two samples per profile.
+The predicate and main readers use copies of the same fixture.
+
+| Ordinary API throughput change | Resident | Disk-backed working set |
+| --- | ---: | ---: |
+| Point query, 1 reader | -2.53% | Not measured |
+| Point query, 8 readers | +0.69% | -0.53% |
+| Range length 1, 8 readers | -0.18% | -0.30% |
+| Range length 10,000, 8 readers | -0.74% | -1.50% |
+
+Every predicate-branch sample range overlaps main. This screening does not prove
+performance neutrality; these are observed ranges, not confidence intervals.
+Resident measured physical reads were zero. Disk samples include device variation.
+
+The feature workload stores 32 tenants in keys sorted by `(rank, tenant)`, with
+tenant-grouped ingestion preserving selective branches. Each limit uses 500
+untimed warmup queries and 10,000 measured queries. The same exact predicate runs
+in the application for main and inside the candidate iterator. A second fixture
+forces tenant pairs to collide in their full 32-bit hash under every seed.
+Mean latency changes relative to application filtering:
+
+| Returned matches | Predicate only | Predicate + pruning | Predicate only, collisions | Pruning, collisions |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | -3.69% | -16.30% | -7.54% | -14.19% |
+| 2 | -8.42% | -22.94% | -16.22% | -28.31% |
+| 10 | -13.19% | -30.83% | -14.76% | -30.21% |
+| 100 | -14.22% | -32.09% | -13.03% | -30.68% |
+
+All query assertions and independently recomputed checksums passed. These gains
+apply to this selective tenant workload; they do not predict arbitrary predicates,
+branch layouts or cold-query latency. No fresh write-throughput matrix was run.
+Full sample ranges, CPU/I/O, callback counts, control drift and reproduction
+commands are in [the current benchmark report](../benchmarks/results-20261013/predicate-disk-main-0fa3bd6c/report.txt).
+
 The following earlier validation and measurements describe the superseded
 single-hash API. New predicate implementation results are recorded separately.
 

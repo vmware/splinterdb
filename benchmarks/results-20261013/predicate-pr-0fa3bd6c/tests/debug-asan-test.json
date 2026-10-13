@@ -1,0 +1,35 @@
+[
+  {
+    "name": "merge",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/debug-asan/bin/unit/merge_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests/scratch-debug-asan",
+    "started": 1791921692.5180037,
+    "ASAN_OPTIONS": "detect_leaks=0:abort_on_error=1",
+    "returncode": 0,
+    "finished": 1791921692.5510833,
+    "log_sha256": "64b8b650e6d8b10e87f40c6dbb3bad00e565a3c6b0a291dd63ad7ee1a38155db",
+    "summaries": [
+      "RESULTS: 10 tests (10 ok, 0 failed, 0 skipped) ran in 14 ms"
+    ],
+    "nonzero_tests_passed": true
+  },
+  {
+    "name": "quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/debug-asan/bin/unit/splinterdb_quick_test",
+      "test_filtered_range"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests/scratch-debug-asan",
+    "started": 1791921692.551923,
+    "ASAN_OPTIONS": "detect_leaks=0:abort_on_error=1",
+    "returncode": 0,
+    "finished": 1791921694.221818,
+    "log_sha256": "fe16a0737960687853ddb6f5a3e59fcd175577fb00e4c1fbc5522d04f9ae6f74",
+    "summaries": [
+      "RESULTS: 5 tests (5 ok, 0 failed, 0 skipped) ran in 1647 ms"
+    ],
+    "nonzero_tests_passed": true
+  }
+]
