@@ -1,0 +1,15 @@
+Benchmark database storage: ext4 /dev/mapper/snafu-root_crypt[/home/rob/projects/splinterdb] /home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-invalid-addresses
+Starting cache-invalid-addresses-resident-repeat benchmark
+invalid-addresses resident 1 / 4 validated
+invalid-addresses resident 2 / 4 parent
+invalid-addresses resident 3 / 4 parent
+invalid-addresses resident 4 / 4 validated
+point:uniform@1 parent 1156008.6 ops/s [1154814.3,1157203.0], +0.00%, CPUeff +0.00%
+point:uniform@1 validated 1191289.4 ops/s [1163074.5,1219504.3], +3.05%, CPUeff +3.05%
+point:uniform@8 parent 5295361.2 ops/s [5252496.0,5338226.3], +0.00%, CPUeff +0.00%
+point:uniform@8 validated 5388160.7 ops/s [5301714.4,5474606.9], +1.75%, CPUeff +1.76%
+range:uniform:10000@1 parent 754.5 ops/s [748.0,761.0], +0.00%, CPUeff +0.00%
+range:uniform:10000@1 validated 753.8 ops/s [747.4,760.1], -0.10%, CPUeff -0.10%
+range:uniform:10000@8 parent 3956.4 ops/s [3912.0,4000.8], +0.00%, CPUeff +0.00%
+range:uniform:10000@8 validated 4005.1 ops/s [3996.7,4013.5], +1.23%, CPUeff +1.23%
+Completed /home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-invalid-addresses/resident-repeat

@@ -1,0 +1,6 @@
+{
+  "candidate_commit": "d3a4488d0be5aaa829cfb62510470c68ba9d5de5",
+  "parent_commit": "2907e97e90a7861e789192485e0892522a9feb3a",
+  "source_file_count": 106,
+  "all_committed_source_files_match_measured_build": true
+}
