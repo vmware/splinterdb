@@ -202,3 +202,79 @@ writes to historical or unreachable pages could therefore overlap timed disk
 reads. This is a procedure limitation, not a demonstrated cause. Future controls should
 `fsync` the copied file before opening it. The earlier query and insertion
 binaries were preserved throughout this repair.
+
+## Selected combined branch and release-hook correction
+
+`robj/cache-handoff` is the selected branch for one PR containing both fallible
+cache reads and cross-thread handoff. It includes `robj/cache-errors` through
+`2907e97`. The retained handle is the 16-byte shared-identity pointer plus
+reference-stripe receipt described above. The direct24 and NULL-return API
+experiments remain separate branches.
+
+Before finalizing this selection, six prefetch test-hook guards were changed
+from `#ifdef SPLINTER_DEBUG` to `#if SPLINTER_DEBUG`. The platform header defines
+that macro as zero in release builds, so the former guards accidentally included
+hook fields and conditional calls even in release. Four guards are in the cache
+implementation/header and two in the functional test. Debug hooks remain
+available to the regression test. Handle layout, error handling, the prefetch
+admission repair, and reference-counter operations/ordering are unchanged.
+
+This corrects the historical build description: the final `build-prefetch`
+controls included release hooks, including a conditional call on the resident
+get path. Earlier `build-receipt` measurements predated these hooks and are
+unaffected by this finding. All historical binaries and results remain intact.
+
+The guard correction passed 110 debug unit cases, 64 release cases, 17 ASan
+cases, and the prefetch-admission, asynchronous cache, and 100,000-record
+shadow-verified functional drivers. ASan address checks were enabled with leak
+detection disabled. [Validation counts and limits](../benchmarks/results-20261012/cache-handoff-selection/tests/summary.json)
+also record the ancestry checks and an initial invalid build-target invocation
+followed by its successful corrected build.
+
+The before control is the frozen `build-prefetch` handoff executable from
+`65b9123`; its runtime source equals the selected parent `f0641f9`. The candidate
+uses `build-selected`. Library compiler/linker flags match, and both executables
+use the same frozen `kvbench.c`. This follow-up measures the guard correction;
+the broader error-and-handoff comparisons remain above.
+
+All twelve run processes passed, covering 32 timed query phases and twelve warm
+phases. Database copies were fsynced before opening and warming, with `O_DIRECT`
+on ext4 backed by `/dev/mapper/snafu-root_crypt`. The shared coordinator held the
+exclusive benchmark/machine locks. CPUs 0–11, one memtable worker, three normal
+workers, 4 MiB memtables, WAL disabled, and seed 42 match the earlier controls.
+Resident runs use 200,000 records and 128 MiB cache; disk runs use 2,000,000 records
+and 64 MiB cache. Every resident timed phase performed zero device reads.
+
+The initial before/selected/selected/before control used ten-second resident
+phases and five-second disk phases. Mean throughput change for selected versus
+before, positive meaning faster:
+
+| Workload | Resident | Disk |
+| --- | ---: | ---: |
+| Point, 1 thread | -1.71% | — |
+| Point, 8 threads | -7.33% | -0.79% |
+| Range 1, 1 thread | -1.85% | — |
+| Range 1, 8 threads | -2.95% | -0.80% |
+| Range 10,000, 8 threads | — | -0.73% |
+
+The resident point/8 loss warranted a focused repeat. Initially, before samples
+were 6.427M and 5.889M queries/s; selected samples were 5.556M and 5.858M. The
+repeat kept the same frozen executables and fixture, lengthened point/8 phases
+to twenty seconds, and reversed the order to selected/before/before/selected.
+It measured **+5.05% throughput and +5.06% CPU efficiency** for selected: selected
+samples were 5.971M and 5.303M, while before samples were 5.260M and 5.472M.
+The original 7.33% loss did not reproduce. Both orders show substantial bracket
+drift, so these runs do not establish either a causal regression or a speedup
+from the guard correction. All disk sample ranges overlap; disk CPU-efficiency
+differences were within 1%, with closely matched bytes per query.
+
+Disassembly confirms the hook load/test/conditional call was removed. The cache
+get wrapper shrank from 1,472 to 1,303 bytes, retains its 72-byte stack frame and
+the same thread-ID/reference operations, and changes some register allocation.
+The audit found no added hot-path work that explains the initial loss; code
+layout and measurement variation remain possibilities, not proven causes. This
+does not establish universal performance neutrality.
+
+Exact samples, command manifests, build/source hashes, the six-guard patch,
+before/after disassembly, and scripts are committed in
+[`benchmarks/results-20261012/cache-handoff-selection`](../benchmarks/results-20261012/cache-handoff-selection/README.md).

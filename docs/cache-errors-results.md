@@ -85,9 +85,15 @@ The async cache driver, all 14 writeback tests, and all 47 public quick tests
 also passed using `BUILD_ROOT=build-prefetch`. The first follow-up unit commands
 mistakenly selected zero tests; those logs are retained as invalid validation
 under `prefetch-admission/invalid-zero-selection`. The corrected manifests and
-logs explicitly verify the complete nonzero suite counts. Debug-only hooks
-schedule this interleaving; release builds contain neither the hooks nor their
-branches.
+logs explicitly verify the complete nonzero suite counts. Deterministic hooks
+schedule this interleaving. Correction recorded during final combined-branch
+selection: the historical `build-prefetch` release binaries did contain the
+hooks and their branches, because `#ifdef SPLINTER_DEBUG` also accepts a value
+of zero. The selected `cache-handoff` branch uses `#if SPLINTER_DEBUG` and
+excludes them from release builds. The earlier `build-receipt` measurements
+predate these hooks. See the final selection section of
+[the handoff report](cache-handoff-results.md) for validation and matched
+before/after measurements; historical binaries and results are preserved.
 
 ## Performance
 

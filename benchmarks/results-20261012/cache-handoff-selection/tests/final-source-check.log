@@ -1,0 +1,1 @@
+All 106 source/build file hashes match the measured build. Full measured guard-fix patch hash matches. robj/cache-errors remains an ancestor. git diff --check passed. Serialization audit: 395 completed jobs, 86 benchmark jobs, zero overlaps.

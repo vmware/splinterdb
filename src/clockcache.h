@@ -153,7 +153,7 @@ struct clockcache {
    platform_log_handle *logfile;
    platform_heap_id     heap_id;
 
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
    // Deterministic admission test; configure only on a quiescent cache.
    void (*before_candidate_ref)(clockcache *, uint64, uint32, void *);
    void *before_candidate_ref_arg;

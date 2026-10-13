@@ -2178,7 +2178,7 @@ clockcache_get_in_cache(clockcache      *cc,           // IN
       }
    } else {
       get_rc result = clockcache_try_get_read(cc, entry_number, TRUE);
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
       if (cc->after_candidate_ref_attempt != NULL) {
          cc->after_candidate_ref_attempt(cc,
                                          addr,
@@ -2410,7 +2410,7 @@ clockcache_get_internal(clockcache      *cc,       // IN
    uint32 entry_number = clockcache_lookup(cc, addr);
 
    if (entry_number != CC_UNMAPPED_ENTRY) {
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
       if (cc->before_candidate_ref != NULL) {
          cc->before_candidate_ref(
             cc, addr, entry_number, cc->before_candidate_ref_arg);
@@ -3487,7 +3487,7 @@ clockcache_prefetch_pages(clockcache *cc,
             clockcache_entry_set_addr(entry, addr);
             entry->type      = type;
             uint64 lookup_no = clockcache_lookup_number(cc, addr);
-#ifdef SPLINTER_DEBUG
+#if SPLINTER_DEBUG
             if (cc->before_prefetch_publish != NULL) {
                cc->before_prefetch_publish(
                   cc, addr, free_entry_no, cc->before_prefetch_publish_arg);
