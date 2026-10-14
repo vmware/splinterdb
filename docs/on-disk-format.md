@@ -47,7 +47,56 @@ schemas cannot be persisted as portable identities. The persisted hash seed is
 passed to the supplied hash callback. This change does not introduce a portable
 byte-order encoding or promise compatibility between arbitrary architectures.
 
-# Validation and measurements
+## Current PR readiness and performance
+
+The branch includes main `0fa3bd6c`. Measured source is `3e302c04`; later changes
+record evidence and documentation. Debug/release each passed 150 unit-test
+executions, with two expected allocation-fault-injection skips per mode, plus
+full routing-filter and log suites (a 500,000-record round trip). Inspection
+reads the previous format-8 fixture and clearly rejects main's format-7 fixture.
+All targets/tools/benchmarks build; clean-export CI formatting and PR whitespace
+checks pass. The full compiler/sanitizer CI matrix was not rerun.
+
+**The branch is prepared for review, but its resident point-query regression
+remains unresolved.** The broad resident screen measured -4.39% eight-reader
+point throughput. A separate 15-second, disk-format / main / main / disk-format
+repeat reproduced a -7.75% loss with non-overlapping sample ranges:
+
+| Focused resident point queries, 8 readers | Main | Disk-format |
+| --- | ---: | ---: |
+| Throughput range | 4.026–4.115 million/s | 3.651–3.860 million/s |
+| Mean CPU per operation | 1.965 us | 2.131 us |
+| Measured physical read bytes | 0 | 0 |
+
+This is a CPU-side performance concern; the measurements do not isolate its
+source within the format changes. The formats require independently constructed
+fixtures, so tree shape remains a comparability limitation. Performance neutrality
+has not been established, and this evidence does not justify calling it merge-ready
+on performance grounds.
+
+| Broad-screen throughput change | Resident | Disk-backed working set |
+| --- | ---: | ---: |
+| Point query, 1 reader | -1.13% | Not measured |
+| Point query, 8 readers | -4.39% | +4.87% |
+| Range length 1, 8 readers | +0.78% | +1.41% |
+| Range length 10,000, 8 readers | +0.13% | -0.79% |
+
+All checks passed with zero query errors or result violations. The disk results
+include device variation and do not establish a speedup. Each profile has two
+samples per regime; observed ranges are not confidence intervals. No fresh
+write-throughput matrix was run. Timings compare the whole feature with current
+main, not just the main merge. All database files used O_DIRECT on physical ext4
+storage, with exclusive benchmark/machine locks and explicit fsync after copying
+fixtures. Source/library/executable hashes, commands, samples, control drift and
+CPU/I/O are in [the current benchmark report](../benchmarks/results-20261013/predicate-disk-main-0fa3bd6c/report.txt).
+
+A separate companion branch, `robj/filtered-ranges-disk-format` at `36183807`,
+passed 125 unit cases per debug/release mode plus the full filter suite. It proves
+correct predicate scans under saved seeds 11/22 with current construction default99,
+cache eviction over six seeds, and copied-key ownership when a later seed is used.
+The two feature PRs remain independent; this is correctness evidence only.
+
+# Historical validation and measurements
 
 Debug validation: 16 superblock tests, 33 internal Splinter tests, 47 public quick
 tests, full functional routing-filter and log suites. Added regressions cover
@@ -196,7 +245,7 @@ does not make earlier format-8 pages unreadable.
 
 Debug and release each passed 116 unit cases: B-tree 11, superblock 16, core 38,
 public quick API 49, and async trunk 2. Both also passed the complete functional
-routing-filter suite and the log suite with 10,000 inserts. These cover changed
+routing-filter suite and the complete log suite (500,000-record round trip). These cover changed
 configuration across reopen, invalid structure versions, cache read failures,
 recovery, multi-level blobs, and cross-thread iterator handoff. The first core
 run used the old 4 GiB test device limit and could not allocate the sparse
@@ -226,7 +275,7 @@ durability and checkpoint paths are retained, including the two-argument public
 barrier API and blocking `NULL` notification semantics. The disk format remains 8.
 
 Debug and release each passed 150 unit cases and the complete functional
-routing-filter and 10,000-insert log suites. Each mode intentionally skipped the
+routing-filter and log suites (500,000-record round trip). Each mode intentionally skipped the
 allocation-failure notification case twice because fault injection is disabled.
 Both inspection tools read the previous format-8 fixture; the release tool
 clearly rejects main's format-7 fixture. All builds, tools, benchmarks and the
