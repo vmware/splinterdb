@@ -1,0 +1,391 @@
+{
+  "mode": "feature",
+  "storage": "ext4 /dev/mapper/snafu-root_crypt[/home/rob/projects/splinterdb]",
+  "io": "O_DIRECT",
+  "runner_sha256": "5e0af792b4d797c8ecacfb72429f74508b504680ed5f00940c67ea353568ab42",
+  "runs": [
+    {
+      "label": "collisions0-00-application",
+      "profile": "combined",
+      "command": [
+        "taskset",
+        "-c",
+        "0",
+        "perf",
+        "stat",
+        "-D",
+        "-1",
+        "--control",
+        "fifo:/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/feature/collisions0-00-application/control.fifo,/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/feature/collisions0-00-application/ack.fifo",
+        "-x,",
+        "-e",
+        "{cpu_core/cycles/u,cpu_core/ref-cycles/u,cpu_core/instructions/u,cpu_core/branches/u,cpu_core/branch-misses/u},task-clock,context-switches,cpu-migrations",
+        "-o",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/feature/collisions0-00-application/perf-stat.csv",
+        "--",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filtered-disk-pr-20261013/benchmarks/bin/combined/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/feature/collisions0-00-application.db",
+        "16384",
+        "10000"
+      ],
+      "environment": {
+        "FILTER_MODE": "application",
+        "FILTER_HASH_COLLISIONS": "0",
+        "KVBENCH_PERF_CONTROL": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/feature/collisions0-00-application/control.fifo",
+        "KVBENCH_PERF_ACK": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/feature/collisions0-00-application/ack.fifo"
+      },
+      "build_manifest": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filtered-disk-pr-20261013/benchmarks/combined-build.json",
+      "build_manifest_sha256": "f192491970c7f51e6b070ec1081bdf2888633258569ec72e4a730aac48a47018",
+      "binary_sha256": "858b3ab881a954382518965179a3ba3ab20c960cc5364094db05824a509c9a2d",
+      "library_sha256": "f7b3f67e019d891c673793724b71382c5da30475d57018d0337e9feb649a0541",
+      "started": 1791948900.8940856,
+      "power_start": {
+        "time": 1791948900.8940864,
+        "thermal": {
+          "thermal_zone2": {
+            "type": "SEN1",
+            "millidegrees": 51050
+          },
+          "thermal_zone0": {
+            "type": "INT3400 Thermal",
+            "millidegrees": 20000
+          },
+          "thermal_zone9": {
+            "type": "SEN8",
+            "millidegrees": 67050
+          },
+          "thermal_zone12": {
+            "type": "x86_pkg_temp",
+            "millidegrees": 83000
+          },
+          "thermal_zone7": {
+            "type": "SEN6",
+            "millidegrees": 48050
+          },
+          "thermal_zone10": {
+            "type": "TCPU",
+            "millidegrees": 75050
+          },
+          "thermal_zone5": {
+            "type": "SEN4",
+            "millidegrees": 44050
+          },
+          "thermal_zone3": {
+            "type": "SEN2",
+            "millidegrees": 54050
+          },
+          "thermal_zone1": {
+            "type": "SKIN",
+            "millidegrees": 54050
+          },
+          "thermal_zone13": {
+            "type": "iwlwifi_1",
+            "millidegrees": 45000
+          },
+          "thermal_zone8": {
+            "type": "SEN7",
+            "millidegrees": 32050
+          },
+          "thermal_zone11": {
+            "type": "TCPU_PCI",
+            "millidegrees": 84000
+          },
+          "thermal_zone6": {
+            "type": "SEN5",
+            "millidegrees": 65050
+          },
+          "thermal_zone4": {
+            "type": "SEN3",
+            "millidegrees": 35050
+          }
+        },
+        "cpu": {
+          "0": {
+            "cpufreq/scaling_cur_freq": "4532488",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4834061",
+            "thermal_throttle/package_throttle_count": "32330029",
+            "thermal_throttle/core_throttle_total_time_ms": "16663392",
+            "thermal_throttle/package_throttle_total_time_ms": "151572884"
+          },
+          "1": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4834064",
+            "thermal_throttle/package_throttle_count": "32330017",
+            "thermal_throttle/core_throttle_total_time_ms": "16663528",
+            "thermal_throttle/package_throttle_total_time_ms": "151573204"
+          },
+          "2": {
+            "cpufreq/scaling_cur_freq": "2673779",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19255293",
+            "thermal_throttle/package_throttle_count": "31798442",
+            "thermal_throttle/core_throttle_total_time_ms": "103374392",
+            "thermal_throttle/package_throttle_total_time_ms": "150072548"
+          },
+          "3": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19255284",
+            "thermal_throttle/package_throttle_count": "31798414",
+            "thermal_throttle/core_throttle_total_time_ms": "103374716",
+            "thermal_throttle/package_throttle_total_time_ms": "150075100"
+          },
+          "4": {
+            "cpufreq/scaling_cur_freq": "523086",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5114214",
+            "thermal_throttle/package_throttle_count": "30007667",
+            "thermal_throttle/core_throttle_total_time_ms": "25418540",
+            "thermal_throttle/package_throttle_total_time_ms": "155252008"
+          },
+          "5": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5114218",
+            "thermal_throttle/package_throttle_count": "30007705",
+            "thermal_throttle/core_throttle_total_time_ms": "25417956",
+            "thermal_throttle/package_throttle_total_time_ms": "155254196"
+          },
+          "6": {
+            "cpufreq/scaling_cur_freq": "400097",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5303357",
+            "thermal_throttle/package_throttle_count": "30023699",
+            "thermal_throttle/core_throttle_total_time_ms": "25058296",
+            "thermal_throttle/package_throttle_total_time_ms": "155505568"
+          },
+          "7": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5303357",
+            "thermal_throttle/package_throttle_count": "30023717",
+            "thermal_throttle/core_throttle_total_time_ms": "25057648",
+            "thermal_throttle/package_throttle_total_time_ms": "155506976"
+          },
+          "8": {
+            "cpufreq/scaling_cur_freq": "3835045",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544431",
+            "thermal_throttle/package_throttle_count": "27632253",
+            "thermal_throttle/core_throttle_total_time_ms": "1886184",
+            "thermal_throttle/package_throttle_total_time_ms": "159290704"
+          },
+          "9": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544434",
+            "thermal_throttle/package_throttle_count": "27632291",
+            "thermal_throttle/core_throttle_total_time_ms": "1886072",
+            "thermal_throttle/package_throttle_total_time_ms": "159290712"
+          },
+          "10": {
+            "cpufreq/scaling_cur_freq": "1884452",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3761178",
+            "thermal_throttle/package_throttle_count": "31689798",
+            "thermal_throttle/core_throttle_total_time_ms": "12434028",
+            "thermal_throttle/package_throttle_total_time_ms": "153018400"
+          },
+          "11": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3761184",
+            "thermal_throttle/package_throttle_count": "31689897",
+            "thermal_throttle/core_throttle_total_time_ms": "12433832",
+            "thermal_throttle/package_throttle_total_time_ms": "153021296"
+          }
+        },
+        "meminfo": "MemTotal:       65513444 kB\nMemFree:         1449948 kB\nMemAvailable:   23778320 kB\nBuffers:          567716 kB\nCached:         26063120 kB\nSwapCached:       166812 kB\nActive:         32903948 kB\nInactive:       24545260 kB\nActive(anon):   30677668 kB\nInactive(anon):  5819484 kB\nActive(file):    2226280 kB\nInactive(file): 18725776 kB\nUnevictable:     2934080 kB\nMlocked:           38712 kB\nSwapTotal:      33554428 kB\nSwapFree:       19665820 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              1592 kB\nWriteback:             0 kB\nAnonPages:      31516416 kB\nMapped:          2366144 kB\nShmem:           5670976 kB\nKReclaimable:    2307064 kB\nSlab:            2974772 kB\nSReclaimable:    2307064 kB\nSUnreclaim:       667708 kB\nKernelStack:       61920 kB\nPageTables:       305924 kB\nSecPageTables:      5928 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    66311148 kB\nCommitted_AS:   142750388 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:      128760 kB\nVmallocChunk:          0 kB\nPercpu:            27120 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:  12394496 kB\nShmemHugePages:   587776 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nUnaccepted:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:     1129920 kB\nDirectMap2M:    39428096 kB\nDirectMap1G:    27262976 kB\n",
+        "vmstat": "nr_free_pages 362487\nnr_zone_inactive_anon 1454871\nnr_zone_active_anon 7669417\nnr_zone_inactive_file 4681444\nnr_zone_active_file 556570\nnr_zone_unevictable 733520\nnr_zone_write_pending 398\nnr_mlock 9678\nnr_bounce 0\nnr_zspages 0\nnr_free_cma 0\nnr_unaccepted 0\nnuma_hit 31450537715\nnuma_miss 0\nnuma_foreign 0\nnuma_interleave 2155\nnuma_local 31450218475\nnuma_other 0\nnr_inactive_anon 1454871\nnr_active_anon 7669417\nnr_inactive_file 4681444\nnr_active_file 556570\nnr_unevictable 733520\nnr_slab_reclaimable 576766\nnr_slab_unreclaimable 166927\nnr_isolated_anon 0\nnr_isolated_file 0\nworkingset_nodes 390006\nworkingset_refault_anon 4454416\nworkingset_refault_file 11249591801\nworkingset_activate_anon 3787719\nworkingset_activate_file 10368165672\nworkingset_restore_anon 90083\nworkingset_restore_file 28451339\nworkingset_nodereclaim 103580297\nnr_anon_pages 7879104\nnr_mapped 591536\nnr_file_pages 6699412\nnr_dirty 398\nnr_writeback 0\nnr_writeback_temp 0\nnr_shmem 1417744\nnr_shmem_hugepages 287\nnr_shmem_pmdmapped 0\nnr_file_hugepages 0\nnr_file_pmdmapped 0\nnr_anon_transparent_hugepages 6052\nnr_vmscan_write 17411894\nnr_vmscan_immediate_reclaim 9121\nnr_dirtied 6922836965\nnr_written 6906622442\nnr_throttled_written 0\nnr_kernel_misc_reclaimable 0\nnr_foll_pin_acquired 18726219109\nnr_foll_pin_released 18726219109\nnr_kernel_stack 61920\nnr_page_table_pages 76481\nnr_sec_page_table_pages 1482\nnr_iommu_pages 1482\nnr_swapcached 41703\npgpromote_success 0\npgpromote_candidate 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\nnr_dirty_threshold 1096637\nnr_dirty_background_threshold 547649\nnr_memmap_pages 0\nnr_memmap_boot_pages 261632\npgpgin 112426548696\npgpgout 43403280866\npswpin 1164729\npswpout 6019567\npgalloc_dma 1024\npgalloc_dma32 89077870\npgalloc_normal 45939985154\npgalloc_movable 0\npgalloc_device 0\nallocstall_dma 0\nallocstall_dma32 0\nallocstall_normal 36690\nallocstall_movable 30253\nallocstall_device 0\npgskip_dma 0\npgskip_dma32 302054\npgskip_normal 1245614\npgskip_movable 0\npgskip_device 0\npgfree 46250790891\npgactivate 686673\npgdeactivate 0\npglazyfree 40\npgfault 11883001165\npgmajfault 486859\npglazyfreed 0\npgrefill 39213188\npgreuse 823190495\npgsteal_kswapd 378885141\npgsteal_direct 4087884\npgsteal_khugepaged 2675416\npgscan_kswapd 385087799\npgscan_direct 4651395\npgscan_khugepaged 2755064\npgscan_direct_throttle 0\npgscan_anon 23283260\npgscan_file 16123302505\npgsteal_anon 17216297\npgsteal_file 16122473609\nzone_reclaim_success 0\nzone_reclaim_failed 0\npginodesteal 112\nslabs_scanned 247179643\nkswapd_inodesteal 291113\nkswapd_low_wmark_hit_quickly 25833\nkswapd_high_wmark_hit_quickly 246\npageoutrun 33343\npgrotated 1390985122\ndrop_pagecache 0\ndrop_slab 0\noom_kill 1\nnuma_pte_updates 0\nnuma_huge_pte_updates 2938\nnuma_hint_faults 0\nnuma_hint_faults_local 0\nnuma_pages_migrated 0\npgmigrate_success 219971732\npgmigrate_fail 691047816\nthp_migration_success 0\nthp_migration_fail 0\nthp_migration_split 0\ncompact_migrate_scanned 9032932407\ncompact_free_scanned 41985945812\ncompact_isolated 1133516791\ncompact_stall 5365\ncompact_fail 5243\ncompact_success 122\ncompact_daemon_wake 74499\ncompact_daemon_migrate_scanned 9001366809\ncompact_daemon_free_scanned 41941534509\nhtlb_buddy_alloc_success 0\nhtlb_buddy_alloc_fail 0\nunevictable_pgs_culled 1191323926\nunevictable_pgs_scanned 1206686082\nunevictable_pgs_rescued 1190520266\nunevictable_pgs_mlocked 3876699\nunevictable_pgs_munlocked 3739398\nunevictable_pgs_cleared 0\nunevictable_pgs_stranded 127623\nthp_fault_alloc 7041217\nthp_fault_fallback 604586\nthp_fault_fallback_charge 3262\nthp_collapse_alloc 105988\nthp_collapse_alloc_failed 1746\nthp_file_alloc 1859132\nthp_file_fallback 308662\nthp_file_fallback_charge 0\nthp_file_mapped 0\nthp_split_page 8761\nthp_split_page_failed 0\nthp_deferred_split_page 196783\nthp_underused_split_page 0\nthp_split_pmd 1969058\nthp_scan_exceed_none_pte 118947\nthp_scan_exceed_swap_pte 18094\nthp_scan_exceed_share_pte 161\nthp_split_pud 0\nthp_zero_page_alloc 1\nthp_zero_page_alloc_failed 0\nthp_swpout 0\nthp_swpout_fallback 2261\nballoon_inflate 0\nballoon_deflate 0\nballoon_migrate 0\nswap_ra 8713583\nswap_ra_hit 8561797\nswpin_zero 9444532\nswpout_zero 11070826\nksm_swpin_copy 0\ncow_ksm 0\nzswpin 0\nzswpout 0\nzswpwb 0\ndirect_map_level2_splits 537\ndirect_map_level3_splits 35\nnr_unstable 0\n",
+        "diskstats": " 259       0 nvme0n1 6055004008 1208712 224850668755 1028333996 1208286113 168264575 86645742516 1959971626 0 130795296 3017362041 1487251 0 1812147892 263365 16339939 28793052\n 259       1 nvme0n1p1 2889 3144 80658 767 2 0 2 7 0 148 786 52 0 3578976 12 0 0\n 259       2 nvme0n1p2 3278 0 157664 381 0 0 0 0 0 320 381 0 0 0 0 0 0\n 259       3 nvme0n1p3 2196 0 42304 352 0 0 0 0 0 356 352 0 0 0 0 0 0\n 259       4 nvme0n1p4 3390 0 166240 516 0 0 0 0 0 444 516 0 0 0 0 0 0\n 259       5 nvme0n1p5 2216 419 88824 283 3918 123 563314 15616 0 1320 15975 324 0 383188 75 0 0\n 259       6 nvme0n1p6 6054988881 1205149 224850099529 1028331501 1208282193 168264452 86645179200 1959956002 0 166652428 2988550781 1486875 0 1808185728 263277 0 0\n 254       0 dm-0 6056192642 0 224849831361 1020316036 1376546645 0 86645179200 2141200104 0 166736828 3161777712 1486875 0 1808185728 261572 0 0\n 254       1 dm-1 6056192502 0 224849829594 1120519088 1376546631 0 86645179200 842531108 0 175417604 1963312240 1486875 0 1808185728 262044 0 0\n",
+        "pressure/cpu": "some avg10=0.04 avg60=2.18 avg300=2.49 total=6601869848\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+        "pressure/io": "some avg10=0.00 avg60=0.16 avg300=4.23 total=46528783868\nfull avg10=0.00 avg60=0.16 avg300=4.05 total=40856879906\n",
+        "pressure/memory": "some avg10=0.00 avg60=0.00 avg300=0.00 total=1035772272\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=1017477873\n"
+      },
+      "verified": false,
+      "returncode": 0,
+      "finished": 1791948903.33724,
+      "power_end": {
+        "time": 1791948903.337242,
+        "thermal": {
+          "thermal_zone2": {
+            "type": "SEN1",
+            "millidegrees": 51050
+          },
+          "thermal_zone0": {
+            "type": "INT3400 Thermal",
+            "millidegrees": 20000
+          },
+          "thermal_zone9": {
+            "type": "SEN8",
+            "millidegrees": 67050
+          },
+          "thermal_zone12": {
+            "type": "x86_pkg_temp",
+            "millidegrees": 79000
+          },
+          "thermal_zone7": {
+            "type": "SEN6",
+            "millidegrees": 48050
+          },
+          "thermal_zone10": {
+            "type": "TCPU",
+            "millidegrees": 99050
+          },
+          "thermal_zone5": {
+            "type": "SEN4",
+            "millidegrees": 44050
+          },
+          "thermal_zone3": {
+            "type": "SEN2",
+            "millidegrees": 54050
+          },
+          "thermal_zone1": {
+            "type": "SKIN",
+            "millidegrees": 54050
+          },
+          "thermal_zone13": {
+            "type": "iwlwifi_1",
+            "millidegrees": 45000
+          },
+          "thermal_zone8": {
+            "type": "SEN7",
+            "millidegrees": 32050
+          },
+          "thermal_zone11": {
+            "type": "TCPU_PCI",
+            "millidegrees": 76000
+          },
+          "thermal_zone6": {
+            "type": "SEN5",
+            "millidegrees": 65050
+          },
+          "thermal_zone4": {
+            "type": "SEN3",
+            "millidegrees": 35050
+          }
+        },
+        "cpu": {
+          "0": {
+            "cpufreq/scaling_cur_freq": "4511587",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4834350",
+            "thermal_throttle/package_throttle_count": "32330335",
+            "thermal_throttle/core_throttle_total_time_ms": "16664804",
+            "thermal_throttle/package_throttle_total_time_ms": "151574420"
+          },
+          "1": {
+            "cpufreq/scaling_cur_freq": "4256709",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4834353",
+            "thermal_throttle/package_throttle_count": "32330323",
+            "thermal_throttle/core_throttle_total_time_ms": "16664940",
+            "thermal_throttle/package_throttle_total_time_ms": "151574740"
+          },
+          "2": {
+            "cpufreq/scaling_cur_freq": "400068",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19255306",
+            "thermal_throttle/package_throttle_count": "31798747",
+            "thermal_throttle/core_throttle_total_time_ms": "103374496",
+            "thermal_throttle/package_throttle_total_time_ms": "150074040"
+          },
+          "3": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19255297",
+            "thermal_throttle/package_throttle_count": "31798719",
+            "thermal_throttle/core_throttle_total_time_ms": "103374820",
+            "thermal_throttle/package_throttle_total_time_ms": "150076592"
+          },
+          "4": {
+            "cpufreq/scaling_cur_freq": "3643134",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5114214",
+            "thermal_throttle/package_throttle_count": "30007969",
+            "thermal_throttle/core_throttle_total_time_ms": "25418540",
+            "thermal_throttle/package_throttle_total_time_ms": "155253548"
+          },
+          "5": {
+            "cpufreq/scaling_cur_freq": "3606252",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5114218",
+            "thermal_throttle/package_throttle_count": "30008007",
+            "thermal_throttle/core_throttle_total_time_ms": "25417956",
+            "thermal_throttle/package_throttle_total_time_ms": "155255736"
+          },
+          "6": {
+            "cpufreq/scaling_cur_freq": "2395680",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5303367",
+            "thermal_throttle/package_throttle_count": "30024014",
+            "thermal_throttle/core_throttle_total_time_ms": "25058364",
+            "thermal_throttle/package_throttle_total_time_ms": "155507092"
+          },
+          "7": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5303367",
+            "thermal_throttle/package_throttle_count": "30024032",
+            "thermal_throttle/core_throttle_total_time_ms": "25057716",
+            "thermal_throttle/package_throttle_total_time_ms": "155508500"
+          },
+          "8": {
+            "cpufreq/scaling_cur_freq": "779657",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544431",
+            "thermal_throttle/package_throttle_count": "27632555",
+            "thermal_throttle/core_throttle_total_time_ms": "1886184",
+            "thermal_throttle/package_throttle_total_time_ms": "159292244"
+          },
+          "9": {
+            "cpufreq/scaling_cur_freq": "2656959",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544434",
+            "thermal_throttle/package_throttle_count": "27632593",
+            "thermal_throttle/core_throttle_total_time_ms": "1886072",
+            "thermal_throttle/package_throttle_total_time_ms": "159292252"
+          },
+          "10": {
+            "cpufreq/scaling_cur_freq": "1967178",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3761178",
+            "thermal_throttle/package_throttle_count": "31690100",
+            "thermal_throttle/core_throttle_total_time_ms": "12434028",
+            "thermal_throttle/package_throttle_total_time_ms": "153019936"
+          },
+          "11": {
+            "cpufreq/scaling_cur_freq": "1363269",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3761184",
+            "thermal_throttle/package_throttle_count": "31690199",
+            "thermal_throttle/core_throttle_total_time_ms": "12433832",
+            "thermal_throttle/package_throttle_total_time_ms": "153022832"
+          }
+        },
+        "meminfo": "MemTotal:       65513444 kB\nMemFree:         1411856 kB\nMemAvailable:   23736608 kB\nBuffers:          567752 kB\nCached:         26070460 kB\nSwapCached:       166664 kB\nActive:         32974352 kB\nInactive:       24538304 kB\nActive(anon):   30747952 kB\nInactive(anon):  5816268 kB\nActive(file):    2226400 kB\nInactive(file): 18722036 kB\nUnevictable:     2942052 kB\nMlocked:           38712 kB\nSwapTotal:      33554428 kB\nSwapFree:       19665564 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              1028 kB\nWriteback:             0 kB\nAnonPages:      31580384 kB\nMapped:          2365780 kB\nShmem:           5681964 kB\nKReclaimable:    2307064 kB\nSlab:            2974628 kB\nSReclaimable:    2307064 kB\nSUnreclaim:       667564 kB\nKernelStack:       61872 kB\nPageTables:       305800 kB\nSecPageTables:      5928 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    66311148 kB\nCommitted_AS:   142879148 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:      128872 kB\nVmallocChunk:          0 kB\nPercpu:            27120 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:  12394496 kB\nShmemHugePages:   587776 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nUnaccepted:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:     1129920 kB\nDirectMap2M:    39428096 kB\nDirectMap1G:    27262976 kB\n",
+        "vmstat": "nr_free_pages 352964\nnr_zone_inactive_anon 1454067\nnr_zone_active_anon 7686988\nnr_zone_inactive_file 4680509\nnr_zone_active_file 556600\nnr_zone_unevictable 735513\nnr_zone_write_pending 257\nnr_mlock 9678\nnr_bounce 0\nnr_zspages 0\nnr_free_cma 0\nnr_unaccepted 0\nnuma_hit 31450639157\nnuma_miss 0\nnuma_foreign 0\nnuma_interleave 2155\nnuma_local 31450319917\nnuma_other 0\nnr_inactive_anon 1454067\nnr_active_anon 7686988\nnr_inactive_file 4680509\nnr_active_file 556600\nnr_unevictable 735513\nnr_slab_reclaimable 576766\nnr_slab_unreclaimable 166891\nnr_isolated_anon 0\nnr_isolated_file 0\nworkingset_nodes 390049\nworkingset_refault_anon 4454416\nworkingset_refault_file 11249591812\nworkingset_activate_anon 3787719\nworkingset_activate_file 10368165674\nworkingset_restore_anon 90083\nworkingset_restore_file 28451339\nworkingset_nodereclaim 103580297\nnr_anon_pages 7895096\nnr_mapped 591445\nnr_file_pages 6701219\nnr_dirty 257\nnr_writeback 0\nnr_writeback_temp 0\nnr_shmem 1420491\nnr_shmem_hugepages 287\nnr_shmem_pmdmapped 0\nnr_file_hugepages 0\nnr_file_pmdmapped 0\nnr_anon_transparent_hugepages 6052\nnr_vmscan_write 17411918\nnr_vmscan_immediate_reclaim 9121\nnr_dirtied 6922837412\nnr_written 6906622996\nnr_throttled_written 0\nnr_kernel_misc_reclaimable 0\nnr_foll_pin_acquired 18726246935\nnr_foll_pin_released 18726246917\nnr_kernel_stack 61872\nnr_page_table_pages 76450\nnr_sec_page_table_pages 1482\nnr_iommu_pages 1482\nnr_swapcached 41666\npgpromote_success 0\npgpromote_candidate 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\nnr_dirty_threshold 1094552\nnr_dirty_background_threshold 546608\nnr_memmap_pages 0\nnr_memmap_boot_pages 261632\npgpgin 112426576444\npgpgout 43403367102\npswpin 1164729\npswpout 6019590\npgalloc_dma 1024\npgalloc_dma32 89077870\npgalloc_normal 45940107495\npgalloc_movable 0\npgalloc_device 0\nallocstall_dma 0\nallocstall_dma32 0\nallocstall_normal 36690\nallocstall_movable 30254\nallocstall_device 0\npgskip_dma 0\npgskip_dma32 302054\npgskip_normal 1245614\npgskip_movable 0\npgskip_device 0\npgfree 46250895287\npgactivate 687118\npgdeactivate 0\npglazyfree 40\npgfault 11883085663\npgmajfault 486860\npglazyfreed 0\npgrefill 39213716\npgreuse 823193299\npgsteal_kswapd 378885141\npgsteal_direct 4087884\npgsteal_khugepaged 2676455\npgscan_kswapd 385087799\npgscan_direct 4651395\npgscan_khugepaged 2756536\npgscan_direct_throttle 0\npgscan_anon 23283772\npgscan_file 16123303465\npgsteal_anon 17216376\npgsteal_file 16122474569\nzone_reclaim_success 0\nzone_reclaim_failed 0\npginodesteal 112\nslabs_scanned 247179643\nkswapd_inodesteal 291113\nkswapd_low_wmark_hit_quickly 25833\nkswapd_high_wmark_hit_quickly 246\npageoutrun 33343\npgrotated 1390985145\ndrop_pagecache 0\ndrop_slab 0\noom_kill 1\nnuma_pte_updates 0\nnuma_huge_pte_updates 2938\nnuma_hint_faults 0\nnuma_hint_faults_local 0\nnuma_pages_migrated 0\npgmigrate_success 219971732\npgmigrate_fail 691047816\nthp_migration_success 0\nthp_migration_fail 0\nthp_migration_split 0\ncompact_migrate_scanned 9032932407\ncompact_free_scanned 41985945812\ncompact_isolated 1133516791\ncompact_stall 5367\ncompact_fail 5245\ncompact_success 122\ncompact_daemon_wake 74499\ncompact_daemon_migrate_scanned 9001366809\ncompact_daemon_free_scanned 41941534509\nhtlb_buddy_alloc_success 0\nhtlb_buddy_alloc_fail 0\nunevictable_pgs_culled 1191326197\nunevictable_pgs_scanned 1206686360\nunevictable_pgs_rescued 1190520544\nunevictable_pgs_mlocked 3876699\nunevictable_pgs_munlocked 3739398\nunevictable_pgs_cleared 0\nunevictable_pgs_stranded 127623\nthp_fault_alloc 7041217\nthp_fault_fallback 604602\nthp_fault_fallback_charge 3262\nthp_collapse_alloc 105988\nthp_collapse_alloc_failed 1747\nthp_file_alloc 1859132\nthp_file_fallback 308666\nthp_file_fallback_charge 0\nthp_file_mapped 0\nthp_split_page 8761\nthp_split_page_failed 0\nthp_deferred_split_page 196783\nthp_underused_split_page 0\nthp_split_pmd 1969059\nthp_scan_exceed_none_pte 118947\nthp_scan_exceed_swap_pte 18094\nthp_scan_exceed_share_pte 161\nthp_split_pud 0\nthp_zero_page_alloc 1\nthp_zero_page_alloc_failed 0\nthp_swpout 0\nthp_swpout_fallback 2261\nballoon_inflate 0\nballoon_deflate 0\nballoon_migrate 0\nswap_ra 8713583\nswap_ra_hit 8561797\nswpin_zero 9444532\nswpout_zero 11070827\nksm_swpin_copy 0\ncow_ksm 0\nzswpin 0\nzswpout 0\nzswpwb 0\ndirect_map_level2_splits 537\ndirect_map_level3_splits 35\nnr_unstable 0\n",
+        "diskstats": " 259       0 nvme0n1 6055006045 1208712 224850724251 1028334173 1208287189 168264703 86645914988 1959972454 0 130795440 3017363048 1487251 0 1812147892 263365 16339952 28793056\n 259       1 nvme0n1p1 2889 3144 80658 767 2 0 2 7 0 148 786 52 0 3578976 12 0 0\n 259       2 nvme0n1p2 3278 0 157664 381 0 0 0 0 0 320 381 0 0 0 0 0 0\n 259       3 nvme0n1p3 2196 0 42304 352 0 0 0 0 0 356 352 0 0 0 0 0 0\n 259       4 nvme0n1p4 3390 0 166240 516 0 0 0 0 0 444 516 0 0 0 0 0 0\n 259       5 nvme0n1p5 2216 419 88824 283 3918 123 563314 15616 0 1320 15975 324 0 383188 75 0 0\n 259       6 nvme0n1p6 6054990918 1205149 224850155025 1028331677 1208283269 168264580 86645351672 1959956830 0 166652580 2988551785 1486875 0 1808185728 263277 0 0\n 254       0 dm-0 6056194679 0 224849886857 1020316216 1376547849 0 86645351672 2141201208 0 166736980 3161778996 1486875 0 1808185728 261572 0 0\n 254       1 dm-1 6056194539 0 224849885090 1120519272 1376547835 0 86645351672 842532244 0 175417780 1963313560 1486875 0 1808185728 262044 0 0\n",
+        "pressure/cpu": "some avg10=0.21 avg60=2.14 avg300=2.48 total=6601898842\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n",
+        "pressure/io": "some avg10=0.18 avg60=0.19 avg300=4.21 total=46528824560\nfull avg10=0.18 avg60=0.18 avg300=4.03 total=40856918700\n",
+        "pressure/memory": "some avg10=0.00 avg60=0.00 avg300=0.00 total=1035772325\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=1017477926\n"
+      }
+    }
+  ],
+  "complete": false,
+  "queries_per_limit": 10000,
+  "rows_per_tenant": 16384,
+  "warmup_queries_per_limit": 500,
+  "order": [
+    "application",
+    "predicate",
+    "pruned",
+    "pruned",
+    "predicate",
+    "application"
+  ],
+  "cpu_affinity": "0",
+  "counter_scope": "Sum of four measured query limits, excluding setup/warmup/close"
+}

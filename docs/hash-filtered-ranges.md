@@ -1,5 +1,9 @@
 # Predicate-filtered range queries
 
+The current `robj/filtered-ranges` PR candidate combines the predicate API with
+disk-format's persisted configuration. It includes main `0fa3bd6c`, disk-format
+`7a0c8171`, and the mixed-seed integration from `36183807`.
+
 `splinterdb_iterator_init_with_filter()` and
 `splinterdb_iterator_init_with_bounds_and_filter()` append three separate
 arguments to the corresponding ordinary initializer: a
@@ -47,10 +51,13 @@ All active memtables participate. Ordinary scans retain their ordinary merge
 operations without predicate calls or filter-state allocation.
 
 The iterator's private state retains the copied routing key across trunk spans,
-seeks and reversals. A routing-filter query caches four seed/hash pairs; more
-seeds merely replace cached entries and cause rehashing. Hash selection belongs
-to the routing-filter module. This standalone branch uses the existing global
-seed; its combination with disk-format selects each descriptor's saved seed.
+seeks and reversals. The routing-filter module validates each persisted maplet
+descriptor and hashes the routing key with that maplet's saved seed, using the
+saved encoding parameters to read the filter. New-filter construction defaults
+do not change how existing maplets are queried. A routing-filter query caches
+four seed/hash pairs; more seeds merely replace cached entries and cause
+rehashing. Hash selection and descriptor validation belong to the routing-filter
+module.
 Under the compatibility contract above, different saved seeds do not require
 disabling branch pruning. Exact predicate checks do not hash candidates under
 all encountered seeds.
@@ -59,28 +66,41 @@ The independent lazy-merge experiment also changes `merge.c`. Integration must
 preserve predicate evaluation before message merging and keep the filtered
 iterator operations when restoring deferred ordering.
 
-## Current predicate validation and performance
+## Combined implementation
 
-This branch includes main `0fa3bd6c` (async durable barriers). The measured
-implementation is `cf7dc4f7`; subsequent changes record evidence and documentation.
+The current implementation incorporates the earlier mixed-seed integration.
+The public API and its hash-compatibility contract are unchanged. For the
+interaction with saved configuration and branch versions, see
+[predicate filtering with saved configuration](predicate-filter-format-integration.md).
+The current PR description and validation status are in
+[the filtered-ranges PR notes](filtered-ranges-pr.md).
+
+The measurements below describe earlier source snapshots. They do not establish
+the performance of the combined PR candidate.
+
+## Historical standalone predicate validation and performance
+
+The standalone predicate branch included main `0fa3bd6c` (async durable
+barriers). Its measured implementation was `cf7dc4f7`; subsequent changes before
+the disk-format integration recorded evidence and documentation.
 Debug and release each passed 70 unit cases and four functional filter cases.
 Fifteen focused ASan cases passed before this main merge. Exact commands, hashes,
 initial fixture/invocation failures and corrected passing runs are in
 [the predicate validation archive](../benchmarks/results-20261013/predicate-pr-0fa3bd6c/README.txt).
 The CI formatter and full PR whitespace checks passed.
 
-The companion `robj/filtered-ranges-disk-format` at `36183807` proves correctness
-with persisted per-filter seeds. Debug and release each passed 125 unit cases
-and the full routing-filter suite. Tests cover six seeds and hash-cache eviction,
-reopen with saved seeds 11/22 while the current construction default is 99,
+The earlier companion `robj/filtered-ranges-disk-format` at `36183807` validated
+the interaction with persisted per-filter seeds. Debug and release each passed
+125 unit cases and the full routing-filter suite. Tests cover six seeds and
+hash-cache eviction, reopen with saved seeds 11/22 while the construction default is 99,
 noncommutative updates, one-seed collisions, bounds and reverse traversal.
 Another saved seed is first encountered after the caller overwrites its routing
 key buffer; the callback verifies that the iterator retained the original bytes.
-This is a separate correctness integration branch, not a combined performance claim.
+That snapshot supplied correctness evidence, not a combined performance measurement.
 
-Fresh measurements use O_DIRECT files on ext4 on the real disk, serialized with
-all other benchmarks, builds and tests. Four fixtures plus 28 comparison
-processes passed verification across the two independent feature branches.
+The standalone measurements used O_DIRECT files on ext4 on the real disk,
+serialized with all other benchmarks, builds and tests. Four fixtures plus
+28 comparison processes passed verification across the two independent feature branches.
 Copied fixtures were explicitly fsynced and checked; source/library/executable
 hashes and all raw samples are retained. Ordinary scans use main / predicate /
 disk-format / disk-format / predicate / main order with two samples per profile.
@@ -115,7 +135,7 @@ All query assertions and independently recomputed checksums passed. These gains
 apply to this selective tenant workload; they do not predict arbitrary predicates,
 branch layouts or cold-query latency. No fresh write-throughput matrix was run.
 Full sample ranges, CPU/I/O, callback counts, control drift and reproduction
-commands are in [the current benchmark report](../benchmarks/results-20261013/predicate-disk-main-0fa3bd6c/report.txt).
+commands are in [the standalone predicate benchmark report](../benchmarks/results-20261013/predicate-disk-main-0fa3bd6c/report.txt).
 
 The following earlier validation and measurements describe the superseded
 single-hash API. New predicate implementation results are recorded separately.
@@ -184,7 +204,7 @@ The campaign root is `.cache/projects-20261011` in the original checkout.
 Databases were on ext4, backed by `/dev/mapper/snafu-root_crypt`. Builds and
 tests were excluded from timing through the shared campaign lock.
 
-## Final implementation: existing API
+## Historical single-hash final implementation: existing API
 
 Commit `f30ebdf` restores the ordinary iterator layouts after the earlier
 implementation showed a repeatable short-scan loss. The focused final check
@@ -204,7 +224,7 @@ cannot establish performance neutrality: a residual short-scan cost remains
 possible. The final layout revision was tested with this focused resident
 check, not a new complete disk and long-scan matrix.
 
-## Final implementation: matching-hash queries
+## Historical single-hash final implementation: matching-hash queries
 
 The final positive probe runs 100,000 queries per range length in each ABBA
 sample, with the tenant-grouped fixture described above. All samples validate
@@ -272,7 +292,7 @@ measure ordered merge selection before the layout repair; `v3` directories
 measure the final implementation. Database images and verbose logs remain in
 the original campaign directory and are not committed.
 
-## Main integration (2026-10-13)
+## Historical single-hash main integration (2026-10-13)
 
 Merged main `7bb5fab`, preserving both the hash-filtered API and main's compact
 transferable cache handles and multilevel blobs. The quick-test append conflict
@@ -289,7 +309,7 @@ Commands, logs and hashes are in
 The measurements above remain historical. Fresh integration measurements are
 tracked separately under `benchmarks/main-7bb5fab/` in that campaign.
 
-## Fresh benchmarks after main integration (2026-10-13)
+## Historical single-hash benchmarks after main integration (2026-10-13)
 
 The exact-hash probe matched main result checksums. Query latency changed -5.70%/-16.71%/+0.56%/-9.59% for limits 1/2/10/100. Ordinary eight-thread short-range throughput changed -3.38% resident and -1.67% on disk, with sample ranges overlapping main.
 
@@ -299,7 +319,7 @@ descriptive, not a statistical confidence interval. Exact samples, build/source
 hashes, commands, verification scope and fresh correctness evidence are in
 [the integration archive](../benchmarks/results-20261013/filtered-ranges-main-7bb5fab/README.md).
 
-## Predicate API implementation (2026-10-13)
+## Historical initial predicate API validation (2026-10-13)
 
 The single-hash initializer has been replaced by the predicate/context/routing-key
 API described above. Debug and release each pass 69 unit cases (54 public quick,

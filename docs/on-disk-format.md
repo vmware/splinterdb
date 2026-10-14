@@ -47,7 +47,13 @@ schemas cannot be persisted as portable identities. The persisted hash seed is
 passed to the supplied hash callback. This change does not introduce a portable
 byte-order encoding or promise compatibility between arbitrary architectures.
 
-## Current PR readiness and performance
+## Historical standalone PR preparation
+
+The measurements and readiness assessment below precede the controlled
+performance follow-up and predicate integration. See [the current combined PR
+notes](filtered-ranges-pr.md) for the current branch's validation, measured
+performance and remaining limitations. Earlier measurements are retained here
+as historical evidence.
 
 The branch includes main `0fa3bd6c`. Measured source is `3e302c04`; later changes
 record evidence and documentation. Debug/release each passed 150 unit-test

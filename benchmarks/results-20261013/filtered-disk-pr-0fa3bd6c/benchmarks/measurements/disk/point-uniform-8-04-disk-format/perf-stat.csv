@@ -1,0 +1,10 @@
+# started on Tue Oct 13 20:25:54 2026
+
+13498745625,,cpu_core/cycles/u,11045536816,100.00,,
+11532867624,,cpu_core/ref-cycles/u,11045536816,100.00,,
+15725242745,,cpu_core/instructions/u,11045536816,100.00,1.16,insn per cycle
+2791563173,,cpu_core/branches/u,11045536816,100.00,,
+49168705,,cpu_core/branch-misses/u,11045536816,100.00,1.76,of all branches
+11045.49,msec,task-clock,11045487632,100.00,1.159,CPUs utilized
+1181829,,context-switches,11045451418,100.00,106.997,K/sec
+0,,cpu-migrations,11045306006,100.00,0.000,/sec

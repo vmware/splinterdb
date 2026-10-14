@@ -1,0 +1,42 @@
+Predicate iterator API integrated with disk-format: performance and evidence
+2026-10-13
+
+Recommendation: ready for PR review, with an explicit limitation for intermittent disk I/O latency. No sustained throughput regression is reproduced by the controlled follow-ups. This is not proof of tail-latency neutrality: the original disk short-range run contains a severe slow sample, and long-range tail estimates remain noisy. No production changes were made to hide or bypass these observations.
+
+Measured sources
+- Main library0fa3bd6c; disk-format library3e302c04, documentation head7a0c8171; combined library7b2c37da (runtime source identical to integration36183807). Source, library, executable and harness digests are recorded in per-profile build manifests. Later docs/evidence changes do not change measured source.
+- Same frozen ordinary harness and release flags for all libraries. Combined and disk-format read byte-identical format8 fixture copies. Main has equivalent logical format7 inputs. All original fixtures remain unchanged and every copied image is fsynced before O_DIRECT opening.
+- Every build/test/benchmark uses the campaign locks. Measured runs are exclusive and use ext4 on /dev/mapper/snafu-root_crypt, never tmpfs. No builds/tests overlap measurements.
+
+Ordinary resident results, combined relative to disk-format
+- Point8: throughput+0.59%, instructions/query-4.24%, user cycles/query-1.21%.
+- Range1@8: throughput-1.25%, instructions/query+0.38%, user cycles/query+0.50%.
+- Range10000@8: returned tuples/s+2.54%, instructions/tuple-0.59%, user cycles/tuple-1.06%.
+All resident timed phases have zero physical reads. Compare complete sample ranges in report.txt; these small wall-time differences are not universal speedup/slowdown claims. Routing-filter point lookup was refactored, so instruction savings can arise from generated code/inlining without an algorithmic point-lookup change.
+
+Disk-backed observations and follow-ups
+1. Original point throughput is-1.82% versus disk-format (-0.65% versus main), with user cycles/query-0.76% and effectively unchanged read bytes/query. Original long-range tuple throughput is-1.34% versus disk-format, user cycles/tuple-0.91%, and read bytes/tuple-0.27%. This small screen alone cannot distinguish code costs from I/O variation.
+2. Original range1 has a severe combined sample:19.6k queries/s versus68.1k for the second combined invocation and71.3k for disk-format. The original two-sample combined mean is-38.50%; it remains in the original report and is not discarded. The slow sample has5.3ms p99, identical~19.8KB/query read work, similar total CPU time, but much less user reference-cycle time. This indicates a shift toward kernel CPU work; ordinary user-frequency reduction does not explain it. No failure/incorrect result occurred.
+3. A separate12s DCCDDC short-range repeat gives combined73,691 versus disk73,760 queries/s (-0.09%), user cycles/query-0.02%, kernel cycles/query+0.69%, and overlapping sample ranges. No severe slow sample recurred.
+4. A separate four-run DCCD low-rate sample campaign also has overlapping normal rates. Gated kernel/user profiles show11.36–14.31% osq_lock samples under aio_read_events_ring/io_pgetevents, with userspace frames laio_cleanup -> core_drain_btree_iterator_init_async. This identifies completion-ring mutex contention common to both branches, not the proven cause of the uncaptured original outlier. All four profiles report zero lost samples.
+5. Original long-range p99/p99.9 ranges did not overlap, so a separate15s DCCDDC follow-up was run. Combined returned-tuple throughput is-0.105%, user cycles/tuple-1.08%, total CPU/tuple-2.13%, with unchanged~238 physical read bytes/tuple. Disk p99 samples are20.19/20.71/22.81ms; combined23.33/21.23/21.23ms. Disk p99.9 samples are24.90/25.43/37.22ms; combined46.66/27.00/27.53ms. The distributions overlap and both versions have variable tails. Combined means are+3.3% p99 and+15.6% p99.9; do not summarize this as zero tail cost. Each run completes about13,200–13,500 queries, so p99.9 corresponds to only about13 observations per run. Additional investigation on a stable I/O host would be needed to distinguish a small or rare tail effect.
+
+Feature results and correctness
+- One combined executable runs ordinary application-side filtering, iterator predicate only, and predicate plus routing-filter pruning. All four limits(1,2,10,100), both noncolliding and deliberately colliding tenant hashes, and forward/reverse mode order are exercised. Every query checks exact keys, values, result count, and an independent checksum.48 measured batches of10,000 queries all pass.
+- Predicate plus pruning is1.24–1.61x faster than application filtering without intentional collisions, and1.15–1.56x with collision pairs. Predicate-only is1.03–1.25x faster in this fixture. These are fixture-specific end-to-end effects, not promises for arbitrary predicate selectivity.
+- The workload keeps immutable branches selective by ingesting tenants in groups. Some branches contain multiple tenants, so pruning reduces predicate calls by about19%, not32x. Hash collisions never leak unrelated keys because the exact predicate still runs.
+-500 warmup queries precede each limit, always in1/2/10/100 order. Cache state evolves across limits and early limits can perform I/O; compare implementations at the same limit, not latency across different limits as if their cache state matched.
+- Mixed saved seeds/index geometry correctness comes from the separate integration validation suite. The effectiveness benchmark uses one creation configuration and is not itself mixed-seed coverage.
+
+Controls and interpretation
+- Ordinary fixtures: resident200k keys/128MiB cache, disk2M keys/64MiB cache;24-byte keys/100-byte values. Logging and background workers disabled. Each invocation performs a serial full validating scan and1s query warmup before the measured phase.
+- Eight workers are pinned in order to CPUs0,2,4,6,8,10,1,3 and register deterministically. All registrations are checked. Main/disk/combined comparisons use ABC CBA order,15s resident and8s disk, with two samples/profile/phase. Short and long follow-ups use DCCDDC; sampled runs use DCCD. Regimes remain separate and are not pooled.
+- Perf FIFO acknowledgments bracket each measured phase; setup/full scans/warmup/close are excluded. Sampled runs broadcast each command to stat and record and wait for both acknowledgments. Boundary transitions and in-flight completion overhead remain small. User hardware events are grouped; short/long follow-ups add separate kernel cycles/instructions. Every event is scheduled at least99% of its enabled interval.
+- User cycles/ref-cycles provides a relative user-frequency indicator. User cycles/task-clock includes kernel time in its denominator and is not physical frequency for I/O workloads. Whole-process thermal/vmstat/PSI/device snapshots do not prove a cause at the exact time of an individual query.
+- Long scans can terminate near the end of the keyspace; reports include returned tuples/query and costs per returned tuple, as well as per-query latency/throughput. No tail samples or original outliers are excluded.
+
+Evidence and tooling
+-66 successfully verified workload invocations:2 smoke,36 ordinary,6 short repeats,4 sampled short repeats,6 long repeats,12 feature invocations. Full scans and all measured key/value/range checks pass. Profiling, repeat and smoke data are kept distinct.
+- The first feature workload returned success, but the original Python parser included perf's Events enabled/disabled lines as CSV rows and failed its row-count assertion. That attempt remains under measurements/feature and is excluded from feature comparisons. The parser was fixed and the full12-case matrix rerun under feature-v2; all verification passes. See feature-parser-failure.json.
+- report.txt and summary.json contain recomputed means, sample ranges, query counts, tail counts, CPU/I/O and kernel/user counters. measurements/ preserves per-mode runner snapshots, manifests, CSVs, logs and textual profiles. coordination/ preserves source/build/profiling/packaging scripts, hashes and commands. external-artifacts.json records original fixture/library/executable/perf.data hashes and local paths; these large artifacts are not embedded. inventory.json hashes the text archive.
+- Runtime sources are unchanged by this investigation. The normal full compiler/CI matrix remains the project's merge gate; benchmark evidence does not replace it.

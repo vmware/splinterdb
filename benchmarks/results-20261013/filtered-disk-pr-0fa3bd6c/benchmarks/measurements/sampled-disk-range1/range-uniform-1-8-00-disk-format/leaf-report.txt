@@ -1,0 +1,2219 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 9K of event 'cpu_core/cycles/'
+# Event count (approx.): 235915869496
+#
+# Overhead  Shared Object       Symbol                                                      IPC   [IPC Coverage]
+# ........  ..................  ..........................................................  ....................
+#
+    14.31%  [kernel.kallsyms]   [k] osq_lock                                                -      -            
+            |
+            ---osq_lock
+               __mutex_lock.constprop.0
+               aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     3.78%  [kernel.kallsyms]   [k] mutex_lock                                              -      -            
+            |
+            ---mutex_lock
+               aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     3.63%  [kernel.kallsyms]   [k] __mutex_lock.constprop.0                                -      -            
+            |
+            ---__mutex_lock.constprop.0
+               aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     3.18%  kvbench_controlled  [.] btree_find_pivot_checked.lto_priv.0                     -      -            
+            |          
+            |--1.43%--data_key_compare (inlined)
+            |          btree_key_compare (inlined)
+            |          btree_find_pivot_checked (inlined)
+            |          btree_lookup_node_async.constprop.0
+            |          |          
+            |          |--0.84%--find_btree_node_and_get_idx_bounds_async.constprop.0
+            |          |          btree_iterator_init_async
+            |          |          core_start_btree_iterator_init_async (inlined)
+            |          |          core_range_iterator_init
+            |          |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          |          splinterdb_iterator_init (inlined)
+            |          |          range_worker
+            |          |          0x7fb5cc0698ba
+            |          |          
+            |           --0.59%--btree_iterator_find_end_addr_async (inlined)
+            |                     find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     btree_iterator_init_async
+            |                     |          
+            |                     |--0.31%--core_start_btree_iterator_init_async (inlined)
+            |                     |          core_range_iterator_init
+            |                     |          splinterdb_iterator_init_with_bounds.constprop.0
+            |                     |          splinterdb_iterator_init (inlined)
+            |                     |          range_worker
+            |                     |          0x7fb5cc0698ba
+            |                     |          
+            |                      --0.29%--core_drain_btree_iterator_init_async (inlined)
+            |                                core_range_iterator_init
+            |                                splinterdb_iterator_init_with_bounds.constprop.0
+            |                                splinterdb_iterator_init (inlined)
+            |                                range_worker
+            |                                0x7fb5cc0698ba
+            |          
+            |--0.68%--btree_read_index_key (inlined)
+            |          btree_find_pivot_checked (inlined)
+            |          btree_lookup_node_async.constprop.0
+            |          |          
+            |           --0.59%--find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     btree_iterator_init_async
+            |                     core_start_btree_iterator_init_async (inlined)
+            |                     core_range_iterator_init
+            |                     splinterdb_iterator_init_with_bounds.constprop.0
+            |                     splinterdb_iterator_init (inlined)
+            |                     range_worker
+            |                     0x7fb5cc0698ba
+            |          
+            |--0.60%--btree_find_pivot_checked (inlined)
+            |          btree_lookup_node_async.constprop.0
+            |          |          
+            |          |--0.44%--find_btree_node_and_get_idx_bounds_async.constprop.0
+            |          |          btree_iterator_init_async
+            |          |          core_start_btree_iterator_init_async (inlined)
+            |          |          core_range_iterator_init
+            |          |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          |          splinterdb_iterator_init (inlined)
+            |          |          range_worker
+            |          |          0x7fb5cc0698ba
+            |          |          
+            |           --0.16%--btree_iterator_find_end_addr_async (inlined)
+            |                     find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     btree_iterator_init_async
+            |                     |          
+            |                      --0.12%--core_start_btree_iterator_init_async (inlined)
+            |                                core_range_iterator_init
+            |                                splinterdb_iterator_init_with_bounds.constprop.0
+            |                                splinterdb_iterator_init (inlined)
+            |                                range_worker
+            |                                0x7fb5cc0698ba
+            |          
+            |--0.26%--btree_read_entry_bounds (inlined)
+            |          btree_read_entry_bounds (inlined)
+            |          btree_read_index_key (inlined)
+            |          btree_find_pivot_checked (inlined)
+            |          btree_lookup_node_async.constprop.0
+            |          |          
+            |           --0.20%--find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     btree_iterator_init_async
+            |                     core_start_btree_iterator_init_async (inlined)
+            |                     core_range_iterator_init
+            |                     splinterdb_iterator_init_with_bounds.constprop.0
+            |                     splinterdb_iterator_init (inlined)
+            |                     range_worker
+            |                     0x7fb5cc0698ba
+            |          
+             --0.13%--sizeof_ondisk_key_data (inlined)
+                       sizeof_index_entry (inlined)
+                       btree_read_index_key (inlined)
+                       btree_find_pivot_checked (inlined)
+                       btree_lookup_node_async.constprop.0
+
+     2.68%  libc.so.6           [.] 0x0000000000163353                                      -      -            
+            |
+            ---0x7fb5cc13a353
+
+     2.66%  [kernel.kallsyms]   [k] native_queued_spin_lock_slowpath                        -      -            
+            |
+            ---native_queued_spin_lock_slowpath
+               |          
+               |--2.54%--_raw_spin_lock
+               |          |          
+               |          |--2.23%--__queue_work.part.0
+               |          |          queue_work_on
+               |          |          clone_endio
+               |          |          blk_mq_end_request_batch
+               |          |          nvme_irq
+               |          |          __handle_irq_event_percpu
+               |          |          handle_irq_event
+               |          |          handle_edge_irq
+               |          |          __common_interrupt
+               |          |          common_interrupt
+               |          |          asm_common_interrupt
+               |          |          |          
+               |          |          |--0.67%--osq_lock
+               |          |          |          __mutex_lock.constprop.0
+               |          |          |          aio_read_events_ring
+               |          |          |          read_events
+               |          |          |          do_io_getevents
+               |          |          |          __x64_sys_io_pgetevents
+               |          |          |          do_syscall_64
+               |          |          |          entry_SYSCALL_64_after_hwframe
+               |          |          |          syscall
+               |          |          |          
+               |          |          |--0.17%--__mutex_lock.constprop.0
+               |          |          |          aio_read_events_ring
+               |          |          |          read_events
+               |          |          |          do_io_getevents
+               |          |          |          __x64_sys_io_pgetevents
+               |          |          |          do_syscall_64
+               |          |          |          entry_SYSCALL_64_after_hwframe
+               |          |          |          syscall
+               |          |          |          
+               |          |          |--0.14%--mutex_lock
+               |          |          |          aio_read_events_ring
+               |          |          |          read_events
+               |          |          |          do_io_getevents
+               |          |          |          __x64_sys_io_pgetevents
+               |          |          |          do_syscall_64
+               |          |          |          entry_SYSCALL_64_after_hwframe
+               |          |          |          syscall
+               |          |          |          
+               |          |          |--0.12%--mutex_spin_on_owner
+               |          |          |          __mutex_lock.constprop.0
+               |          |          |          aio_read_events_ring
+               |          |          |          read_events
+               |          |          |          do_io_getevents
+               |          |          |          __x64_sys_io_pgetevents
+               |          |          |          do_syscall_64
+               |          |          |          entry_SYSCALL_64_after_hwframe
+               |          |          |          syscall
+               |          |          |          
+               |          |           --0.12%--syscall
+               |          |          
+               |           --0.20%--__mutex_unlock_slowpath.isra.0
+               |                     aio_read_events_ring
+               |                     read_events
+               |                     do_io_getevents
+               |                     __x64_sys_io_pgetevents
+               |                     do_syscall_64
+               |                     entry_SYSCALL_64_after_hwframe
+               |                     syscall
+               |          
+                --0.12%--_raw_spin_lock_irqsave
+                          try_to_wake_up
+                          wake_up_q
+                          __mutex_unlock_slowpath.isra.0
+                          aio_read_events_ring
+                          read_events
+                          do_io_getevents
+                          __x64_sys_io_pgetevents
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     2.31%  [kernel.kallsyms]   [k] entry_SYSCALL_64                                        -      -            
+            |
+            ---entry_SYSCALL_64
+               |          
+                --2.29%--syscall
+
+     2.23%  kvbench_controlled  [.] btree_find_tuple_checked.lto_priv.0                     -      -            
+            |          
+            |--1.18%--btree_read_leaf_key (inlined)
+            |          btree_find_tuple_checked (inlined)
+            |          find_key_in_node (inlined)
+            |          find_btree_node_and_get_idx_bounds_async.constprop.0
+            |          btree_iterator_init_async
+            |          |          
+            |          |--0.65%--core_start_btree_iterator_init_async (inlined)
+            |          |          core_range_iterator_init
+            |          |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          |          splinterdb_iterator_init (inlined)
+            |          |          range_worker
+            |          |          0x7fb5cc0698ba
+            |          |          
+            |           --0.53%--core_drain_btree_iterator_init_async (inlined)
+            |                     core_range_iterator_init
+            |                     splinterdb_iterator_init_with_bounds.constprop.0
+            |                     splinterdb_iterator_init (inlined)
+            |                     range_worker
+            |                     0x7fb5cc0698ba
+            |          
+            |--0.64%--data_key_compare (inlined)
+            |          btree_key_compare (inlined)
+            |          btree_find_tuple_checked (inlined)
+            |          find_key_in_node (inlined)
+            |          find_btree_node_and_get_idx_bounds_async.constprop.0
+            |          btree_iterator_init_async
+            |          |          
+            |          |--0.37%--core_drain_btree_iterator_init_async (inlined)
+            |          |          core_range_iterator_init
+            |          |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          |          splinterdb_iterator_init (inlined)
+            |          |          range_worker
+            |          |          0x7fb5cc0698ba
+            |          |          
+            |           --0.28%--core_start_btree_iterator_init_async (inlined)
+            |                     core_range_iterator_init
+            |                     splinterdb_iterator_init_with_bounds.constprop.0
+            |                     splinterdb_iterator_init (inlined)
+            |                     range_worker
+            |                     0x7fb5cc0698ba
+            |          
+             --0.29%--btree_find_tuple_checked (inlined)
+                       find_key_in_node (inlined)
+                       |          
+                        --0.28%--find_btree_node_and_get_idx_bounds_async.constprop.0
+                                  btree_iterator_init_async
+                                  |          
+                                  |--0.17%--core_drain_btree_iterator_init_async (inlined)
+                                  |          core_range_iterator_init
+                                  |          splinterdb_iterator_init_with_bounds.constprop.0
+                                  |          splinterdb_iterator_init (inlined)
+                                  |          range_worker
+                                  |          0x7fb5cc0698ba
+                                  |          
+                                   --0.11%--core_start_btree_iterator_init_async (inlined)
+                                             core_range_iterator_init
+                                             splinterdb_iterator_init_with_bounds.constprop.0
+                                             splinterdb_iterator_init (inlined)
+                                             range_worker
+                                             0x7fb5cc0698ba
+
+     1.93%  [kernel.kallsyms]   [k] mutex_unlock                                            -      -            
+            |
+            ---mutex_unlock
+               aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     1.63%  kvbench_controlled  [.] clockcache_try_get_read.constprop.0                     -      -            
+            |          
+            |--1.11%--clockcache_inc_ref_by_number (inlined)
+            |          clockcache_inc_ref (inlined)
+            |          clockcache_try_get_read.constprop.0
+            |          clockcache_get_read (inlined)
+            |          |          
+            |           --1.07%--clockcache_get_in_cache_async.constprop.0
+            |                     clockcache_get_internal_async.constprop.0
+            |                     clockcache_get_async
+            |                     cache_get_async (inlined)
+            |                     btree_lookup_node_async.constprop.0
+            |                     |          
+            |                     |--0.64%--find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     |          btree_iterator_init_async
+            |                     |          core_start_btree_iterator_init_async (inlined)
+            |                     |          core_range_iterator_init
+            |                     |          splinterdb_iterator_init_with_bounds.constprop.0
+            |                     |          splinterdb_iterator_init (inlined)
+            |                     |          range_worker
+            |                     |          0x7fb5cc0698ba
+            |                     |          
+            |                      --0.44%--btree_iterator_find_end_addr_async (inlined)
+            |                                find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                                btree_iterator_init_async
+            |                                |          
+            |                                |--0.33%--core_drain_btree_iterator_init_async (inlined)
+            |                                |          core_range_iterator_init
+            |                                |          splinterdb_iterator_init_with_bounds.constprop.0
+            |                                |          splinterdb_iterator_init (inlined)
+            |                                |          range_worker
+            |                                |          0x7fb5cc0698ba
+            |                                |          
+            |                                 --0.11%--core_start_btree_iterator_init_async (inlined)
+            |                                           core_range_iterator_init
+            |                                           splinterdb_iterator_init_with_bounds.constprop.0
+            |                                           splinterdb_iterator_init (inlined)
+            |                                           range_worker
+            |                                           0x7fb5cc0698ba
+            |          
+             --0.51%--clockcache_try_get_read.constprop.0
+                       clockcache_get_read (inlined)
+                       |          
+                        --0.50%--clockcache_get_in_cache_async.constprop.0
+                                  clockcache_get_internal_async.constprop.0
+                                  clockcache_get_async
+                                  cache_get_async (inlined)
+                                  btree_lookup_node_async.constprop.0
+                                  |          
+                                   --0.40%--find_btree_node_and_get_idx_bounds_async.constprop.0
+                                             btree_iterator_init_async
+                                             core_start_btree_iterator_init_async (inlined)
+                                             core_range_iterator_init
+                                             splinterdb_iterator_init_with_bounds.constprop.0
+                                             splinterdb_iterator_init (inlined)
+                                             range_worker
+                                             0x7fb5cc0698ba
+
+     1.55%  [kernel.kallsyms]   [k] mutex_spin_on_owner                                     -      -            
+            |
+            ---mutex_spin_on_owner
+               __mutex_lock.constprop.0
+               aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     1.38%  [kernel.kallsyms]   [k] clflush_cache_range                                     -      -            
+            |
+            ---clflush_cache_range
+               |          
+               |--0.71%--intel_iommu_map_pages
+               |          __iommu_map
+               |          iommu_map
+               |          __iommu_dma_map
+               |          iommu_dma_map_page
+               |          dma_map_page_attrs
+               |          nvme_prep_rq.part.0
+               |          nvme_queue_rqs
+               |          blk_mq_flush_plug_list
+               |          __blk_flush_plug
+               |          blk_finish_plug
+               |          __iomap_dio_rw
+               |          iomap_dio_rw
+               |          ext4_file_read_iter
+               |          aio_read
+               |          io_submit_one
+               |          __x64_sys_io_submit
+               |          do_syscall_64
+               |          entry_SYSCALL_64_after_hwframe
+               |          syscall
+               |          
+                --0.67%--dma_pte_clear_level
+                          dma_pte_clear_level
+                          dma_pte_clear_level
+                          domain_unmap
+                          intel_iommu_unmap_pages
+                          __iommu_unmap
+                          __iommu_dma_unmap
+                          iommu_dma_unmap_page
+                          dma_unmap_page_attrs
+                          nvme_pci_complete_batch
+                          nvme_irq
+                          __handle_irq_event_percpu
+                          handle_irq_event
+                          handle_edge_irq
+                          __common_interrupt
+                          common_interrupt
+                          asm_common_interrupt
+                          |          
+                           --0.19%--osq_lock
+                                     __mutex_lock.constprop.0
+                                     aio_read_events_ring
+                                     read_events
+                                     do_io_getevents
+                                     __x64_sys_io_pgetevents
+                                     do_syscall_64
+                                     entry_SYSCALL_64_after_hwframe
+                                     syscall
+
+     1.21%  [kernel.kallsyms]   [k] __iomap_dio_rw                                          -      -            
+            |
+            ---__iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     1.17%  libc.so.6           [.] syscall                                                 -      -            
+            |
+            ---syscall
+
+     1.17%  kvbench_controlled  [.] core_range_iterator_init                                -      -            
+            |          
+            |--0.64%--core_drain_btree_iterator_init_async (inlined)
+            |          core_range_iterator_init
+            |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          splinterdb_iterator_init (inlined)
+            |          range_worker
+            |          0x7fb5cc0698ba
+            |          
+            |--0.19%--core_start_btree_iterator_init_async (inlined)
+            |          core_range_iterator_init
+            |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          splinterdb_iterator_init (inlined)
+            |          range_worker
+            |          0x7fb5cc0698ba
+            |          
+             --0.15%--core_range_iterator_init
+                       splinterdb_iterator_init_with_bounds.constprop.0
+                       splinterdb_iterator_init (inlined)
+                       range_worker
+                       0x7fb5cc0698ba
+
+     1.10%  [kernel.kallsyms]   [k] _copy_from_user                                         -      -            
+            |
+            ---_copy_from_user
+               |          
+               |--1.00%--__x64_sys_io_pgetevents
+               |          do_syscall_64
+               |          entry_SYSCALL_64_after_hwframe
+               |          syscall
+               |          
+                --0.10%--io_submit_one
+                          __x64_sys_io_submit
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     1.03%  [kernel.kallsyms]   [k] __get_user_4                                            -      -            
+            |
+            ---__get_user_4
+               lookup_ioctx
+               |          
+               |--0.80%--do_io_getevents
+               |          __x64_sys_io_pgetevents
+               |          do_syscall_64
+               |          entry_SYSCALL_64_after_hwframe
+               |          syscall
+               |          
+                --0.23%--__x64_sys_io_submit
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     1.03%  [kernel.kallsyms]   [k] __irqentry_text_start                                   -      -            
+            |
+            ---__irqentry_text_start
+               |          
+               |--0.31%--syscall
+               |          
+                --0.17%--osq_lock
+                          __mutex_lock.constprop.0
+                          aio_read_events_ring
+                          read_events
+                          do_io_getevents
+                          __x64_sys_io_pgetevents
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     1.02%  [ext4]              [k] ext4_es_lookup_extent                                   -      -            
+            |
+            ---ext4_es_lookup_extent
+               ext4_map_blocks
+               ext4_iomap_begin
+               iomap_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.99%  [kernel.kallsyms]   [k] lookup_ioctx                                            -      -            
+            |
+            ---lookup_ioctx
+               |          
+               |--0.81%--do_io_getevents
+               |          __x64_sys_io_pgetevents
+               |          do_syscall_64
+               |          entry_SYSCALL_64_after_hwframe
+               |          syscall
+               |          
+                --0.18%--__x64_sys_io_submit
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     0.99%  kvbench_controlled  [.] clockcache_get_free_page.constprop.0                    -      -            
+            |          
+            |--0.51%--clockcache_get_free_page.constprop.0
+            |          clockcache_acquire_entry_for_load (inlined)
+            |          clockcache_get_from_disk_async (inlined)
+            |          clockcache_get_internal_async.constprop.0
+            |          clockcache_get_async
+            |          cache_get_async (inlined)
+            |          |          
+            |           --0.48%--btree_lookup_node_async.constprop.0
+            |                     find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     btree_iterator_init_async
+            |                     core_start_btree_iterator_init_async (inlined)
+            |                     core_range_iterator_init
+            |                     splinterdb_iterator_init_with_bounds.constprop.0
+            |                     splinterdb_iterator_init (inlined)
+            |                     range_worker
+            |                     0x7fb5cc0698ba
+            |          
+            |--0.16%--clockcache_inc_ref_by_number (inlined)
+            |          clockcache_inc_ref (inlined)
+            |          clockcache_get_free_page.constprop.0
+            |          clockcache_acquire_entry_for_load (inlined)
+            |          clockcache_get_from_disk_async (inlined)
+            |          clockcache_get_internal_async.constprop.0
+            |          clockcache_get_async
+            |          cache_get_async (inlined)
+            |          |          
+            |           --0.15%--btree_lookup_node_async.constprop.0
+            |                     find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     btree_iterator_init_async
+            |                     core_start_btree_iterator_init_async (inlined)
+            |                     core_range_iterator_init
+            |                     splinterdb_iterator_init_with_bounds.constprop.0
+            |                     splinterdb_iterator_init (inlined)
+            |                     range_worker
+            |                     0x7fb5cc0698ba
+            |          
+             --0.12%--clockcache_try_claim_writeback (inlined)
+                       clockcache_batch_start_writeback (inlined)
+                       clockcache_acquire_batch (inlined)
+                       clockcache_get_free_page.constprop.0
+                       clockcache_acquire_entry_for_load (inlined)
+                       clockcache_get_from_disk_async (inlined)
+                       clockcache_get_internal_async.constprop.0
+                       clockcache_get_async
+                       cache_get_async (inlined)
+                       btree_lookup_node_async.constprop.0
+                       find_btree_node_and_get_idx_bounds_async.constprop.0
+                       btree_iterator_init_async
+                       core_start_btree_iterator_init_async (inlined)
+                       core_range_iterator_init
+                       splinterdb_iterator_init_with_bounds.constprop.0
+                       splinterdb_iterator_init (inlined)
+                       range_worker
+                       0x7fb5cc0698ba
+
+     0.96%  kvbench_controlled  [.] btree_node_read_header.isra.0                           -      -            
+            |          
+             --0.87%--btree_read_branch_header (inlined)
+                       btree_read_branch_header (inlined)
+                       btree_node_read_header.isra.0
+                       |          
+                        --0.85%--btree_lookup_node_async.constprop.0
+                                  |          
+                                   --0.76%--find_btree_node_and_get_idx_bounds_async.constprop.0
+                                             btree_iterator_init_async
+                                             |          
+                                             |--0.46%--core_start_btree_iterator_init_async (inlined)
+                                             |          core_range_iterator_init
+                                             |          splinterdb_iterator_init_with_bounds.constprop.0
+                                             |          splinterdb_iterator_init (inlined)
+                                             |          range_worker
+                                             |          0x7fb5cc0698ba
+                                             |          
+                                              --0.30%--core_drain_btree_iterator_init_async (inlined)
+                                                        core_range_iterator_init
+                                                        splinterdb_iterator_init_with_bounds.constprop.0
+                                                        splinterdb_iterator_init (inlined)
+                                                        range_worker
+                                                        0x7fb5cc0698ba
+
+     0.90%  kvbench_controlled  [.] laio_cleanup                                            -      -            
+            |          
+             --0.88%--laio_cleanup
+                       cache_cleanup (inlined)
+                       core_drain_btree_iterator_init_async (inlined)
+                       core_range_iterator_init
+                       splinterdb_iterator_init_with_bounds.constprop.0
+                       splinterdb_iterator_init (inlined)
+                       range_worker
+                       0x7fb5cc0698ba
+
+     0.90%  [kernel.kallsyms]   [k] read_events                                             -      -            
+            |
+            ---read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.89%  [kernel.kallsyms]   [k] __seccomp_filter                                        -      -            
+            |
+            ---__seccomp_filter
+               syscall_trace_enter
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.89%  kvbench_controlled  [.] key_compare                                             -      -            
+            |          
+            |--0.71%--key_compare
+            |          data_key_compare (inlined)
+            |          |          
+            |           --0.67%--btree_key_compare (inlined)
+            |                     |          
+            |                     |--0.39%--btree_find_pivot_checked (inlined)
+            |                     |          btree_lookup_node_async.constprop.0
+            |                     |          |          
+            |                     |          |--0.23%--find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     |          |          btree_iterator_init_async
+            |                     |          |          core_start_btree_iterator_init_async (inlined)
+            |                     |          |          core_range_iterator_init
+            |                     |          |          splinterdb_iterator_init_with_bounds.constprop.0
+            |                     |          |          splinterdb_iterator_init (inlined)
+            |                     |          |          range_worker
+            |                     |          |          0x7fb5cc0698ba
+            |                     |          |          
+            |                     |           --0.16%--btree_iterator_find_end_addr_async (inlined)
+            |                     |                     find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     |                     btree_iterator_init_async
+            |                     |          
+            |                      --0.25%--btree_find_tuple_checked (inlined)
+            |                                find_key_in_node (inlined)
+            |                                find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                                btree_iterator_init_async
+            |                                |          
+            |                                 --0.16%--core_drain_btree_iterator_init_async (inlined)
+            |                                           core_range_iterator_init
+            |                                           splinterdb_iterator_init_with_bounds.constprop.0
+            |                                           splinterdb_iterator_init (inlined)
+            |                                           range_worker
+            |                                           0x7fb5cc0698ba
+            |          
+             --0.18%--slice_lex_cmp (inlined)
+                       key_compare
+                       data_key_compare (inlined)
+                       |          
+                        --0.16%--btree_key_compare (inlined)
+
+     0.84%  [kernel.kallsyms]   [k] aio_read_events_ring                                    -      -            
+            |
+            ---aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.82%  [kernel.kallsyms]   [k] _raw_spin_lock                                          -      -            
+            |
+            ---_raw_spin_lock
+               |          
+                --0.32%--__queue_work.part.0
+                          queue_work_on
+                          clone_endio
+                          blk_mq_end_request_batch
+                          nvme_irq
+                          __handle_irq_event_percpu
+                          handle_irq_event
+                          handle_edge_irq
+                          __common_interrupt
+                          common_interrupt
+                          asm_common_interrupt
+
+     0.80%  [kernel.kallsyms]   [k] _raw_spin_lock_irqsave                                  -      -            
+            |
+            ---_raw_spin_lock_irqsave
+               |          
+               |--0.34%--try_to_wake_up
+               |          |          
+               |          |--0.21%--kick_pool
+               |          |          __queue_work.part.0
+               |          |          queue_work_on
+               |          |          clone_endio
+               |          |          blk_mq_end_request_batch
+               |          |          nvme_irq
+               |          |          __handle_irq_event_percpu
+               |          |          handle_irq_event
+               |          |          handle_edge_irq
+               |          |          __common_interrupt
+               |          |          common_interrupt
+               |          |          asm_common_interrupt
+               |          |          
+               |           --0.13%--wake_up_q
+               |                     __mutex_unlock_slowpath.isra.0
+               |                     aio_read_events_ring
+               |                     read_events
+               |                     do_io_getevents
+               |                     __x64_sys_io_pgetevents
+               |                     do_syscall_64
+               |                     entry_SYSCALL_64_after_hwframe
+               |                     syscall
+               |          
+               |--0.17%--__iommu_dma_unmap
+               |          iommu_dma_unmap_page
+               |          dma_unmap_page_attrs
+               |          nvme_pci_complete_batch
+               |          nvme_irq
+               |          __handle_irq_event_percpu
+               |          handle_irq_event
+               |          handle_edge_irq
+               |          __common_interrupt
+               |          common_interrupt
+               |          asm_common_interrupt
+               |          
+                --0.12%--alloc_iova_fast
+                          iommu_dma_alloc_iova
+                          __iommu_dma_map
+                          iommu_dma_map_page
+                          dma_map_page_attrs
+                          nvme_prep_rq.part.0
+                          nvme_queue_rqs
+                          blk_mq_flush_plug_list
+                          __blk_flush_plug
+                          blk_finish_plug
+                          __iomap_dio_rw
+                          iomap_dio_rw
+                          ext4_file_read_iter
+                          aio_read
+                          io_submit_one
+                          __x64_sys_io_submit
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     0.79%  kvbench_controlled  [.] clockcache_get_internal_async.constprop.0               -      -            
+            |          
+            |--0.41%--clockcache_get_internal_async.constprop.0
+            |          clockcache_get_async
+            |          cache_get_async (inlined)
+            |          btree_lookup_node_async.constprop.0
+            |          |          
+            |           --0.38%--find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     btree_iterator_init_async
+            |                     |          
+            |                      --0.37%--core_start_btree_iterator_init_async (inlined)
+            |                                core_range_iterator_init
+            |                                splinterdb_iterator_init_with_bounds.constprop.0
+            |                                splinterdb_iterator_init (inlined)
+            |                                range_worker
+            |                                0x7fb5cc0698ba
+            |          
+             --0.29%--clockcache_lookup_number (inlined)
+                       clockcache_lookup (inlined)
+                       clockcache_get_internal_async.constprop.0
+                       clockcache_get_async
+                       cache_get_async (inlined)
+                       btree_lookup_node_async.constprop.0
+                       |          
+                       |--0.16%--find_btree_node_and_get_idx_bounds_async.constprop.0
+                       |          btree_iterator_init_async
+                       |          core_start_btree_iterator_init_async (inlined)
+                       |          core_range_iterator_init
+                       |          splinterdb_iterator_init_with_bounds.constprop.0
+                       |          splinterdb_iterator_init (inlined)
+                       |          range_worker
+                       |          0x7fb5cc0698ba
+                       |          
+                        --0.14%--btree_iterator_find_end_addr_async (inlined)
+                                  find_btree_node_and_get_idx_bounds_async.constprop.0
+                                  btree_iterator_init_async
+                                  |          
+                                   --0.11%--core_drain_btree_iterator_init_async (inlined)
+                                             core_range_iterator_init
+                                             splinterdb_iterator_init_with_bounds.constprop.0
+                                             splinterdb_iterator_init (inlined)
+                                             range_worker
+                                             0x7fb5cc0698ba
+
+     0.79%  libc.so.6           [.] 0x0000000000162419                                      -      -            
+            |
+            ---0x7fb5cc139419
+
+     0.77%  kvbench_controlled  [.] laio_async_run                                          -      -            
+            |          
+            |--0.46%--laio_record_submit_depth (inlined)
+            |          laio_async_run
+            |          io_async_run (inlined)
+            |          clockcache_get_from_disk_async (inlined)
+            |          clockcache_get_internal_async.constprop.0
+            |          clockcache_get_async
+            |          cache_get_async (inlined)
+            |          btree_lookup_node_async.constprop.0
+            |          find_btree_node_and_get_idx_bounds_async.constprop.0
+            |          btree_iterator_init_async
+            |          core_start_btree_iterator_init_async (inlined)
+            |          core_range_iterator_init
+            |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          splinterdb_iterator_init (inlined)
+            |          range_worker
+            |          0x7fb5cc0698ba
+            |          
+             --0.29%--laio_async_run
+                       io_async_run (inlined)
+                       |          
+                        --0.28%--clockcache_get_from_disk_async (inlined)
+                                  clockcache_get_internal_async.constprop.0
+                                  clockcache_get_async
+                                  cache_get_async (inlined)
+                                  |          
+                                   --0.26%--btree_lookup_node_async.constprop.0
+                                             find_btree_node_and_get_idx_bounds_async.constprop.0
+                                             btree_iterator_init_async
+                                             |          
+                                              --0.24%--core_start_btree_iterator_init_async (inlined)
+                                                        core_range_iterator_init
+                                                        splinterdb_iterator_init_with_bounds.constprop.0
+                                                        splinterdb_iterator_init (inlined)
+                                                        range_worker
+                                                        0x7fb5cc0698ba
+
+     0.70%  kvbench_controlled  [.] btree_lookup_node_async.constprop.0                     -      -            
+            |          
+            |--0.40%--btree_lookup_node_async.constprop.0
+            |          |          
+            |          |--0.27%--find_btree_node_and_get_idx_bounds_async.constprop.0
+            |          |          btree_iterator_init_async
+            |          |          |          
+            |          |           --0.23%--core_start_btree_iterator_init_async (inlined)
+            |          |                     core_range_iterator_init
+            |          |                     splinterdb_iterator_init_with_bounds.constprop.0
+            |          |                     splinterdb_iterator_init (inlined)
+            |          |                     range_worker
+            |          |                     0x7fb5cc0698ba
+            |          |          
+            |           --0.13%--btree_iterator_find_end_addr_async (inlined)
+            |                     find_btree_node_and_get_idx_bounds_async.constprop.0
+            |                     btree_iterator_init_async
+            |          
+             --0.18%--cache_get_async (inlined)
+                       btree_lookup_node_async.constprop.0
+                       find_btree_node_and_get_idx_bounds_async.constprop.0
+                       btree_iterator_init_async
+
+     0.70%  [kernel.kallsyms]   [k] __x64_sys_io_pgetevents                                 -      -            
+            |
+            ---__x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.66%  [kernel.kallsyms]   [k] pfn_to_dma_pte                                          -      -            
+            |
+            ---pfn_to_dma_pte
+               |          
+                --0.51%--intel_iommu_iova_to_phys
+                          iommu_dma_unmap_page
+                          dma_unmap_page_attrs
+                          nvme_pci_complete_batch
+                          nvme_irq
+                          __handle_irq_event_percpu
+                          handle_irq_event
+                          handle_edge_irq
+                          __common_interrupt
+                          common_interrupt
+                          asm_common_interrupt
+                          |          
+                           --0.14%--osq_lock
+                                     __mutex_lock.constprop.0
+                                     aio_read_events_ring
+                                     read_events
+                                     do_io_getevents
+                                     __x64_sys_io_pgetevents
+                                     do_syscall_64
+                                     entry_SYSCALL_64_after_hwframe
+                                     syscall
+
+     0.63%  [kernel.kallsyms]   [k] intel_iommu_map_pages                                   -      -            
+            |
+            ---intel_iommu_map_pages
+               __iommu_map
+               iommu_map
+               __iommu_dma_map
+               iommu_dma_map_page
+               dma_map_page_attrs
+               nvme_prep_rq.part.0
+               nvme_queue_rqs
+               blk_mq_flush_plug_list
+               __blk_flush_plug
+               blk_finish_plug
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.61%  libc.so.6           [.] 0x00000000001621f8                                      -      -            
+            |
+            ---0x7fb5cc1391f8
+
+     0.59%  [nvme]              [k] nvme_poll_cq                                            -      -            
+            |
+            ---nvme_poll_cq
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.58%  [kernel.kallsyms]   [k] osq_unlock                                              -      -            
+            |
+            ---osq_unlock
+               __mutex_lock.constprop.0
+               aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.55%  kvbench_controlled  [.] btree_iterator_init_common.lto_priv.0                   -      -            
+            |          
+            |--0.39%--data_key_compare (inlined)
+            |          btree_key_compare (inlined)
+            |          btree_iterator_init_common (inlined)
+            |          btree_iterator_init_async
+            |          core_start_btree_iterator_init_async (inlined)
+            |          core_range_iterator_init
+            |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          splinterdb_iterator_init (inlined)
+            |          range_worker
+            |          0x7fb5cc0698ba
+            |          
+             --0.15%--btree_iterator_init_common (inlined)
+                       btree_iterator_init_async
+                       core_start_btree_iterator_init_async (inlined)
+                       core_range_iterator_init
+                       splinterdb_iterator_init_with_bounds.constprop.0
+                       splinterdb_iterator_init (inlined)
+                       range_worker
+                       0x7fb5cc0698ba
+
+     0.54%  [kernel.kallsyms]   [k] kmem_cache_alloc_noprof                                 -      -            
+            |
+            ---kmem_cache_alloc_noprof
+               |          
+               |--0.37%--mempool_alloc_noprof
+               |          bio_alloc_bioset
+               |          |          
+               |          |--0.23%--bio_alloc_clone
+               |          |          |          
+               |          |           --0.18%--alloc_io
+               |          |                     dm_submit_bio
+               |          |                     __submit_bio
+               |          |                     submit_bio_noacct_nocheck
+               |          |                     iomap_dio_bio_iter
+               |          |                     __iomap_dio_rw
+               |          |                     iomap_dio_rw
+               |          |                     ext4_file_read_iter
+               |          |                     aio_read
+               |          |                     io_submit_one
+               |          |                     __x64_sys_io_submit
+               |          |                     do_syscall_64
+               |          |                     entry_SYSCALL_64_after_hwframe
+               |          |                     syscall
+               |          |          
+               |           --0.15%--iomap_dio_bio_iter
+               |                     __iomap_dio_rw
+               |                     iomap_dio_rw
+               |                     ext4_file_read_iter
+               |                     aio_read
+               |                     io_submit_one
+               |                     __x64_sys_io_submit
+               |                     do_syscall_64
+               |                     entry_SYSCALL_64_after_hwframe
+               |                     syscall
+               |          
+                --0.16%--io_submit_one
+                          __x64_sys_io_submit
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     0.53%  [kernel.kallsyms]   [k] __rcu_read_lock                                         -      -            
+            |
+            ---__rcu_read_lock
+               |          
+                --0.28%--lookup_ioctx
+                          |          
+                           --0.26%--do_io_getevents
+                                     __x64_sys_io_pgetevents
+                                     do_syscall_64
+                                     entry_SYSCALL_64_after_hwframe
+                                     syscall
+
+     0.49%  kvbench_controlled  [.] clockcache_unget_virtual                                -      -            
+            |          
+             --0.42%--clockcache_dec_ref_by_number (inlined)
+                       clockcache_dec_ref (inlined)
+                       clockcache_unget (inlined)
+                       clockcache_unget_virtual
+                       cache_unget (inlined)
+                       |          
+                        --0.38%--btree_node_unget (inlined)
+                                  |          
+                                   --0.28%--btree_lookup_node_async.constprop.0
+                                             |          
+                                             |--0.14%--btree_iterator_find_end_addr_async (inlined)
+                                             |          find_btree_node_and_get_idx_bounds_async.constprop.0
+                                             |          btree_iterator_init_async
+                                             |          
+                                              --0.14%--find_btree_node_and_get_idx_bounds_async.constprop.0
+                                                        btree_iterator_init_async
+                                                        |          
+                                                         --0.11%--core_start_btree_iterator_init_async (inlined)
+                                                                   core_range_iterator_init
+                                                                   splinterdb_iterator_init_with_bounds.constprop.0
+                                                                   splinterdb_iterator_init (inlined)
+                                                                   range_worker
+                                                                   0x7fb5cc0698ba
+
+     0.47%  [kernel.kallsyms]   [k] arch_exit_to_user_mode_prepare.isra.0                   -      -            
+            |
+            ---arch_exit_to_user_mode_prepare.isra.0
+               |          
+                --0.46%--syscall_exit_to_user_mode
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     0.45%  [kernel.kallsyms]   [k] syscall_return_via_sysret                               -      -            
+            |
+            ---syscall_return_via_sysret
+               |          
+                --0.41%--syscall
+
+     0.45%  [kernel.kallsyms]   [k] entry_SYSRETQ_unsafe_stack                              -      -            
+            |
+            ---entry_SYSRETQ_unsafe_stack
+               syscall
+
+     0.42%  kvbench_controlled  [.] laio_cleanup_one                                        -      -            
+            |
+            ---laio_cleanup_one
+               |          
+                --0.39%--laio_cleanup
+                          cache_cleanup (inlined)
+                          core_drain_btree_iterator_init_async (inlined)
+                          core_range_iterator_init
+                          splinterdb_iterator_init_with_bounds.constprop.0
+                          splinterdb_iterator_init (inlined)
+                          range_worker
+                          0x7fb5cc0698ba
+
+     0.42%  [kernel.kallsyms]   [k] bio_associate_blkg_from_css                             -      -            
+            |
+            ---bio_associate_blkg_from_css
+               |          
+                --0.32%--bio_associate_blkg
+                          |          
+                          |--0.20%--bio_alloc_bioset
+                          |          |          
+                          |           --0.12%--bio_alloc_clone
+                          |                     kcryptd_io_read
+                          |                     crypt_map
+                          |                     __map_bio
+                          |                     dm_submit_bio
+                          |                     __submit_bio
+                          |                     submit_bio_noacct_nocheck
+                          |                     iomap_dio_bio_iter
+                          |                     __iomap_dio_rw
+                          |                     iomap_dio_rw
+                          |                     ext4_file_read_iter
+                          |                     aio_read
+                          |                     io_submit_one
+                          |                     __x64_sys_io_submit
+                          |                     do_syscall_64
+                          |                     entry_SYSCALL_64_after_hwframe
+                          |                     syscall
+                          |          
+                           --0.12%--linear_map
+                                     __map_bio
+                                     dm_submit_bio
+                                     __submit_bio
+                                     submit_bio_noacct_nocheck
+                                     iomap_dio_bio_iter
+                                     __iomap_dio_rw
+                                     iomap_dio_rw
+                                     ext4_file_read_iter
+                                     aio_read
+                                     io_submit_one
+                                     __x64_sys_io_submit
+                                     do_syscall_64
+                                     entry_SYSCALL_64_after_hwframe
+                                     syscall
+
+     0.41%  [kernel.kallsyms]   [k] _copy_to_user                                           -      -            
+            |
+            ---_copy_to_user
+               aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.39%  [kernel.kallsyms]   [k] kmem_cache_free                                         -      -            
+            |
+            ---kmem_cache_free
+               |          
+               |--0.22%--crypt_endio
+               |          clone_endio
+               |          blk_mq_end_request_batch
+               |          nvme_irq
+               |          __handle_irq_event_percpu
+               |          handle_irq_event
+               |          handle_edge_irq
+               |          __common_interrupt
+               |          common_interrupt
+               |          asm_common_interrupt
+               |          
+                --0.17%--__dm_io_complete
+                          clone_endio
+                          blk_mq_end_request_batch
+                          nvme_irq
+                          __handle_irq_event_percpu
+                          handle_irq_event
+                          handle_edge_irq
+                          __common_interrupt
+                          common_interrupt
+                          asm_common_interrupt
+
+     0.39%  libc.so.6           [.] 0x000000000016241d                                      -      -            
+            |
+            ---0x7fb5cc13941d
+
+     0.38%  [kernel.kallsyms]   [k] pick_task_fair                                          -      -            
+            |
+            ---pick_task_fair
+               pick_next_task_fair
+               __schedule
+               |          
+                --0.26%--schedule
+                          |          
+                           --0.20%--irqentry_exit_to_user_mode
+                                     asm_sysvec_reschedule_ipi
+
+     0.38%  [kernel.kallsyms]   [k] do_syscall_64                                           -      -            
+            |
+            ---do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.36%  [kernel.kallsyms]   [k] dma_pte_clear_level                                     -      -            
+            |
+            ---dma_pte_clear_level
+               |          
+                --0.29%--dma_pte_clear_level
+                          |          
+                           --0.23%--dma_pte_clear_level
+                                     |          
+                                      --0.15%--dma_pte_clear_level
+                                                domain_unmap
+                                                intel_iommu_unmap_pages
+                                                __iommu_unmap
+                                                __iommu_dma_unmap
+                                                iommu_dma_unmap_page
+                                                dma_unmap_page_attrs
+                                                nvme_pci_complete_batch
+                                                nvme_irq
+                                                __handle_irq_event_percpu
+                                                handle_irq_event
+                                                handle_edge_irq
+                                                __common_interrupt
+                                                common_interrupt
+                                                asm_common_interrupt
+
+     0.35%  [kernel.kallsyms]   [k] __rcu_read_unlock                                       -      -            
+            |
+            ---__rcu_read_unlock
+
+     0.35%  [dm_crypt]          [k] crypt_map                                               -      -            
+            |
+            ---crypt_map
+               __map_bio
+               dm_submit_bio
+               __submit_bio
+               submit_bio_noacct_nocheck
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.34%  [kernel.kallsyms]   [k] populate_seccomp_data                                   -      -            
+            |
+            ---populate_seccomp_data
+               __seccomp_filter
+               syscall_trace_enter
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.33%  [ext4]              [k] ext4_sb_block_valid                                     -      -            
+            |
+            ---ext4_sb_block_valid
+               __check_block_validity.constprop.0
+               ext4_map_blocks
+               ext4_iomap_begin
+               iomap_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.33%  kvbench_controlled  [.] clockcache_finish_load.lto_priv.0                       -      -            
+            |          
+             --0.29%--async_wait_queue_lock (inlined)
+                       async_wait_queue_release_all (inlined)
+                       clockcache_finish_load (inlined)
+                       clockcache_get_from_disk_async_callback
+                       laio_cleanup_one
+                       laio_cleanup
+                       cache_cleanup (inlined)
+                       core_drain_btree_iterator_init_async (inlined)
+                       core_range_iterator_init
+                       splinterdb_iterator_init_with_bounds.constprop.0
+                       splinterdb_iterator_init (inlined)
+                       range_worker
+                       0x7fb5cc0698ba
+
+     0.33%  kvbench_controlled  [.] find_btree_node_and_get_idx_bounds_async.constprop.0    -      -            
+            |          
+             --0.22%--find_btree_node_and_get_idx_bounds_async.constprop.0
+                       btree_iterator_init_async
+                       |          
+                        --0.16%--core_start_btree_iterator_init_async (inlined)
+                                  core_range_iterator_init
+                                  splinterdb_iterator_init_with_bounds.constprop.0
+                                  splinterdb_iterator_init (inlined)
+                                  range_worker
+                                  0x7fb5cc0698ba
+
+     0.32%  kvbench_controlled  [.] rc_allocator_inc_ref_virtual                            -      -            
+            |          
+             --0.28%--rc_allocator_inc_ref_virtual
+                       allocator_inc_ref (inlined)
+                       mini_inc_ref.isra.0
+                       btree_inc_ref (inlined)
+                       |          
+                        --0.19%--trunk_ondisk_bundle_inc_all_branch_refs (inlined)
+                                  trunk_collect_branches (inlined)
+                                  core_range_iterator_init
+                                  splinterdb_iterator_init_with_bounds.constprop.0
+                                  splinterdb_iterator_init (inlined)
+                                  range_worker
+                                  0x7fb5cc0698ba
+
+     0.32%  [kernel.kallsyms]   [k] x64_sys_call                                            -      -            
+            |
+            ---x64_sys_call
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.32%  kvbench_controlled  [.] rc_allocator_dec_ref_virtual                            -      -            
+            |          
+             --0.30%--rc_allocator_dec_ref (inlined)
+                       rc_allocator_dec_ref_virtual
+                       allocator_dec_ref (inlined)
+                       mini_dec_ref
+                       btree_dec_ref (inlined)
+                       memtable_root_dec_ref (inlined)
+                       core_memtable_dec_ref (inlined)
+                       core_range_iterator_deinit
+                       splinterdb_iterator_deinit
+                       range_worker
+                       0x7fb5cc0698ba
+
+     0.31%  [kernel.kallsyms]   [k] native_write_msr                                        -      -            
+            |
+            ---native_write_msr
+               |          
+               |--0.16%--__x2apic_send_IPI_dest
+               |          ttwu_queue_wakelist
+               |          try_to_wake_up
+               |          kick_pool
+               |          __queue_work.part.0
+               |          queue_work_on
+               |          clone_endio
+               |          blk_mq_end_request_batch
+               |          nvme_irq
+               |          __handle_irq_event_percpu
+               |          handle_irq_event
+               |          handle_edge_irq
+               |          __common_interrupt
+               |          common_interrupt
+               |          asm_common_interrupt
+               |          
+                --0.14%--intel_pmu_disable_all
+                          |          
+                           --0.13%--perf_ctx_disable
+
+     0.31%  [kernel.kallsyms]   [k] gup_fast_fallback                                       -      -            
+            |
+            ---gup_fast_fallback
+               iov_iter_extract_pages
+               bio_iov_iter_get_pages
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.30%  [kernel.kallsyms]   [k] pwq_tryinc_nr_active                                    -      -            
+            |
+            ---pwq_tryinc_nr_active
+               __queue_work.part.0
+               queue_work_on
+               clone_endio
+               blk_mq_end_request_batch
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.30%  [kernel.kallsyms]   [k] __queue_work.part.0                                     -      -            
+            |
+            ---__queue_work.part.0
+               queue_work_on
+               clone_endio
+               blk_mq_end_request_batch
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.30%  kvbench_controlled  [.] clockcache_evict_batch                                  -      -            
+            |          
+             --0.14%--clockcache_try_evict (inlined)
+                       clockcache_evict_batch
+                       clockcache_acquire_batch (inlined)
+                       clockcache_get_free_page.constprop.0
+                       clockcache_acquire_entry_for_load (inlined)
+                       clockcache_get_from_disk_async (inlined)
+                       clockcache_get_internal_async.constprop.0
+                       clockcache_get_async
+                       cache_get_async (inlined)
+                       btree_lookup_node_async.constprop.0
+                       find_btree_node_and_get_idx_bounds_async.constprop.0
+                       btree_iterator_init_async
+                       core_start_btree_iterator_init_async (inlined)
+                       core_range_iterator_init
+                       splinterdb_iterator_init_with_bounds.constprop.0
+                       splinterdb_iterator_init (inlined)
+                       range_worker
+                       0x7fb5cc0698ba
+
+     0.30%  kvbench_controlled  [.] laio_async_callback                                     -      -            
+            |
+            ---laio_async_callback
+               laio_cleanup_one
+               |          
+                --0.28%--laio_cleanup
+                          cache_cleanup (inlined)
+                          core_drain_btree_iterator_init_async (inlined)
+                          core_range_iterator_init
+                          splinterdb_iterator_init_with_bounds.constprop.0
+                          splinterdb_iterator_init (inlined)
+                          range_worker
+                          0x7fb5cc0698ba
+
+     0.29%  [dm_mod]            [k] dm_submit_bio                                           -      -            
+            |
+            ---dm_submit_bio
+               __submit_bio
+               submit_bio_noacct_nocheck
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.29%  [dm_mod]            [k] clone_endio                                             -      -            
+            |
+            ---clone_endio
+               blk_mq_end_request_batch
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.29%  [kernel.kallsyms]   [k] fget                                                    -      -            
+            |
+            ---fget
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.27%  kvbench_controlled  [.] btree_iterator_init_async                               -      -            
+            |
+            ---btree_iterator_init_async
+               |          
+                --0.23%--core_start_btree_iterator_init_async (inlined)
+                          core_range_iterator_init
+                          splinterdb_iterator_init_with_bounds.constprop.0
+                          splinterdb_iterator_init (inlined)
+                          range_worker
+                          0x7fb5cc0698ba
+
+     0.27%  [kernel.kallsyms]   [k] set_user_sigmask                                        -      -            
+            |
+            ---set_user_sigmask
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.25%  [kernel.kallsyms]   [k] down_read                                               -      -            
+            |
+            ---down_read
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.25%  kvbench_controlled  [.] clockcache_get_from_disk_async.constprop.0              -      -            
+            |          
+             --0.13%--clockcache_get_from_disk_async (inlined)
+                       clockcache_get_internal_async.constprop.0
+                       clockcache_get_async
+                       cache_get_async (inlined)
+                       btree_lookup_node_async.constprop.0
+                       find_btree_node_and_get_idx_bounds_async.constprop.0
+                       btree_iterator_init_async
+
+     0.25%  libc.so.6           [.] 0x00000000001624c7                                      -      -            
+            |
+            ---0x7fb5cc1394c7
+
+     0.25%  [kernel.kallsyms]   [k] native_apic_msr_eoi                                     -      -            
+            |
+            ---native_apic_msr_eoi
+               |          
+                --0.21%--handle_edge_irq
+                          __common_interrupt
+                          common_interrupt
+                          asm_common_interrupt
+
+     0.24%  [kernel.kallsyms]   [k] io_submit_one                                           -      -            
+            |
+            ---io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.24%  kvbench_controlled  [.] setup_ordered_iterators                                 -      -            
+            |          
+            |--0.12%--setup_ordered_iterators
+            |          merge_iterator_create
+            |          merge_iterator_create
+            |          core_range_iterator_init
+            |          splinterdb_iterator_init_with_bounds.constprop.0
+            |          splinterdb_iterator_init (inlined)
+            |          range_worker
+            |          0x7fb5cc0698ba
+            |          
+             --0.11%--data_key_compare (inlined)
+                       setup_ordered_iterators
+                       merge_iterator_create
+                       merge_iterator_create
+                       core_range_iterator_init
+                       splinterdb_iterator_init_with_bounds.constprop.0
+                       splinterdb_iterator_init (inlined)
+                       range_worker
+                       0x7fb5cc0698ba
+
+     0.23%  [kernel.kallsyms]   [k] kick_pool                                               -      -            
+            |
+            ---kick_pool
+               __queue_work.part.0
+               queue_work_on
+               clone_endio
+               blk_mq_end_request_batch
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.23%  [kernel.kallsyms]   [k] __x64_sys_io_submit                                     -      -            
+            |
+            ---__x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.23%  libc.so.6           [.] 0x00000000001621f4                                      -      -            
+            |
+            ---0x7fb5cc1391f4
+
+     0.22%  [kernel.kallsyms]   [k] bio_alloc_bioset                                        -      -            
+            |
+            ---bio_alloc_bioset
+               |          
+                --0.16%--bio_alloc_clone
+                          |          
+                           --0.12%--kcryptd_io_read
+                                     crypt_map
+                                     __map_bio
+                                     dm_submit_bio
+                                     __submit_bio
+                                     submit_bio_noacct_nocheck
+                                     iomap_dio_bio_iter
+                                     __iomap_dio_rw
+                                     iomap_dio_rw
+                                     ext4_file_read_iter
+                                     aio_read
+                                     io_submit_one
+                                     __x64_sys_io_submit
+                                     do_syscall_64
+                                     entry_SYSCALL_64_after_hwframe
+                                     syscall
+
+     0.22%  [kernel.kallsyms]   [k] blk_mq_end_request_batch                                -      -            
+            |
+            ---blk_mq_end_request_batch
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.22%  [kernel.kallsyms]   [k] entry_SYSCALL_64_after_hwframe                          -      -            
+            |
+            ---entry_SYSCALL_64_after_hwframe
+               |          
+                --0.17%--syscall
+
+     0.22%  [kernel.kallsyms]   [k] __iommu_dma_unmap                                       -      -            
+            |
+            ---__iommu_dma_unmap
+               iommu_dma_unmap_page
+               dma_unmap_page_attrs
+               nvme_pci_complete_batch
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.21%  [kernel.kallsyms]   [k] try_get_folio                                           -      -            
+            |
+            ---try_get_folio
+               try_grab_folio_fast
+               gup_fast_pte_range
+               gup_fast_fallback
+               iov_iter_extract_pages
+               bio_iov_iter_get_pages
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.20%  [ext4]              [k] ext4_file_read_iter                                     -      -            
+            |
+            ---ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.20%  [kernel.kallsyms]   [k] psi_group_change                                        -      -            
+            |
+            ---psi_group_change
+               psi_task_switch
+               __schedule
+               schedule
+               |          
+                --0.19%--read_events
+                          do_io_getevents
+                          __x64_sys_io_pgetevents
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     0.19%  [kernel.kallsyms]   [k] syscall_trace_enter                                     -      -            
+            |
+            ---syscall_trace_enter
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.19%  [kernel.kallsyms]   [k] __submit_bio                                            -      -            
+            |
+            ---__submit_bio
+               submit_bio_noacct_nocheck
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.19%  kvbench_controlled  [.] merge_iterator_create                                   -      -            
+            |          
+             --0.18%--merge_iterator_create
+                       |          
+                        --0.17%--merge_iterator_create
+                                  core_range_iterator_init
+                                  splinterdb_iterator_init_with_bounds.constprop.0
+                                  splinterdb_iterator_init (inlined)
+                                  range_worker
+                                  0x7fb5cc0698ba
+
+     0.19%  kvbench_controlled  [.] range_worker                                            -      -            
+     0.18%  kvbench_controlled  [.] merge_comp                                              -      -            
+            |          
+             --0.16%--data_key_compare (inlined)
+                       bsearch_comp (inlined)
+                       merge_comp
+                       0x7fb5cc01b34f
+
+     0.18%  [kernel.kallsyms]   [k] syscall_exit_to_user_mode                               -      -            
+            |
+            ---syscall_exit_to_user_mode
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.18%  [kernel.kallsyms]   [k] __schedule                                              -      -            
+            |
+            ---__schedule
+               |          
+                --0.13%--schedule
+
+     0.17%  [kernel.kallsyms]   [k] gup_fast_pte_range                                      -      -            
+            |
+            ---gup_fast_pte_range
+               gup_fast_fallback
+               iov_iter_extract_pages
+               bio_iov_iter_get_pages
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.17%  kvbench_controlled  [.] clockcache_get_in_cache_async.constprop.0               -      -            
+            |          
+             --0.13%--clockcache_get_in_cache_async.constprop.0
+                       clockcache_get_internal_async.constprop.0
+                       clockcache_get_async
+                       cache_get_async (inlined)
+                       btree_lookup_node_async.constprop.0
+
+     0.17%  [kernel.kallsyms]   [k] try_to_wake_up                                          -      -            
+            |
+            ---try_to_wake_up
+               |          
+                --0.16%--kick_pool
+                          __queue_work.part.0
+                          queue_work_on
+                          clone_endio
+                          blk_mq_end_request_batch
+                          nvme_irq
+                          __handle_irq_event_percpu
+                          handle_irq_event
+                          handle_edge_irq
+                          __common_interrupt
+                          common_interrupt
+                          asm_common_interrupt
+
+     0.17%  [kernel.kallsyms]   [k] do_io_getevents                                         -      -            
+            |
+            ---do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.16%  [nvme]              [k] nvme_queue_rqs                                          -      -            
+            |
+            ---nvme_queue_rqs
+               blk_mq_flush_plug_list
+               __blk_flush_plug
+               blk_finish_plug
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.16%  [kernel.kallsyms]   [k] sbitmap_find_bit                                        -      -            
+            |
+            ---sbitmap_find_bit
+               sbitmap_get
+               blk_mq_get_tag
+               __blk_mq_alloc_requests
+               blk_mq_submit_bio
+               __submit_bio
+               submit_bio_noacct_nocheck
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.16%  kvbench_controlled  [.] clockcache_get_async                                    -      -            
+            |
+            ---clockcache_get_async
+               cache_get_async (inlined)
+               btree_lookup_node_async.constprop.0
+               |          
+                --0.13%--find_btree_node_and_get_idx_bounds_async.constprop.0
+                          btree_iterator_init_async
+                          |          
+                           --0.12%--core_start_btree_iterator_init_async (inlined)
+                                     core_range_iterator_init
+                                     splinterdb_iterator_init_with_bounds.constprop.0
+                                     splinterdb_iterator_init (inlined)
+                                     range_worker
+                                     0x7fb5cc0698ba
+
+     0.16%  kvbench_controlled  [.] clockcache_wait_virtual                                 -      -            
+            |          
+             --0.15%--io_cleanup (inlined)
+                       clockcache_wait (inlined)
+                       clockcache_wait_virtual
+                       cache_cleanup (inlined)
+                       core_drain_btree_iterator_init_async (inlined)
+                       core_range_iterator_init
+                       splinterdb_iterator_init_with_bounds.constprop.0
+                       splinterdb_iterator_init (inlined)
+                       range_worker
+                       0x7fb5cc0698ba
+
+     0.16%  [kernel.kallsyms]   [k] iomap_iter                                              -      -            
+            |
+            ---iomap_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.16%  [kernel.kallsyms]   [k] up_read                                                 -      -            
+            |
+            ---up_read
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.15%  [dm_crypt]          [k] kcryptd_io_read                                         -      -            
+            |
+            ---kcryptd_io_read
+               crypt_map
+               __map_bio
+               dm_submit_bio
+               __submit_bio
+               submit_bio_noacct_nocheck
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.15%  [kernel.kallsyms]   [k] update_load_avg                                         -      -            
+            |
+            ---update_load_avg
+               |          
+                --0.12%--dequeue_entities
+                          dequeue_task_fair
+                          __schedule
+                          schedule
+                          read_events
+                          do_io_getevents
+                          __x64_sys_io_pgetevents
+                          do_syscall_64
+                          entry_SYSCALL_64_after_hwframe
+                          syscall
+
+     0.15%  libaio.so.1t64.0.2  [.] 0x00000000000012f4                                      -      -            
+            |
+            ---0x7fb5cc2cf2f4
+               0x7fb5cc2cf424
+               io_getevents
+               laio_cleanup_one
+               laio_cleanup
+               cache_cleanup (inlined)
+               core_drain_btree_iterator_init_async (inlined)
+               core_range_iterator_init
+               splinterdb_iterator_init_with_bounds.constprop.0
+               splinterdb_iterator_init (inlined)
+               range_worker
+               0x7fb5cc0698ba
+
+     0.14%  [kernel.kallsyms]   [k] iomap_dio_bio_iter                                      -      -            
+            |
+            ---iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.13%  [kernel.kallsyms]   [k] sync_regs                                               -      -            
+            |
+            ---sync_regs
+               |          
+                --0.10%--asm_common_interrupt
+
+     0.13%  libaio.so.1t64.0.2  [.] 0x000000000000132f                                      -      -            
+            |
+            ---0x7fb5cc2cf32f
+               0x7fb5cc2cf424
+               io_getevents
+               laio_cleanup_one
+               laio_cleanup
+               cache_cleanup (inlined)
+               core_drain_btree_iterator_init_async (inlined)
+               core_range_iterator_init
+               splinterdb_iterator_init_with_bounds.constprop.0
+               splinterdb_iterator_init (inlined)
+               range_worker
+               0x7fb5cc0698ba
+
+     0.13%  [kernel.kallsyms]   [k] __get_reqs_available                                    -      -            
+            |
+            ---__get_reqs_available
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.13%  kvbench_controlled  [.] trunk_ondisk_node_find_pivot.lto_priv.0                 -      -            
+     0.13%  [kernel.kallsyms]   [k] blk_mq_submit_bio                                       -      -            
+            |
+            ---blk_mq_submit_bio
+               __submit_bio
+               submit_bio_noacct_nocheck
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.13%  libaio.so.1t64.0.2  [.] io_getevents                                            -      -            
+            |
+            ---io_getevents
+               laio_cleanup_one
+               laio_cleanup
+               cache_cleanup (inlined)
+               core_drain_btree_iterator_init_async (inlined)
+               core_range_iterator_init
+               splinterdb_iterator_init_with_bounds.constprop.0
+               splinterdb_iterator_init (inlined)
+               range_worker
+               0x7fb5cc0698ba
+
+     0.12%  [kernel.kallsyms]   [k] __iommu_dma_map                                         -      -            
+            |
+            ---__iommu_dma_map
+               iommu_dma_map_page
+               dma_map_page_attrs
+               nvme_prep_rq.part.0
+               nvme_queue_rqs
+               blk_mq_flush_plug_list
+               __blk_flush_plug
+               blk_finish_plug
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.12%  libc.so.6           [.] 0x00000000001624cb                                      -      -            
+            |
+            ---0x7fb5cc1394cb
+
+     0.12%  [kernel.kallsyms]   [k] bio_associate_blkg                                      -      -            
+            |
+            ---bio_associate_blkg
+               bio_alloc_bioset
+               iomap_dio_bio_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.12%  [kernel.kallsyms]   [k] blk_cgroup_bio_start                                    -      -            
+            |
+            ---blk_cgroup_bio_start
+               submit_bio_noacct_nocheck
+
+     0.12%  [kernel.kallsyms]   [k] blk_mq_flush_plug_list                                  -      -            
+            |
+            ---blk_mq_flush_plug_list
+               __blk_flush_plug
+               blk_finish_plug
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.12%  [kernel.kallsyms]   [k] sbitmap_queue_clear_batch                               -      -            
+            |
+            ---sbitmap_queue_clear_batch
+               blk_mq_end_request_batch
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.12%  kvbench_controlled  [.] clockcache_acquire_entry_for_load.lto_priv.0            -      -            
+     0.12%  [kernel.kallsyms]   [k] _raw_read_lock                                          -      -            
+            |
+            ---_raw_read_lock
+               ext4_es_lookup_extent
+               ext4_map_blocks
+               ext4_iomap_begin
+               iomap_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.11%  libaio.so.1t64.0.2  [.] io_submit                                               -      -            
+            |
+            ---io_submit
+               laio_async_run
+               io_async_run (inlined)
+               clockcache_get_from_disk_async (inlined)
+               clockcache_get_internal_async.constprop.0
+               clockcache_get_async
+               cache_get_async (inlined)
+               btree_lookup_node_async.constprop.0
+               find_btree_node_and_get_idx_bounds_async.constprop.0
+               btree_iterator_init_async
+               core_start_btree_iterator_init_async (inlined)
+               core_range_iterator_init
+               splinterdb_iterator_init_with_bounds.constprop.0
+               splinterdb_iterator_init (inlined)
+               range_worker
+               0x7fb5cc0698ba
+
+     0.11%  [ext4]              [k] ext4_iomap_begin                                        -      -            
+            |
+            ---ext4_iomap_begin
+               iomap_iter
+               __iomap_dio_rw
+               iomap_dio_rw
+               ext4_file_read_iter
+               aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.11%  [kernel.kallsyms]   [k] available_idle_cpu                                      -      -            
+            |
+            ---available_idle_cpu
+               select_task_rq_fair
+               try_to_wake_up
+               kick_pool
+               __queue_work.part.0
+               queue_work_on
+               clone_endio
+               blk_mq_end_request_batch
+               nvme_irq
+               __handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.11%  kvbench_controlled  [.] clockcache_get_async_state_init_virtual.lto_priv.0      -      -            
+            |
+            ---async_waiter_init (inlined)
+               clockcache_get_async_state_init_virtual (inlined)
+               cache_get_async_state_init (inlined)
+               btree_lookup_node_async.constprop.0
+
+     0.11%  [kernel.kallsyms]   [k] aio_read                                                -      -            
+            |
+            ---aio_read
+               io_submit_one
+               __x64_sys_io_submit
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.11%  [kernel.kallsyms]   [k] __mutex_unlock_slowpath.isra.0                          -      -            
+            |
+            ---__mutex_unlock_slowpath.isra.0
+               aio_read_events_ring
+               read_events
+               do_io_getevents
+               __x64_sys_io_pgetevents
+               do_syscall_64
+               entry_SYSCALL_64_after_hwframe
+               syscall
+
+     0.11%  libc.so.6           [.] 0x0000000000162415                                      -      -            
+            |
+            ---0x7fb5cc139415
+
+     0.11%  [kernel.kallsyms]   [k] __handle_irq_event_percpu                               -      -            
+            |
+            ---__handle_irq_event_percpu
+               handle_irq_event
+               handle_edge_irq
+               __common_interrupt
+               common_interrupt
+               asm_common_interrupt
+
+     0.11%  [kernel.kallsyms]   [k] __get_user_8                                            -      -            
+            |
+            ---__get_user_8
+
+     0.11%  libc.so.6           [.] 0x0000000000162440                                      -      -            
+            |
+            ---0x7fb5cc139440
+
+     0.11%  [kernel.kallsyms]   [k] __radix_tree_lookup                                     -      -            
+            |
+            ---__radix_tree_lookup
+               bio_associate_blkg_from_css
+
+     0.11%  kvbench_controlled  [.] memcmp@plt                                              -      -            
+            |
+            ---memcmp@plt
+               slice_lex_cmp (inlined)
+               key_compare
+               data_key_compare (inlined)
+               btree_key_compare (inlined)
+
+     0.10%  [kernel.kallsyms]   [k] submit_bio_noacct_nocheck                               -      -            
+            |
+            ---submit_bio_noacct_nocheck
+
+     0.10%  [kernel.kallsyms]   [k] read_tsc                                                -      -            
+            |
+            ---read_tsc
+               ktime_get
+
+     0.10%  [vdso]              [.] __vdso_clock_gettime                                    -      -            
+            |
+            ---__vdso_clock_gettime
+               clock_gettime
+
+
+
+#
+# (Tip: If call chains don't work try perf record --call-graph dwarf or --call-graph lbr)
+#
