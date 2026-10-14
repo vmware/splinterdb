@@ -110,6 +110,15 @@ typedef struct splinterdb_config {
    // log
    _Bool use_log;
 
+   // Best-effort automatic durability threshold, in pages. Zero selects
+   // 1024 pages; UINT64_MAX disables it. Each new staging page and
+   // each blob's logical bytes (rounded to pages) count toward the threshold.
+   // Crossing it submits a fire-and-forget durable barrier after publishing
+   // the update. Concurrent writers and large blobs may overshoot. Failures
+   // are logged; they do not turn a visible update into a failed insert.
+   // Background task scheduling may enlist foreground threads to do the work.
+   uint64 log_group_size_pages;
+
    // Automatic checkpoints: once the write-ahead log has grown by this many
    // bytes, SplinterDB arms a checkpoint.  The next natural memtable rotation
    // cuts the log, after which the checkpoint folds the logged updates into the

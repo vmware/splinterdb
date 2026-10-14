@@ -49,6 +49,7 @@ typedef struct options {
    uint64_t    inserts, queries, memtable_bg, normal_bg, memtable_mib;
    uint64_t    key_size, value_size, report_ms, seconds, min_free_gib;
    uint64_t    queue_scale, barrier_ms, target_insert_ops_s;
+   uint64_t    log_group_size_pages;
    bool        full_query_range, direct, use_log, open_existing;
 } options;
 
@@ -420,6 +421,8 @@ usage(const char *name)
       "  --seed N           default 1\n"
       "  --barrier-ms N     call splinterdb_durable_barrier from a "
       "dedicated thread every N ms (default 0 = disabled)\n"
+      "  --log-group-size-pages N  automatic durability threshold "
+      "(0 = 1024 pages, UINT64_MAX = disabled)\n"
       "  --trace NEW_CSV    trace internal tasks and waits (optional)\n"
       "  --direct          use O_DIRECT (default buffered I/O)\n"
       "  --no-log          disable WAL (default enabled)\n"
@@ -521,6 +524,7 @@ parse_options(int argc, char **argv, options *o)
          {"--id-base", &o->id_base},
          {"--queue-scale", &o->queue_scale},
          {"--barrier-ms", &o->barrier_ms},
+         {"--log-group-size-pages", &o->log_group_size_pages},
          {"--target-insert-ops-s", &o->target_insert_ops_s},
       };
       bool found = false;
@@ -717,6 +721,14 @@ main(int argc, char **argv)
                             .use_log             = o->use_log,
                             .checkpoint_log_size_bytes = UINT64_MAX,
                             .use_stats                 = true};
+#ifndef KVBENCH_NO_LOG_GROUP_LIMIT
+   cfg.log_group_size_pages = o->log_group_size_pages;
+#else
+   if (o->log_group_size_pages != 0) {
+      fprintf(stderr, "This build has no automatic log-group limit\n");
+      return 1;
+   }
+#endif
    platform_set_log_streams(stderr, stderr);
    fprintf(
       stderr,

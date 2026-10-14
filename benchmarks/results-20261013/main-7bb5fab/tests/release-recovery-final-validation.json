@@ -1,0 +1,23 @@
+[
+  {
+    "name": "release-recovery-final-0-splinterdb_forked_child_test",
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "main-merge-log-group-release-recovery-final-0-splinterdb_forked_child_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-7bb5fab/release/bin/unit/splinterdb_forked_child_test",
+      "automatic_log_barriers_survive_process_exit"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/log-group-limit/scratch/release-recovery-final-0-splinterdb_forked_child_test",
+    "returncode": 0,
+    "results": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 558 ms"
+    ],
+    "seconds": 0.6161184310913086,
+    "binary_sha256": "2d9796495f433336cb854ea6b160c6abf3f7a744b1d41bd84457ca0cc264631f",
+    "log_sha256": "ceb1faadced23206e2cbe07b75ff5e3e0e57f4a215b6b9f8bb0fe2ee32c116d5"
+  }
+]

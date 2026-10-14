@@ -1,0 +1,506 @@
+{
+  "original_commit": "ad751b31",
+  "merge_commit": "9bc5ebf4",
+  "files": [
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/.gitattributes",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/.gitattributes",
+      "sha256": "670687e4ad700463ad3f1740817423f05fc5f1c7b25c5821710e0ab719e383f5"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/README.md",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/README.md",
+      "sha256": "09f771c42e3f669f136db59dd29b37e6700554b66dc4c2d77f91402cfc879013"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/audit.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/audit.json",
+      "sha256": "ad2fc696155945dd8d7c31db1295ae1f824e7a4324f1523d290f106f95f87d03"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/audit.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/audit.py",
+      "sha256": "0a35a54b0932296bd60df29d54b4a1e28a1c3a4ff680ab096ce6d94c0f696b6c"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/benchmark-jobs.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/benchmark-jobs.json",
+      "sha256": "a208b7be9c97f8c7d1d92fda93941d24a29cdf4d47f255946c33aab465f645c7"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/build_all.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/build_all.py",
+      "sha256": "eb087dd5567dd000d7e0bf27d76839ac45e0ced00037f6f618e2494e5e518a20"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/control-drift.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/control-drift.csv",
+      "sha256": "0c5f1c505305edd8f6c55943719aaceb9ff8ded781a746819df64bb305f0e941"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/disk/00-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/disk/00-main.log",
+      "sha256": "31d7f4877605590f45d53a31f1da36cfd3464ed056f9aea89f6083b962487883"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/disk/03-log-group-limit.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/disk/03-log-group-limit.log",
+      "sha256": "36b51bfe6b7c5a33368c2bae9385fc943e40bea7f3db90617398e12c485981a0"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/disk/11-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/disk/11-main.log",
+      "sha256": "7c21a91723c434998d5c9b8a8dd15c86bbea62e8b787cc23f4ed16acea5a5edf"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/disk/19-log-group-limit.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/disk/19-log-group-limit.log",
+      "sha256": "074955efd87792199273b3411eda82974cb809ad8a6c69a2f400907c3f86f7d2"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/disk/22-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/disk/22-main.log",
+      "sha256": "5086e61f0aaac72a1061e180c0877301383d9148d4822a6439cb0a2db936c1bd"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/disk/manifest.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/disk/manifest.json",
+      "sha256": "3f1414551369e02ba5551aa14e23d3102fa3d3b86794504dbff0bd37bbc6980b"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/disk/results.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/disk/results.csv",
+      "sha256": "58241fc9814ade25aee85e83480c20e9bd53e8df3f94b52926c2cc2de0c0b14b"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/feature-summaries.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/feature-summaries.json",
+      "sha256": "be843d623a1047071f5ecf28698812b3a1a5570fb81ace0d2280c0aadaa0b3dc"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/fixtures/disk-main-ordinary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/fixtures/disk-main-ordinary.csv",
+      "sha256": "a3a321becf1795295cdecb25858a7ba1db4999b2631d026e0c45ccc1f37db0aa"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/fixtures/disk-main-ordinary.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/fixtures/disk-main-ordinary.log",
+      "sha256": "df659510c3e45ad4982e8a4d87cf79bfc17eee6e29d823cfb16a86fa83d91419"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/fixtures/manifest.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/fixtures/manifest.json",
+      "sha256": "54156009ae4f5aa27acd9ab1276ac4d977ac77e4fa3bf6bbd68e47030f6958e8"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/fixtures/resident-main-ordinary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/fixtures/resident-main-ordinary.csv",
+      "sha256": "c84ff2d1855eba7db823dc88621fad5a8230d9f68a0c4bb21d73fb69d8604e34"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/fixtures/resident-main-ordinary.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/fixtures/resident-main-ordinary.log",
+      "sha256": "e55092c3e8d86fa11a0c8308f2951ca7d933e1437c34285fc696792625d8eea3"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/host.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/host.json",
+      "sha256": "3f6265a71d00bb4c31f35d6774a1ac19bdc4b10ffd758947d96b0d0b81538eb3"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/manifest.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/manifest.json",
+      "sha256": "fe4ca9f68184155201378b7ac0d3f1ec1095f1f4f7795001e504712df8ddbf05"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/results.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/results.csv",
+      "sha256": "79f4743cb5bddbe28a77b3df5a82851562b15e0fc55ca29b09f53add1b558ba3"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal0-00-main.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal0-00-main.csv",
+      "sha256": "8dcf4686167c43dd7df121b5a917f4dd88dfa8c06c1d7b496a7a3e68b339d1e0"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal0-00-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal0-00-main.log",
+      "sha256": "84c9d5144c6b034941a876f264e74f49cdb3449c4b6b75df09d3f774ae93270a"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal0-00-main.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal0-00-main.summary.csv",
+      "sha256": "cce097428cf6196a066ee953db6cba485e672210956aed375a8fcf6746d67891"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal0-05-main.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal0-05-main.csv",
+      "sha256": "d9b770ba882910062d7e71cd7268f1db66b68aeae2459e2c47defee49ecdd709"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal0-05-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal0-05-main.log",
+      "sha256": "e561f2425c9264f1abdedba855ac90a73514a661943399e896c390652cd8749c"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal0-05-main.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal0-05-main.summary.csv",
+      "sha256": "2bd97e5bc7c20389cd6db2ba6410f9b6d8f1eda86b190dc0d62ace42199472d5"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-00-main.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-00-main.csv",
+      "sha256": "78326f512429dd93c03975ee82baa0289cc22fb24919e9ed076825c5717bf574"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-00-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-00-main.log",
+      "sha256": "d2d2e8354ebcb144c19981057836ad942f500f144aac30bc60c6975892496363"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-00-main.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-00-main.summary.csv",
+      "sha256": "af53990e4fe8caf53c7caed4175c6b818cfb509bc0a6bb237e3b9aab387ec2d1"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-10-log-disabled.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-10-log-disabled.csv",
+      "sha256": "55018bee3dbcac4268b2bf3e86ce9a3c4955b6100dcbe0165a3e78cbc26daa61"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-10-log-disabled.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-10-log-disabled.log",
+      "sha256": "8154b20a7c8c2060c5b4689aa276adf6d260cece5a542cf3117cbd6f959e10c0"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-10-log-disabled.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-10-log-disabled.summary.csv",
+      "sha256": "7f6a5170396d716d53b9f3c5516d1e2eb88055a6cb7bc5e8821ecf4437146b50"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-11-log-default.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-11-log-default.csv",
+      "sha256": "7f6b0997b55e1eb67077907b9e8f4abab6e635d3e3d2b33a5cf7e815a9327024"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-11-log-default.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-11-log-default.log",
+      "sha256": "90fd142f6b71ce56d14f97b138dbafa8c4be455452f4aee26b2f92a5d32c301a"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-11-log-default.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-11-log-default.summary.csv",
+      "sha256": "37eb7ec09cb3f5c11cea903e911dc8ed093719077e86d8a23d5b081f50471c1b"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-12-main.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-12-main.csv",
+      "sha256": "807b627316d359b79b43bea0bb408fa343d936e1095878ba19277dca36de5fe2"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-12-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-12-main.log",
+      "sha256": "dfdc27d0b401b30c49872cd01233f3282c693df04abe9a7e47d84ad9c6bf553d"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-12-main.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-12-main.summary.csv",
+      "sha256": "cf0692fd4487f51302a7a67f0f0ba4b4668f6af4b7b0cb9b26e79c157121d9b7"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-13-log-default.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-13-log-default.csv",
+      "sha256": "8a0fcace66ea1dfe4e12cf53c7c83023b02958f7faffca8d2d56b779165de819"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-13-log-default.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-13-log-default.log",
+      "sha256": "550cc5ea88422becbb24717a9bbf155e8bf3517e4d47d0978a72cd476a855601"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-13-log-default.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-13-log-default.summary.csv",
+      "sha256": "7026d770af72ae30c16fad763679c9eff2b8c779c5ec89645efb30649f1264db"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-14-log-disabled.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-14-log-disabled.csv",
+      "sha256": "7314969065c95983dbd9cdd6e3848f9017f8b3d7ac32fa4a925e6f648dfb0b1a"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-14-log-disabled.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-14-log-disabled.log",
+      "sha256": "ebb44b764fd1df1239ff4e8f3521e6e0853d4c17dfbe10168992dde6e2320406"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-14-log-disabled.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-14-log-disabled.summary.csv",
+      "sha256": "1b6b900b9b5393c9bbc50193bb0d704328988cf5507bd34d5443f381b5a55ab1"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-24-main.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-24-main.csv",
+      "sha256": "618babe5f6164ea27cc3c33511d3cad0a35eb6c0329f8058c4810d0341a3dcb6"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-24-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-24-main.log",
+      "sha256": "0e3644505976ec7c8a8e4877dab5b0b9493a5f78984892223bd3e7f074c4557b"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert/wal1-24-main.summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert/wal1-24-main.summary.csv",
+      "sha256": "1aa6095d93e086f52d65679d4c2989e7a521a24991c85823fcc7873214b5c4da"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/insert_benchmark.c",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/insert_benchmark.c",
+      "sha256": "75acbda52b2a8949f1d61710a8d89250d4dac63b12ec9803b89170f9c2cc0b26"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/inventory.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/inventory.json",
+      "sha256": "07e28a99501d431629134ed3e30076c515799448a4929303912853035b995002"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/kvbench.c",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/kvbench.c",
+      "sha256": "45cf9d2e1f74e90719885955d5a78651cc5c1d97cda2daed534a3c0cb07f48a9"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/log-group-limit-build.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/log-group-limit-build.json",
+      "sha256": "bc90729df45f9ea3702def8ae31d769f141ad323cadc10e400d00dcb13c4a94c"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/main-build.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/main-build.json",
+      "sha256": "5eae9c1ff95058e999f98a2431c93553859fdbb35e531edbe6426a8c86339a99"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/package.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/package.py",
+      "sha256": "8591b68385dafd2e808ed6b623a7f4e645c890b3aa1c023a49906061580fb79c"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/preparation.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/preparation.json",
+      "sha256": "1de4fc5b02c3b6b5134859e33a99b881132ca60c193aa611370795131bb80c09"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/repeat.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/repeat.py",
+      "sha256": "81fc83731f123067d5183231468513ad7243578ffc051a0d63073b684362fd53"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/report.md",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/report.md",
+      "sha256": "9649eb4828bef7e39b3b28b1bdcd2ab3ddb72ceb0f71bb5d07c12605c8b417bc"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/report.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/report.py",
+      "sha256": "5c1a9ef7925653b45ee3c211863706ba6cbf2924783a77c1efd7e0b83c3622a6"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/resident/00-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/resident/00-main.log",
+      "sha256": "0861c0ade82e24816323caa4da330c4cac0c53104f1160285c1cf8a8df22251a"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/resident/03-log-group-limit.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/resident/03-log-group-limit.log",
+      "sha256": "2c850d53a1e02c5d5eea05f6fd9190edb1d9f7012fcd0f72b9d2ab356373119a"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/resident/11-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/resident/11-main.log",
+      "sha256": "034a238757bbc021b03c57327181adea2db55fca23bb013540bf3f4ab4091d19"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/resident/19-log-group-limit.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/resident/19-log-group-limit.log",
+      "sha256": "12a8f95f4c8f7edad7d52cb46c542fa28197549616d2b565647c971c1d804490"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/resident/22-main.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/resident/22-main.log",
+      "sha256": "12947e19e2731c0041d5caf9492a0f102ac3edab312e9eb80d03bcbe7275fea0"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/resident/manifest.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/resident/manifest.json",
+      "sha256": "3b63a5837b1761ebf071c3d0dcfb635032474d4852660ebb9af375a88f92a3f1"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/resident/results.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/resident/results.csv",
+      "sha256": "cf2dfcefb223c4736a7e42750b97365057c333f7014241589598703b6c3289cb"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/run_job.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/run_job.py",
+      "sha256": "908d86de805e6efd41b423c919187f2df14715104f047e10fa8a6c57129cc773"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/run_matrix-fixtures.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/run_matrix-fixtures.py",
+      "sha256": "776d2ee23705f3a60a54f4e78b4f305a24d4a124eeecfe75dfacf5a90e4329c5"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/run_matrix.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/run_matrix.py",
+      "sha256": "536f10a1a7fd4b1e8e0250ea01cfe36793c7d6e2345f141092616ec06f64ee50"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/status.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/status.json",
+      "sha256": "4f586c2d7e6964d5bb0250e0a55999c83de96454713b9fadc541be2695a884a0"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/benchmarks/summary.csv",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/benchmarks/summary.csv",
+      "sha256": "f295f846c9a505cab227616be32a4aef11bb78c38a82f97729d2573d50aefcee"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/README.md",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/README.md",
+      "sha256": "6be81c5876dea806b8f45ed81e1ef75dbc7a7ad163a042c339621a293682ae8d"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/archive-manifest.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/archive-manifest.json",
+      "sha256": "27200e1c43f8391fe61f8d0dc0cf4bbb75fc70a67348ced66cecc87cafd96d5c"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/build-debug-recovery-final-corrected.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/build-debug-recovery-final-corrected.log",
+      "sha256": "ecf887ed5793d3d7bc72ff6d805327c7d013bad478d6b3f7a79d227dbff0bc2f"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/build-debug-recovery-final.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/build-debug-recovery-final.log",
+      "sha256": "ac30bbfa60ec961b47f303ad1a339047f4ea734589c380b9ff61303e29e5977f"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/build-debug-recovery.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/build-debug-recovery.log",
+      "sha256": "8cf1830b32bc8adf05e3908d952eafd5cc36c37ae85241d86fa7bf09afa6a572"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/build-debug.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/build-debug.log",
+      "sha256": "720692c2e1ffc6f50191f13787dff9bc76c206085581a06cb6ee80db2fe8b276"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/build-release-recovery-final.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/build-release-recovery-final.log",
+      "sha256": "228157024b37507484ab562b2010bf5d755792f6f3fa02a56b53bf3172d2433b"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/build-release.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/build-release.log",
+      "sha256": "eaa4b4efe46526aceddaabf3701d9b0049065154a58afb88547e2a6edc75d07b"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/build-sha256.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/build-sha256.json",
+      "sha256": "72d633622b36d95fcac354dacac4112de7cb84cc0932d05116539bd405d00ea9"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/debug-0-splinterdb_forked_child_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/debug-0-splinterdb_forked_child_test.log",
+      "sha256": "0ba41c8bdefeab2c96b3ad2d2bc603bc9673ca49bcc53a22e8e6bc54311b8159"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/debug-1-splinterdb_quick_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/debug-1-splinterdb_quick_test.log",
+      "sha256": "8b608a9f7eea7090aa8e152fdc71465fbe7b2d331af69b5580a486f898f44956"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/debug-2-driver_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/debug-2-driver_test.log",
+      "sha256": "9fe412117654c6e910b9592a4ed39b43f76a22651a9f05ea945c7428fd5d8ce7"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/debug-3-splinter_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/debug-3-splinter_test.log",
+      "sha256": "6cd9efa20071e15bf21fab5c40a447b9f33497dfa711e38a22b9f6dabe16b1e6"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/debug-recovery-final-0-splinterdb_forked_child_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/debug-recovery-final-0-splinterdb_forked_child_test.log",
+      "sha256": "836321b74957f79ef96bdbd561995ae5b4f880aa826033d3233083115f1b2467"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/debug-recovery-final-validation.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/debug-recovery-final-validation.json",
+      "sha256": "e284c79c1bad059eb9808699d73cadace3ebf43bea1652431f3a5164ad7899ce"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/debug-validation.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/debug-validation.json",
+      "sha256": "338806d9303ba398053b9143971f889c1278a752a397e71cb27625f34679a89c"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/release-0-splinterdb_forked_child_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/release-0-splinterdb_forked_child_test.log",
+      "sha256": "b90ffabc5d2e6559294cc592a95ab58f8efddaf49ef3ab2999740797b9a0f9e8"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/release-1-splinterdb_quick_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/release-1-splinterdb_quick_test.log",
+      "sha256": "975f243f06f53784eb32e1feb5ca243cb64e4cdb98686eb48d36a4c2b12c8b26"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/release-2-driver_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/release-2-driver_test.log",
+      "sha256": "273f15379ef69cb015129bb65f436a35a30c5191bcb243ec5e14c19218bb81b6"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/release-3-splinter_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/release-3-splinter_test.log",
+      "sha256": "d207e5b2a94c3f3244db4a0739bfce58c1180479eec9095d547f06ffd42e8279"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/release-recovery-final-0-splinterdb_forked_child_test.log",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/release-recovery-final-0-splinterdb_forked_child_test.log",
+      "sha256": "ceb1faadced23206e2cbe07b75ff5e3e0e57f4a215b6b9f8bb0fe2ee32c116d5"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/release-recovery-final-validation.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/release-recovery-final-validation.json",
+      "sha256": "2eabe95f739a1344c0b70fa461c2c18e23ce0f717ca38a1bbce9b9c44165984b"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/release-validation.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/release-validation.json",
+      "sha256": "da198663b62172edb07de6ae82905d0e4ee5ccff531aab07d645377c8da07363"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/run_validation.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/run_validation.py",
+      "sha256": "bcd301c6ddd6f7b7cb649b19951ddb9a9cfefd46b25b42345f2c83da5065658e"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/shared/before.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/shared/before.json",
+      "sha256": "133ae8f9f5fda20e884fd1d283d857d389a96cef6a74a82b7a17fa094a0cc6e5"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/shared/run_job.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/shared/run_job.py",
+      "sha256": "908d86de805e6efd41b423c919187f2df14715104f047e10fa8a6c57129cc773"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/shared/test_root_branches.py",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/shared/test_root_branches.py",
+      "sha256": "36f5b93940442f3806266d12284fe4da2927b56b4f1882c957df7519696d3da7"
+    },
+    {
+      "source": "benchmarks/results-20261013/main-7bb5fab/tests/source-sha256.json",
+      "preserved": "benchmarks/results-20261013/main-7bb5fab-log-group-limit/tests/source-sha256.json",
+      "sha256": "08ac03c191f53d7952361cb1a642779bec01e2dd2fdf6a1b719562b80b997ea7"
+    }
+  ]
+}

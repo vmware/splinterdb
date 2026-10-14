@@ -77,6 +77,7 @@ typedef struct master_config {
 
    // log
    bool32 use_log;
+   uint64 log_group_size_pages;
    /*
     * Arm an automatic checkpoint once the live log has grown by this many
     * bytes.  Zero means follow cache_capacity, matching the production default

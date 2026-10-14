@@ -1,0 +1,50 @@
+[
+  {
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "log-async-fc0-debug-reports_failure_and_retries",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-fc0bc8f7/debug/bin/unit/splinter_test",
+      "test_automatic_log_barrier_reports_failure_and_retries"
+    ],
+    "returncode": 0,
+    "results": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 123 ms"
+    ]
+  },
+  {
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "log-async-fc0-debug-submission_failure_retries",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-fc0bc8f7/debug/bin/unit/splinter_test",
+      "test_automatic_log_barrier_submission_failure_retries"
+    ],
+    "returncode": 0,
+    "results": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 124 ms"
+    ]
+  },
+  {
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "log-async-fc0-debug-insert_does_not_wait",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-fc0bc8f7/debug/bin/unit/splinter_test",
+      "test_automatic_log_barrier_insert_does_not_wait"
+    ],
+    "returncode": 0,
+    "results": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 147 ms"
+    ]
+  }
+]
