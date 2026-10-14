@@ -1,0 +1,11 @@
+build-main-7bb5fab/release/bin/driver_test: splinterdb_build_version fb878f13-dirty
+Dispatch test log_test
+
+Started log_test!!
+Malformed log page sequence at page 1843200: group=3 page=0 follows group=1 page=0 (terminated).
+Unsupported log format version 2; this build requires version 1.
+Unsupported log format version 2; this build requires version 1.
+shard_log_iterator_init: record validation failed in group 1 at log page 139591680: Invalid argument; discarding this group and the rest
+Malformed log page sequence at page 140378112: group=1 page=0 follows group=1 page=0.
+shard_log_iterator_init: record validation failed in group 2 at log page 141168640: Input/output error; discarding this group and the rest
+log returned 500000 of 500000 entries

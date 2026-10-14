@@ -91,8 +91,9 @@ typedef void (*log_write_finish_fn)(log_write_token *token,
  *
  * Opaque durability cut returned by log_make_durable_begin().  A successful
  * begin holds one reference on the in-memory log handle until the matching
- * log_make_durable_wait(). Once the owner has otherwise quiesced and retired
- * the stream, that pin lets it deinit the stream between the two calls.
+ * log_make_durable_wait() or log_make_durable_release(). Once the owner has
+ * otherwise quiesced and retired the stream, that pin lets it deinit the stream
+ * between the two calls.
  *
  * The log_durable_ticket identifies the set of writes covered by the
  * make_durable_begin request. (i.e. all writes whose reservation completed
@@ -108,6 +109,8 @@ typedef platform_status (
    *log_make_durable_begin_fn)(log_handle *log, log_durable_ticket *ticket_out);
 typedef platform_status (*log_make_durable_wait_fn)(log_handle        *log,
                                                     log_durable_ticket ticket);
+typedef void (*log_make_durable_release_fn)(log_handle        *log,
+                                            log_durable_ticket ticket);
 
 /*
  * Finish the log: ensure that everything in the log (including reserved writes
@@ -167,6 +170,7 @@ typedef struct log_ops {
    log_write_finish_fn           write_finish;
    log_make_durable_begin_fn     make_durable_begin;
    log_make_durable_wait_fn      make_durable_wait;
+   log_make_durable_release_fn   make_durable_release;
    log_seal_fn                   seal;
    log_deinit_fn                 deinit;
    log_head_fn                   head;
@@ -259,7 +263,8 @@ log_write(log_handle *log,
 /*
  * Take a quick cut of everything reserved for write so far and return a ticket
  * for it. Writers may run concurrently with this operation.  A successful begin
- * must be paired with exactly one log_make_durable_wait(), even when ticket_out
+ * must be paired with exactly one log_make_durable_wait() or
+ * log_make_durable_release(), even when ticket_out
  * is zero or a later operation makes the cut durable first.
  *
  * The ticket prevents the handle from being freed until wait consumes it. This
@@ -281,6 +286,17 @@ static inline platform_status
 log_make_durable_wait(log_handle *log, log_durable_ticket ticket)
 {
    return log->ops->make_durable_wait(log, ticket);
+}
+
+/* Abandon a ticket without making it durable. This only releases its handle
+ * pin: the group cut remains and no durability guarantee is made. Keep the
+ * log's owner reference alive when a strict no-I/O release is required;
+ * releasing the last pin on a retired stream may reclaim allocation metadata.
+ */
+static inline void
+log_make_durable_release(log_handle *log, log_durable_ticket ticket)
+{
+   log->ops->make_durable_release(log, ticket);
 }
 
 /* Convenience wrapper for callers that do not need to release a lock early. */

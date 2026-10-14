@@ -1,0 +1,3 @@
+# Preserve exact validated source snapshots and API probes.
+DisableFormat: true
+SortIncludes: Never

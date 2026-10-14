@@ -1,0 +1,7 @@
+Running 1 CTests, suite name 'splinterdb_quick', test case 'test_filtered_range_persisted_mixed_seeds'.
+TEST 1/1 splinterdb_quick:test_filtered_range_persisted_mixed_seeds mixed-seed scan bounded=0 forwards=0: initial seeds=2 final seeds=3
+mixed-seed scan bounded=0 forwards=1: initial seeds=1 final seeds=3
+mixed-seed scan bounded=1 forwards=0: initial seeds=2 final seeds=3
+mixed-seed scan bounded=1 forwards=1: initial seeds=1 final seeds=3
+[OK]
+RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 884 ms

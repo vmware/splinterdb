@@ -1,0 +1,122 @@
+[
+  {
+    "regime": "resident",
+    "phase": "point:uniform@1",
+    "samples": {
+      "mean": 690741.25,
+      "min": 688766.2,
+      "max": 692716.3,
+      "samples": 2,
+      "values": [
+        692716.3,
+        688766.2
+      ]
+    },
+    "last_vs_first_pct": -0.5702334418866806
+  },
+  {
+    "regime": "resident",
+    "phase": "point:uniform@8",
+    "samples": {
+      "mean": 3755201.6,
+      "min": 3747424.5,
+      "max": 3762978.7,
+      "samples": 2,
+      "values": [
+        3747424.5,
+        3762978.7
+      ]
+    },
+    "last_vs_first_pct": 0.41506373243811456
+  },
+  {
+    "regime": "resident",
+    "phase": "range:uniform:1@8",
+    "samples": {
+      "mean": 369257.55,
+      "min": 363033.5,
+      "max": 375481.6,
+      "samples": 2,
+      "values": [
+        363033.5,
+        375481.6
+      ]
+    },
+    "last_vs_first_pct": 3.428912207826551
+  },
+  {
+    "regime": "resident",
+    "phase": "range:uniform:10000@8",
+    "samples": {
+      "mean": 2913.0,
+      "min": 2894.8,
+      "max": 2931.2,
+      "samples": 2,
+      "values": [
+        2894.8,
+        2931.2
+      ]
+    },
+    "last_vs_first_pct": 1.2574271106812196
+  },
+  {
+    "regime": "disk",
+    "phase": "point:uniform@8",
+    "samples": {
+      "mean": 142173.84999999998,
+      "min": 140322.8,
+      "max": 144024.9,
+      "samples": 2,
+      "values": [
+        144024.9,
+        140322.8
+      ]
+    },
+    "last_vs_first_pct": -2.570458302696277
+  },
+  {
+    "regime": "disk",
+    "phase": "range:uniform:1@8",
+    "samples": {
+      "mean": 61259.05,
+      "min": 60885.8,
+      "max": 61632.3,
+      "samples": 2,
+      "values": [
+        61632.3,
+        60885.8
+      ]
+    },
+    "last_vs_first_pct": -1.211215547691713
+  },
+  {
+    "regime": "disk",
+    "phase": "range:uniform:10000@8",
+    "samples": {
+      "mean": 742.45,
+      "min": 741.3,
+      "max": 743.6,
+      "samples": 2,
+      "values": [
+        741.3,
+        743.6
+      ]
+    },
+    "last_vs_first_pct": 0.3102657493592398
+  },
+  {
+    "regime": "repeat-resident-disk-point8",
+    "phase": "point:uniform@8",
+    "samples": {
+      "mean": 4070674.25,
+      "min": 4026197.4,
+      "max": 4115151.1,
+      "samples": 2,
+      "values": [
+        4026197.4,
+        4115151.1
+      ]
+    },
+    "last_vs_first_pct": 2.2093725459163993
+  }
+]

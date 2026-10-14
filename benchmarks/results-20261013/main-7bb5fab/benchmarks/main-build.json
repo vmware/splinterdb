@@ -76,7 +76,7 @@
       "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/sources/insert_benchmark.c",
       "source_sha256": "75acbda52b2a8949f1d61710a8d89250d4dac63b12ec9803b89170f9c2cc0b26"
     },
-    "prefix_kvbench": {
+    "barrier_bench": {
       "command": [
         "cc",
         "-D_GNU_SOURCE",
@@ -91,27 +91,25 @@
         "-ffast-math",
         "-flto",
         "-march=native",
-        "-DKVBENCH_CLOSE_HAS_FORCE",
-        "-DKVBENCH_SPACE_MODE",
         "-I",
         "/home/rob/projects/splinterdb/include",
         "-I",
         "/home/rob/projects/splinterdb/src",
         "-I",
         "/home/rob/projects/splinterdb/src/platform_linux",
-        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/sources/prefix_kvbench.c",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/sources/barrier_bench.c",
         "/home/rob/projects/splinterdb/build-main-7bb5fab/release/lib/libsplinterdb.a",
         "-laio",
         "-lxxhash",
         "-lm",
         "-lpthread",
         "-o",
-        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/bin/main/prefix_kvbench"
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/bin/main/barrier_bench"
       ],
-      "binary": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/bin/main/prefix_kvbench",
-      "binary_sha256": "f0853a27c665c080a1addef88e382382747d207b39a5318dd3f22afad5fe5fba",
-      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/sources/prefix_kvbench.c",
-      "source_sha256": "127357ddacf129b1a15d2c8e5d60f928d28a101b2ea414ff6d7fff4c2e386d51"
+      "binary": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/bin/main/barrier_bench",
+      "binary_sha256": "7e61ee5672f7749efb6a73c83e32074fbd9860aaa619b0fbf1828b7ef60ea702",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/sources/barrier_bench.c",
+      "source_sha256": "1784a5d6d1b627858a0c8a9a6f718cd7d002a562e680d5cbdde23829167c015c"
     }
   },
   "source_files_sha256": {

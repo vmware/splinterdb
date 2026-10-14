@@ -1247,6 +1247,7 @@ core_memtable_iterator_init(core_handle    *spl,
                               spl->cfg.btree_cfg,
                               itor,
                               root_addr,
+                              0,
                               PAGE_TYPE_MEMTABLE,
                               min_key_comparison,
                               min_key,
@@ -1832,8 +1833,14 @@ core_memtable_lookup(core_handle   *spl,
    page_type type =
       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
 
-   return btree_lookup_and_merge(
-      cc, cfg, root_addr, type, target, result, NULL);
+   return btree_lookup_and_merge(cc,
+                                 cfg,
+                                 root_addr,
+                                 BTREE_BRANCH_FORMAT_VERSION,
+                                 type,
+                                 target,
+                                 result,
+                                 NULL);
 }
 
 static platform_status
@@ -1920,6 +1927,7 @@ core_start_btree_iterator_init_async(
    core_btree_iterator_init_async_context *ctxt,
    btree_iterator                         *itor,
    uint64                                  root_addr,
+   uint16                                  format_version,
    page_type                               page_type,
    comparison                              min_key_comparison,
    key                                     min_key,
@@ -1935,6 +1943,7 @@ core_start_btree_iterator_init_async(
                                    spl->cfg.btree_cfg,
                                    itor,
                                    root_addr,
+                                   format_version,
                                    page_type,
                                    min_key_comparison,
                                    min_key,
@@ -2047,26 +2056,24 @@ core_range_iterator_has_next_leaf(core_range_iterator *range_itor)
               && range_itor->max_key_comparison == less_than_or_equal);
 }
 
-platform_status
-core_range_iterator_init(core_handle         *spl,
-                         core_range_iterator *range_itor,
-                         comparison           min_key_comparison,
-                         key                  min_key,
-                         comparison           max_key_comparison,
-                         key                  max_key,
-                         comparison           start_key_comparison,
-                         key                  start_key)
+struct core_range_filter {
+   splinterdb_key_predicate predicate;
+   void                    *context;
+   key_buffer               routing_key;
+   routing_filter_query     query;
+};
+
+static void
+core_range_iterator_span_deinit(core_range_iterator *range_itor);
+
+/* A span owns branch references and positioning buffers. The filter belongs to
+ * the whole iterator and survives movement through empty or exhausted spans. */
+static void
+core_range_iterator_init_empty(core_handle         *spl,
+                               core_range_iterator *range_itor,
+                               comparison           min_key_comparison,
+                               comparison           max_key_comparison)
 {
-   platform_status rc;
-
-   debug_assert(!key_is_null(min_key));
-   debug_assert(!key_is_null(max_key));
-   debug_assert(!key_is_null(start_key));
-   debug_assert(min_key_comparison == greater_than
-                || min_key_comparison == greater_than_or_equal);
-   debug_assert(max_key_comparison == less_than
-                || max_key_comparison == less_than_or_equal);
-
    range_itor->spl                = spl;
    range_itor->super.ops          = &core_range_iterator_ops;
    range_itor->num_branches       = 0;
@@ -2077,11 +2084,144 @@ core_range_iterator_init(core_handle         *spl,
    range_itor->max_key_comparison = max_key_comparison;
    ZERO_ARRAY(range_itor->compacted);
    ZERO_ARRAY(range_itor->btree_itor_initialized);
-
    key_buffer_init(&range_itor->min_key, PROCESS_PRIVATE_HEAP_ID);
    key_buffer_init(&range_itor->max_key, PROCESS_PRIVATE_HEAP_ID);
    key_buffer_init(&range_itor->local_min_key, PROCESS_PRIVATE_HEAP_ID);
    key_buffer_init(&range_itor->local_max_key, PROCESS_PRIVATE_HEAP_ID);
+}
+
+/* Key filtering must happen before message merging: skipped branches
+ * may hold part of the update history of a nonmatching key. */
+static bool32
+core_range_iterator_key_matches(void *context, key tuple_key)
+{
+   core_range_filter *filter = context;
+   return filter->predicate(filter->context, key_slice(tuple_key));
+}
+
+static platform_status
+core_range_iterator_init_span(core_handle         *spl,
+                              core_range_iterator *range_itor,
+                              comparison           min_key_comparison,
+                              key                  min_key,
+                              comparison           max_key_comparison,
+                              key                  max_key,
+                              comparison           start_key_comparison,
+                              key                  start_key);
+
+platform_status
+core_range_iterator_init(core_handle         *spl,
+                         core_range_iterator *range_itor,
+                         comparison           min_key_comparison,
+                         key                  min_key,
+                         comparison           max_key_comparison,
+                         key                  max_key,
+                         comparison           start_key_comparison,
+                         key                  start_key)
+{
+   return core_range_iterator_init_with_filter(spl,
+                                               range_itor,
+                                               min_key_comparison,
+                                               min_key,
+                                               max_key_comparison,
+                                               max_key,
+                                               start_key_comparison,
+                                               start_key,
+                                               NULL,
+                                               NULL,
+                                               NULL_KEY);
+}
+
+platform_status
+core_range_iterator_init_with_filter(core_handle         *spl,
+                                     core_range_iterator *range_itor,
+                                     comparison           min_key_comparison,
+                                     key                  min_key,
+                                     comparison           max_key_comparison,
+                                     key                  max_key,
+                                     comparison           start_key_comparison,
+                                     key                  start_key,
+                                     splinterdb_key_predicate predicate,
+                                     void                    *predicate_context,
+                                     key routing_filter_key)
+{
+   range_itor->filter = NULL;
+   platform_status rc = STATUS_OK;
+   if (predicate == NULL && !key_is_null(routing_filter_key)) {
+      rc = STATUS_BAD_PARAM;
+      goto fail_before_span;
+   }
+   if (predicate != NULL) {
+      core_range_filter *filter = TYPED_ZALLOC(PROCESS_PRIVATE_HEAP_ID, filter);
+      if (filter == NULL) {
+         rc = STATUS_NO_MEMORY;
+         goto fail_before_span;
+      }
+      range_itor->filter = filter;
+      filter->predicate  = predicate;
+      filter->context    = predicate_context;
+      key_buffer_init(&filter->routing_key, PROCESS_PRIVATE_HEAP_ID);
+      routing_filter_query_init(&filter->query, NULL_KEY);
+      if (!key_is_null(routing_filter_key)) {
+         rc = key_buffer_copy_key(&filter->routing_key, routing_filter_key);
+         if (!SUCCESS(rc)) {
+            goto fail_before_span;
+         }
+         routing_filter_query_init(&filter->query,
+                                   key_buffer_key(&filter->routing_key));
+      }
+   }
+
+   rc = core_range_iterator_init_span(spl,
+                                      range_itor,
+                                      min_key_comparison,
+                                      min_key,
+                                      max_key_comparison,
+                                      max_key,
+                                      start_key_comparison,
+                                      start_key);
+   if (!SUCCESS(rc)) {
+      core_range_iterator_deinit(range_itor);
+   }
+   return rc;
+
+fail_before_span:
+   core_range_iterator_init_empty(
+      spl, range_itor, min_key_comparison, max_key_comparison);
+   core_range_iterator_deinit(range_itor);
+   return rc;
+}
+
+static platform_status
+core_range_iterator_init_span(core_handle         *spl,
+                              core_range_iterator *range_itor,
+                              comparison           min_key_comparison,
+                              key                  min_key,
+                              comparison           max_key_comparison,
+                              key                  max_key,
+                              comparison           start_key_comparison,
+                              key                  start_key)
+{
+   platform_status rc;
+   DECLARE_AUTO_KEY_BUFFER(restart_key, PROCESS_PRIVATE_HEAP_ID);
+   routing_filter_query *filter_query =
+      range_itor->filter != NULL
+            && !key_is_null(range_itor->filter->query.target)
+         ? &range_itor->filter->query
+         : NULL;
+
+restart:
+
+   debug_assert(!key_is_null(min_key));
+   debug_assert(!key_is_null(max_key));
+   debug_assert(!key_is_null(start_key));
+   debug_assert(min_key_comparison == greater_than
+                || min_key_comparison == greater_than_or_equal);
+   debug_assert(max_key_comparison == less_than
+                || max_key_comparison == less_than_or_equal);
+
+   core_range_iterator_init_empty(
+      spl, range_itor, min_key_comparison, max_key_comparison);
 
    bool32 forward_start = comparison_is_forward(start_key_comparison);
    int    min_start_cmp = core_key_compare(spl, min_key, start_key);
@@ -2114,12 +2254,12 @@ core_range_iterator_init(core_handle         *spl,
    // copy over global min and max
    rc = key_buffer_copy_key(&range_itor->min_key, min_key);
    if (!SUCCESS(rc)) {
-      core_range_iterator_deinit(range_itor);
+      core_range_iterator_span_deinit(range_itor);
       return rc;
    }
    rc = key_buffer_copy_key(&range_itor->max_key, max_key);
    if (!SUCCESS(rc)) {
-      core_range_iterator_deinit(range_itor);
+      core_range_iterator_span_deinit(range_itor);
       return rc;
    }
 
@@ -2171,6 +2311,8 @@ core_range_iterator_init(core_handle         *spl,
       }
 
       range_itor->branch[range_itor->num_branches].addr = root_addr;
+      range_itor->branch[range_itor->num_branches].format_version =
+         compacted ? BTREE_BRANCH_FORMAT_VERSION : 0;
       range_itor->branch[range_itor->num_branches].type =
          compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
       range_itor->num_branches++;
@@ -2180,7 +2322,7 @@ core_range_iterator_init(core_handle         *spl,
    rc = trunk_init_root_handle(&spl->trunk_context, &root_handle);
    memtable_end_lookup(&spl->mt_ctxt);
    if (!SUCCESS(rc)) {
-      core_range_iterator_deinit(range_itor);
+      core_range_iterator_span_deinit(range_itor);
       return rc;
    }
 
@@ -2189,6 +2331,7 @@ core_range_iterator_init(core_handle         *spl,
                                &root_handle,
                                start_key,
                                start_key_comparison,
+                               filter_query,
                                CORE_RANGE_ITOR_MAX_BRANCHES,
                                &range_itor->num_branches,
                                range_itor->branch,
@@ -2196,7 +2339,7 @@ core_range_iterator_init(core_handle         *spl,
                                &range_itor->local_max_key);
    trunk_ondisk_node_handle_deinit(&root_handle);
    if (!SUCCESS(rc)) {
-      core_range_iterator_deinit(range_itor);
+      core_range_iterator_span_deinit(range_itor);
       return rc;
    }
 
@@ -2216,7 +2359,7 @@ core_range_iterator_init(core_handle         *spl,
       rc = key_buffer_copy_key(&range_itor->local_min_key, min_key);
       range_itor->local_min_key_comparison = min_key_comparison;
       if (!SUCCESS(rc)) {
-         core_range_iterator_deinit(range_itor);
+         core_range_iterator_span_deinit(range_itor);
          return rc;
       }
    }
@@ -2228,7 +2371,7 @@ core_range_iterator_init(core_handle         *spl,
       range_itor->local_max_key_comparison = max_key_comparison;
       range_itor->local_max_key_truncated  = TRUE;
       if (!SUCCESS(rc)) {
-         core_range_iterator_deinit(range_itor);
+         core_range_iterator_span_deinit(range_itor);
          return rc;
       }
    }
@@ -2245,7 +2388,7 @@ core_range_iterator_init(core_handle         *spl,
          TYPED_ARRAY_ZALLOC(spl->heap_id, init_ctxt, range_itor->num_branches);
    }
    if (range_itor->num_branches != 0 && init_ctxt == NULL) {
-      core_range_iterator_deinit(range_itor);
+      core_range_iterator_span_deinit(range_itor);
       return STATUS_NO_MEMORY;
    }
 
@@ -2278,6 +2421,7 @@ core_range_iterator_init(core_handle         *spl,
          &init_ctxt[i],
          btree_itor,
          branch_addr,
+         range_itor->branch[branch_no].format_version,
          page_type,
          range_itor->local_min_key_comparison,
          key_buffer_key(&range_itor->local_min_key),
@@ -2309,19 +2453,32 @@ core_range_iterator_init(core_handle         *spl,
       platform_free(spl->heap_id, init_ctxt);
    }
    if (!SUCCESS(rc)) {
-      core_range_iterator_deinit(range_itor);
+      core_range_iterator_span_deinit(range_itor);
       return rc;
    }
 
-   rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
-                              spl->cfg.data_cfg,
-                              range_itor->num_branches,
-                              range_itor->itor,
-                              MERGE_FULL,
-                              greater_than <= start_key_comparison,
-                              &range_itor->merge_itor);
+   if (range_itor->filter == NULL) {
+      rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+                                 spl->cfg.data_cfg,
+                                 range_itor->num_branches,
+                                 range_itor->itor,
+                                 MERGE_FULL,
+                                 greater_than <= start_key_comparison,
+                                 &range_itor->merge_itor);
+   } else {
+      rc =
+         merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
+                                           spl->cfg.data_cfg,
+                                           range_itor->num_branches,
+                                           range_itor->itor,
+                                           MERGE_FULL,
+                                           greater_than <= start_key_comparison,
+                                           core_range_iterator_key_matches,
+                                           range_itor->filter,
+                                           &range_itor->merge_itor);
+   }
    if (!SUCCESS(rc)) {
-      core_range_iterator_deinit(range_itor);
+      core_range_iterator_span_deinit(range_itor);
       return rc;
    }
 
@@ -2333,27 +2490,15 @@ core_range_iterator_init(core_handle         *spl,
     */
    if (!in_range && start_key_comparison >= greater_than) {
       if (core_range_iterator_has_next_leaf(range_itor)) {
-         key        local_max = key_buffer_key(&range_itor->local_max_key);
-         key_buffer local_max_buffer;
-         rc = key_buffer_init_from_key(
-            &local_max_buffer, PROCESS_PRIVATE_HEAP_ID, local_max);
-         core_range_iterator_deinit(range_itor);
+         rc = key_buffer_copy_key(&restart_key,
+                                  key_buffer_key(&range_itor->local_max_key));
+         core_range_iterator_span_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
          }
-         local_max = key_buffer_key(&local_max_buffer);
-         rc        = core_range_iterator_init(spl,
-                                       range_itor,
-                                       min_key_comparison,
-                                       min_key,
-                                       max_key_comparison,
-                                       max_key,
-                                       greater_than_or_equal,
-                                       local_max);
-         key_buffer_deinit(&local_max_buffer);
-         if (!SUCCESS(rc)) {
-            return rc;
-         }
+         start_key            = key_buffer_key(&restart_key);
+         start_key_comparison = greater_than_or_equal;
+         goto restart;
 
       } else {
          range_itor->can_next = FALSE;
@@ -2364,26 +2509,14 @@ core_range_iterator_init(core_handle         *spl,
    if (!in_range && start_key_comparison <= less_than_or_equal) {
       key local_min = key_buffer_key(&range_itor->local_min_key);
       if (core_key_compare(spl, local_min, min_key) > 0) {
-         key_buffer local_min_buffer;
-         rc = key_buffer_init_from_key(
-            &local_min_buffer, PROCESS_PRIVATE_HEAP_ID, local_min);
-         core_range_iterator_deinit(range_itor);
+         rc = key_buffer_copy_key(&restart_key, local_min);
+         core_range_iterator_span_deinit(range_itor);
          if (!SUCCESS(rc)) {
             return rc;
          }
-         local_min = key_buffer_key(&local_min_buffer);
-         rc        = core_range_iterator_init(spl,
-                                       range_itor,
-                                       min_key_comparison,
-                                       min_key,
-                                       max_key_comparison,
-                                       max_key,
-                                       less_than,
-                                       local_min);
-         key_buffer_deinit(&local_min_buffer);
-         if (!SUCCESS(rc)) {
-            return rc;
-         }
+         start_key            = key_buffer_key(&restart_key);
+         start_key_comparison = less_than;
+         goto restart;
 
       } else {
          range_itor->can_prev = FALSE;
@@ -2443,15 +2576,15 @@ core_range_iterator_next(iterator *itor)
          core_handle *spl                = range_itor->spl;
          comparison   min_key_comparison = range_itor->min_key_comparison;
          comparison   max_key_comparison = range_itor->max_key_comparison;
-         core_range_iterator_deinit(range_itor);
-         rc = core_range_iterator_init(spl,
-                                       range_itor,
-                                       min_key_comparison,
-                                       min_key,
-                                       max_key_comparison,
-                                       max_key,
-                                       greater_than_or_equal,
-                                       local_max_key);
+         core_range_iterator_span_deinit(range_itor);
+         rc = core_range_iterator_init_span(spl,
+                                            range_itor,
+                                            min_key_comparison,
+                                            min_key,
+                                            max_key_comparison,
+                                            max_key,
+                                            greater_than_or_equal,
+                                            local_max_key);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -2504,15 +2637,15 @@ core_range_iterator_prev(iterator *itor)
          core_handle *spl                = range_itor->spl;
          comparison   min_key_comparison = range_itor->min_key_comparison;
          comparison   max_key_comparison = range_itor->max_key_comparison;
-         core_range_iterator_deinit(range_itor);
-         rc = core_range_iterator_init(spl,
-                                       range_itor,
-                                       min_key_comparison,
-                                       min_key,
-                                       max_key_comparison,
-                                       max_key,
-                                       less_than,
-                                       local_min_key);
+         core_range_iterator_span_deinit(range_itor);
+         rc = core_range_iterator_init_span(spl,
+                                            range_itor,
+                                            min_key_comparison,
+                                            min_key,
+                                            max_key_comparison,
+                                            max_key,
+                                            less_than,
+                                            local_min_key);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -2542,8 +2675,8 @@ core_range_iterator_can_next(iterator *itor)
    return range_itor->can_next;
 }
 
-void
-core_range_iterator_deinit(core_range_iterator *range_itor)
+static void
+core_range_iterator_span_deinit(core_range_iterator *range_itor)
 {
    core_handle *spl = range_itor->spl;
    if (range_itor->merge_itor != NULL) {
@@ -2572,6 +2705,17 @@ core_range_iterator_deinit(core_range_iterator *range_itor)
    key_buffer_deinit(&range_itor->max_key);
    key_buffer_deinit(&range_itor->local_min_key);
    key_buffer_deinit(&range_itor->local_max_key);
+}
+
+void
+core_range_iterator_deinit(core_range_iterator *range_itor)
+{
+   core_range_iterator_span_deinit(range_itor);
+   if (range_itor->filter != NULL) {
+      key_buffer_deinit(&range_itor->filter->routing_key);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, range_itor->filter);
+      range_itor->filter = NULL;
+   }
 }
 
 /*
@@ -2693,6 +2837,7 @@ core_fetch_and_update_catch_up(core_handle         *spl,
       rc = btree_lookup_and_merge(spl->cc,
                                   spl->cfg.btree_cfg,
                                   refs[i].root_addr,
+                                  BTREE_BRANCH_FORMAT_VERSION,
                                   refs[i].type,
                                   tuple_key,
                                   catch_up_result,
@@ -4039,11 +4184,11 @@ core_checkpoint_target_status(core_handle *spl,
    return rc;
 }
 
-platform_status
-core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
+static platform_status
+core_checkpoint_from_generation(core_handle *spl,
+                                uint64       target,
+                                uint64       rotation_timeout_ns)
 {
-   uint64 target = memtable_generation(&spl->mt_ctxt);
-
    core_checkpoint_result request;
    platform_status        rc = core_checkpoint_request(
       spl, CORE_CHECKPOINT_REQUEST_REQUIRED, 0, &request);
@@ -4161,17 +4306,36 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 }
 
 platform_status
-core_durable_barrier(core_handle *spl)
+core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns)
 {
+   return core_checkpoint_from_generation(
+      spl, memtable_generation(&spl->mt_ctxt), rotation_timeout_ns);
+}
+
+typedef struct core_durable_barrier_state {
+   task                     work;
+   core_handle             *spl;
+   splinterdb_notification *notification;
+   log_handle              *live;
+   log_durable_ticket       log_ticket;
+   uint64                   publication_target;
+   uint64                   checkpoint_target;
+} core_durable_barrier_state;
+
+/* Capture the cut while the caller still owns the core's operation lifetime.
+ * No page graduation, device I/O, or task dispatch happens on this path. */
+static platform_status
+core_durable_barrier_begin(core_durable_barrier_state *state,
+                           bool32                      retain_insert_epoch)
+{
+   core_handle *spl = state->spl;
    /* Without a WAL, the COW root is the only available durability route. */
    if (!spl->cfg.use_log) {
-      return core_checkpoint(spl, 0);
+      state->checkpoint_target = memtable_generation(&spl->mt_ctxt);
+      return STATUS_OK;
    }
 
-   log_handle        *live               = NULL;
-   log_durable_ticket log_ticket         = 0;
-   uint64             publication_target = 0;
-   platform_status    rc;
+   platform_status rc;
 
    /*
     * Pin the live-log pointer against memtable rotation while taking the cut.
@@ -4184,33 +4348,117 @@ core_durable_barrier(core_handle *spl)
       rc = STATUS_INVALID_STATE;
       goto end_insert_epoch;
    }
-   live = spl->log;
+   state->live = spl->log;
 
    platform_mutex_lock(&spl->checkpoint_state_lock);
    if (spl->checkpoint.phase == CORE_CHECKPOINT_SEALING
        || spl->checkpoint.phase == CORE_CHECKPOINT_PUBLISHING)
    {
-      publication_target = spl->checkpoint.publications + 1;
-      platform_assert(publication_target != 0);
+      state->publication_target = spl->checkpoint.publications + 1;
+      platform_assert(state->publication_target != 0);
    }
    platform_mutex_unlock(&spl->checkpoint_state_lock);
 
-   rc = log_make_durable_begin(live, &log_ticket);
+   rc = log_make_durable_begin(state->live, &state->log_ticket);
 
 end_insert_epoch:
-   memtable_end_insert(&spl->mt_ctxt);
-   if (!SUCCESS(rc)) {
-      return rc;
+   if (!retain_insert_epoch || !SUCCESS(rc)) {
+      memtable_end_insert(&spl->mt_ctxt);
    }
+   return rc;
+}
 
+static platform_status
+core_durable_barrier_finish(core_durable_barrier_state *state)
+{
+   core_handle *spl = state->spl;
+   if (!spl->cfg.use_log) {
+      return core_checkpoint_from_generation(spl, state->checkpoint_target, 0);
+   }
    /* wait consumes the ticket and its pin on every return path. */
-   rc = log_make_durable_wait(live, log_ticket);
+   platform_status rc = log_make_durable_wait(state->live, state->log_ticket);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   if (publication_target != 0) {
-      rc = core_checkpoint_wait_for_publication(spl, publication_target);
+   if (state->publication_target != 0) {
+      rc = core_checkpoint_wait_for_publication(spl, state->publication_target);
+   }
+   return rc;
+}
+
+platform_status
+core_durable_barrier(core_handle *spl)
+{
+   core_durable_barrier_state state = {.spl = spl};
+   platform_status            rc    = core_durable_barrier_begin(&state, FALSE);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   return core_durable_barrier_finish(&state);
+}
+
+/* A checkpoint/publication wait may pump the normal queue. Defer another
+ * barrier reached by that pump instead of building a chain of blocking waits
+ * on this thread's stack. Independent workers may still finish concurrently. */
+static void
+core_durable_barrier_task(task *work)
+{
+   core_durable_barrier_state *state = (core_durable_barrier_state *)work;
+   platform_status             rc;
+   if (!task_try_begin_blocking_wait(state->spl->ts)) {
+      rc = task_enqueue(state->spl->ts,
+                        TASK_TYPE_NORMAL,
+                        work,
+                        core_durable_barrier_task,
+                        FALSE);
+      if (SUCCESS(rc)) {
+         /* A worker may already have consumed/freed state. Neither this
+          * callback nor task_group_run_task accesses it after publication. */
+         return;
+      }
+      if (state->spl->cfg.use_log) {
+         log_make_durable_release(state->live, state->log_ticket);
+      }
+   } else {
+      rc = core_durable_barrier_finish(state);
+      task_end_blocking_wait(state->spl->ts);
+   }
+   splinterdb_notification_complete(state->notification, rc);
+   platform_free(state->spl->heap_id, state);
+}
+
+platform_status
+core_durable_barrier_async(core_handle             *spl,
+                           splinterdb_notification *notification)
+{
+   core_durable_barrier_state *state = TYPED_ZALLOC(spl->heap_id, state);
+   if (state == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+   state->spl          = spl;
+   state->notification = notification;
+   /* Retain the insert epoch until publication. On enqueue failure, the
+    * live log still owns a reference, so dropping our pin cannot destroy a
+    * retired log (which could need to read allocation metadata). */
+   platform_status rc = core_durable_barrier_begin(state, TRUE);
+   if (!SUCCESS(rc)) {
+      platform_free(spl->heap_id, state);
+      return rc;
+   }
+   rc = task_enqueue(spl->ts,
+                     TASK_TYPE_NORMAL,
+                     &state->work,
+                     core_durable_barrier_task,
+                     FALSE);
+   if (!SUCCESS(rc)) {
+      if (spl->cfg.use_log) {
+         log_make_durable_release(state->live, state->log_ticket);
+      }
+      platform_free(spl->heap_id, state);
+   }
+   if (spl->cfg.use_log) {
+      memtable_end_insert(&spl->mt_ctxt);
    }
    return rc;
 }
@@ -4786,6 +5034,7 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
       rc = btree_lookup(spl->cc,
                         spl->cfg.btree_cfg,
                         root_addr,
+                        0,
                         PAGE_TYPE_MEMTABLE,
                         target,
                         &lookup);

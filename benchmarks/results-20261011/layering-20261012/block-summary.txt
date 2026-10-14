@@ -1,0 +1,21 @@
+phase | block | before mean [min,max] | layered mean [min,max] | delta | CPU before/layered us/op | ranges overlap
+point:uniform@1 | all | 1240704 [1200582,1293343] | 1223197 [1205501,1245618] | -1.41% | 0.8065/0.8177 | True
+point:uniform@1 | 0 | 1265243 [1237144,1293343] | 1232608 [1219599,1245618] | -2.58% | 0.7907/0.8115 | True
+point:uniform@1 | 1 | 1216164 [1200582,1231746] | 1213786 [1205501,1222070] | -0.20% | 0.8224/0.8239 | True
+  before rates in order: 0=1293343, 3=1237144, 5=1200582, 6=1231746
+  before first→last drift -4.76%; before block0→block1 mean drift -3.88%
+point:uniform@8 | all | 5964690 [5678884,6486242] | 5908901 [5677861,6098403] | -0.94% | 1.3446/1.3545 | True
+point:uniform@8 | 0 | 6233376 [5980510,6486242] | 6011330 [5924258,6098403] | -3.56% | 1.2853/1.3308 | True
+point:uniform@8 | 1 | 5696004 [5678884,5713124] | 5806473 [5677861,5935084] | +1.94% | 1.4039/1.3782 | True
+  before rates in order: 0=6486242, 3=5980510, 5=5678884, 6=5713124
+  before first→last drift -11.92%; before block0→block1 mean drift -8.62%
+range:uniform:1@1 | all | 114037 [112408,116768] | 114086 [112301,116565] | +0.04% | 8.7710/8.7668 | True
+range:uniform:1@1 | 0 | 115654 [114541,116768] | 114962 [113360,116565] | -0.60% | 8.6471/8.7001 | True
+range:uniform:1@1 | 1 | 112419 [112408,112430] | 113210 [112301,114120] | +0.70% | 8.8949/8.8335 | True
+  before rates in order: 0=116768, 3=114541, 5=112408, 6=112430
+  before first→last drift -3.72%; before block0→block1 mean drift -2.80%
+range:uniform:1@8 | all | 558772 [533900,581179] | 566080 [549930,575771] | +1.31% | 14.3293/14.1342 | True
+range:uniform:1@8 | 0 | 574507 [567835,581179] | 570811 [565851,575771] | -0.64% | 13.9246/14.0135 | True
+range:uniform:1@8 | 1 | 543037 [533900,552174] | 561348 [549930,572766] | +3.37% | 14.7339/14.2549 | True
+  before rates in order: 0=567835, 3=581179, 5=533900, 6=552174
+  before first→last drift -2.76%; before block0→block1 mean drift -5.48%

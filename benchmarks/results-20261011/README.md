@@ -1,28 +1,19 @@
-# Prefix experiment evidence, 2026-10-11
+# Durable-barrier evidence, 2026-10-11
 
-See ../../docs/branch-prefix-experiment.md for interpretation and validation.
-Baseline is db3047a; the final implementation milestone is 1ef1644. Manifests
-preserve absolute original paths, commands, timestamps and binary provenance.
-No database images are included. Retained campaign runners document the original
-workspace layout and fixture sources; the portable workload builder is at
-../build_prefix_bench.py and accepts --build-root.
+See ../../docs/async-durable-barriers.md for interpretation and validation.
+Baseline is db3047a; production implementation is 9d66eee. The final changes
+outside that commit only extend the benchmark/report. Exact measured harness
+sources are retained here because the final source also received whitespace
+formatting. Build JSON files and manifests identify their source/binary hashes.
 
-The seven initial pattern/control directories measure the previous candidate.
-The three *-fixed-final directories measure the final reconstruction path.
-The resident common-prefix repeat includes the old candidate too, with identical
-candidate images for both binaries. Incompatible baseline and candidate formats
-use their own images, loaded serially with no background workers. File allocation
-and live extent measurements come from the initial, format-identical images.
+The four initial matrices contain 48 measured runs plus four pilot runs. The
+two *-io-control matrices add 24 measured runs with getrusage block-I/O counters.
+All 72 measured runs and four pilots passed process-exit crash recovery and full
+key/value verification. Commands, original absolute paths, timestamps and run
+orders are in manifests; the archived runner documents the campaign layout.
 
-Method correction: the three original *-fixed-final campaigns copied fixtures
-with buffered cp without explicitly fsyncing before O_DIRECT open/warm/timing.
-Pending copy writeback is a possible confound, not an established outlier cause.
-The original files and runners remain unchanged. The initial seven matrices
-created fresh O_DIRECT databases and did not use this copy path.
-
-`disk-common-fixed-final-fsynced` is one bounded followup: fsync each destination
-before opening, then warm, point8 and range10000@8 in ABBA order, seven seconds
-per measured phase. It reuses the same per-format images and verifies frozen
-binary hashes against the earlier manifest. All four runs pass; the large gains
-and read-I/O reductions remain. Its manifest records copy/fsync timestamps and
-fixture size/mtime, and its archived runner shows the procedure change.
+The initial verified scratch images were deleted only after completed runs;
+that reclamation is marked in their manifests. The controls use one scratch
+path per campaign, unlinking after each successfully verified subprocess and
+creating a fresh image next time. No databases are included. Full logs remain
+in the original campaign directory under the main checkout's .cache.

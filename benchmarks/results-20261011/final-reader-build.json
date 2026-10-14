@@ -1,0 +1,30 @@
+{
+  "command": [
+    "cc",
+    "-D_GNU_SOURCE",
+    "-ggdb",
+    "-Wall",
+    "-pthread",
+    "-Werror",
+    "-DXXH_STATIC_LINKING_ONLY",
+    "-fPIC",
+    "-DSPLINTERDB_PLATFORM_DIR=platform_linux",
+    "-O3",
+    "-ffast-math",
+    "-flto",
+    "-march=native",
+    "-DKVBENCH_CLOSE_HAS_FORCE",
+    "-I",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format/include",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/baseline/benchmarks/kvbench.c",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format/build-scalar/release/lib/libsplinterdb.a",
+    "-laio",
+    "-lxxhash",
+    "-lm",
+    "-lpthread",
+    "-o",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format/build-scalar/release/bin/kvbench"
+  ],
+  "source_sha256": "45cf9d2e1f74e90719885955d5a78651cc5c1d97cda2daed534a3c0cb07f48a9",
+  "binary_sha256": "ed7abc73e806e89b1f953ade2e1b0f9c7e57b27807a0e78a6523e2356f25558d"
+}

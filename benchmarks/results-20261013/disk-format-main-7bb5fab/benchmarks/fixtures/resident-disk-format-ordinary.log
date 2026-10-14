@@ -1,0 +1,7 @@
+kvbench version=disk-format splinter=splinterdb_build_version fb878f13-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/fixtures/resident-disk-format-ordinary.db mode=create n=200000 cache_mib=128 disk_gib=8 log=0 threads=1 mt_bg=0 normal_bg=0 memtable_mib=4 secs=1.0 warmup=1.0 rep=0 sabotage=0
+create took 0.008 s
+phase load:random: T=1 dist=random (fixed count)
+close took 0.122 s
+== load:random            T=1  ops=200000     secs=   0.19 ops/s=    1070182  lat us p50=0.52 p99=2.98 p99.9=5.95 max=3076.1 mean=0.90
+   cpu=0.19s ops/cpu-s=1071042 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   insert/run=0.19s drain(close)=0.12s total=0.31s drain_cpu=0.02s drain_rd=28672 drain_wr=28749824 wamp=1.159 db_apparent=162664448 db_alloc=28905472

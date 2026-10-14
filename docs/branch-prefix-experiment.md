@@ -21,9 +21,11 @@ Positioning operations perform any allocation before returning; observing the
 current tuple stays infallible. Bounds, seeks, asynchronous lookup, diagnostics,
 parent pivots and logical key-byte accounting use the full key semantics.
 
-This independent prototype reserves superblock format `0x8007`. Its format
-number must be reconciled with other format-changing projects before combining
-them. It does not depend on the separate on-disk metadata project.
+This prototype now uses branch format version `2` within main's superblock
+format `8`. Branch readers reject format `1` before interpreting its different
+page header. Earlier standalone prefix images used superblock `0x8007` and are
+rejected. The lexical opt-in controls construction only; existing compressed
+leaves remain readable after changing that setting on reopen.
 
 Debug validation passed all 48 public quick tests. The new regression checks
 compression enabled/disabled, actual compressed pages, close/reopen, point hits
@@ -145,7 +147,7 @@ still requires resolving workloads with little prefix benefit and the remaining
 resident long-scan cost.
 
 Compact CSVs, manifests, build hashes and campaign runners are retained in
-`benchmarks/results-20261011/`. Full original artifacts and images remain in
+`benchmarks/branch-prefix-history/results-20261011/`. Full original artifacts and images remain in
 `.cache/projects-20261011/benchmarks/branch-prefix/` in the main checkout.
 
 # Main integration, 2026-10-13
@@ -174,4 +176,21 @@ These are updated-feature comparisons against main `7bb5fab`, not an isolated
 measurement of merge cost. Main controls drifted; observed range overlap is
 descriptive, not a statistical confidence interval. Exact samples, build/source
 hashes, commands, verification scope and fresh correctness evidence are in
-[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
+[the integration archive](../benchmarks/branch-prefix-history/results-20261013/main-7bb5fab/README.md).
+
+# Filtered-range and disk-format integration, 2026-10-13
+
+Merged main `fc0bc8f7`, including asynchronous durable barriers, per-structure
+on-disk versions, and predicate-based filtered iterators. Branch format `2`
+identifies the prefix header layout; the superblock retains main's format `8`.
+The B-tree owns compatibility validation. Existing prefix pages do not depend on
+the current construction opt-in.
+
+Debug and release each passed 137 unit cases across B-tree, superblock, merge,
+public API and internal core suites. The compressed-leaf regression now checks
+reopen with changed construction policy and both predicate-only and
+routing-pruned forward/reverse scans. All targets, tools and examples build.
+The [integration evidence](../benchmarks/results-20261013/prefix-main-fc0bc8f7/README.md)
+records exact commands and source/binary hashes. Prior benchmark evidence is
+preserved under `benchmarks/branch-prefix-history`; it does not establish
+performance on this new main.

@@ -91,17 +91,16 @@ main(int argc, char **argv)
                       ? NULL_SLICE
                       : slice_create(strlen(opts.max_key), opts.max_key);
 
-   splinterdb_notification notification;
-   splinterdb_notification_init_blocking(&notification);
-
    printf("Optimizing %s in [%s, %s)...\n",
           opts.filename,
           opts.min_key == NULL ? "-infinity" : opts.min_key,
           opts.max_key == NULL ? "+infinity" : opts.max_key);
 
-   rc = splinterdb_optimize(
-      spl, min_key, max_key, opts.full_leaf_compactions, &notification);
-   splinterdb_notification_deinit(&notification);
+   rc = splinterdb_optimize(spl,
+                            min_key,
+                            max_key,
+                            opts.full_leaf_compactions,
+                            SPLINTERDB_NOTIFICATION_BLOCKING);
 
    if (rc == 0) {
       printf("Optimize completed successfully.\n");

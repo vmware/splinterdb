@@ -1,0 +1,41 @@
+{
+  "project": "filtered-ranges",
+  "scope": "new main versus updated feature; merge cost not isolated",
+  "workloads": [
+    {
+      "workload": "insert",
+      "runs": 7,
+      "feature_runs": 2,
+      "verified": 7,
+      "complete": true,
+      "warmup_runs": 0
+    },
+    {
+      "workload": "disk",
+      "runs": 5,
+      "feature_runs": 2,
+      "verified": 5,
+      "complete": true,
+      "warmup_runs": 0
+    },
+    {
+      "workload": "hash",
+      "runs": 4,
+      "feature_runs": 2,
+      "verified": 4,
+      "complete": true,
+      "warmup_runs": 0
+    },
+    {
+      "workload": "resident",
+      "runs": 5,
+      "feature_runs": 2,
+      "verified": 5,
+      "complete": true,
+      "warmup_runs": 0
+    }
+  ],
+  "reported_errors": 0,
+  "reported_violations": 0,
+  "all_runs_verified": true
+}

@@ -1,0 +1,33 @@
+[
+  {
+    "name": "mixed-seeds",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format/build-filter-disk-integration/release/bin/unit/splinterdb_quick_test",
+      "test_filtered_range_persisted_mixed_seeds"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/scratch-release/mixed-seeds",
+    "started": 1791922906.9443724,
+    "returncode": 0,
+    "finished": 1791922907.4106672,
+    "log_sha256": "36db634832a9d63f4271e50acad3add6879d4943d9b5ce184d9c6886bffc7af7",
+    "summaries": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 448 ms"
+    ],
+    "passed": true
+  },
+  {
+    "name": "quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format/build-filter-disk-integration/release/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/scratch-release/quick",
+    "started": 1791922907.4114816,
+    "returncode": 0,
+    "finished": 1791922920.1754417,
+    "log_sha256": "3cf0e00cbc5209848000e1130ad4abcee044a949a781163315079fd2140963f2",
+    "summaries": [
+      "RESULTS: 56 tests (56 ok, 0 failed, 0 skipped) ran in 12756 ms"
+    ],
+    "passed": true
+  }
+]

@@ -1,0 +1,43 @@
+Running 1 CTests, suite name 'superblock', test case 'all'.
+TEST 1/16 superblock:test_format_sets_fresh_state [OK]
+TEST 2/16 superblock:test_snapshot_persists_state [OK]
+TEST 3/16 superblock:test_two_log_checkpoint_transitions [OK]
+TEST 4/16 superblock:test_snapshot_preserves_unincorporated_sealed_log [OK]
+TEST 5/16 superblock:test_two_log_checkpoint_torn_begin [OK]
+TEST 6/16 superblock:test_torn_write_falls_back_to_older_generation [OK]
+TEST 7/16 superblock:test_generation_wrap_selects_newest_slot [OK]
+TEST 8/16 superblock:test_both_slots_corrupt_is_not_found superblock_mount: no valid superblock found
+[OK]
+TEST 9/16 superblock:test_mount_rejects_invalid_metadata superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+[OK]
+TEST 10/16 superblock:test_slot_read_error_falls_back_to_peer [OK]
+TEST 11/16 superblock:test_both_slot_read_errors_are_reported superblock_mount: no readable valid superblock found: Input/output error
+[OK]
+TEST 12/16 superblock:test_read_geometry superblock_read_bootstrap: no valid superblock found
+[OK]
+TEST 13/16 superblock:test_read_bootstrap_allocation_state superblock_read_bootstrap: no valid superblock found
+[OK]
+TEST 14/16 superblock:test_bootstrap_geometry_metadata_budget Device geometry needs 134217728 bytes of cache lookup metadata, which exceeds the configured cache budget of 67108864 bytes.
+Failed to open existing SplinterDB device 'db' with specified configuration: No space left on device
+[OK]
+TEST 15/16 superblock:test_unknown_structure_version_rejected Unsupported trunk format version 2; this build requires version 1.
+Unsupported trunk format version 2; this build requires version 1.
+Unsupported allocator format version 2; this build requires version 1.
+Unsupported allocator format version 2; this build requires version 1.
+Unsupported log format version 2; this build requires version 1.
+Unsupported log format version 2; this build requires version 1.
+Unsupported log format version 2; this build requires version 1.
+Unsupported log format version 2; this build requires version 1.
+[OK]
+TEST 16/16 superblock:test_unsupported_superblock_version_rejected Unsupported superblock format version 7; this build requires version 8.
+Unsupported superblock format version 7; this build requires version 8.
+Unsupported superblock format version 7; this build requires version 8.
+Unsupported superblock format version 9; this build requires version 8.
+Unsupported superblock format version 9; this build requires version 8.
+Unsupported superblock format version 9; this build requires version 8.
+[OK]
+RESULTS: 16 tests (16 ok, 0 failed, 0 skipped) ran in 28 ms

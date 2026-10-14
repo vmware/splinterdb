@@ -1,0 +1,8 @@
+
+ cache-errors/disk-log0-prefetch-guard
+phase | baseline mean [min,max] ops/s | candidate mean [min,max] ops/s | delta | p99 us B/C | CPU efficiency delta | read bytes/op B/C
+range:uniform:1@1 | 9087.0 [5314.6,12859.4] | 12577.5 [12358.7,12796.4] | +38.41% | 992.256/145.408 | +36.94% | 26806/26787
+range:uniform:1@8 | 39266.3 [11424.0,67108.6] | 67302.1 [66793.1,67811.0] | +71.40% | 4496.384/212.992 | +70.28% | 26830/26821
+range:uniform:10000@1 | 114.0 [88.4,139.6] | 140.3 [140.2,140.4] | +23.07% | 23003.136/15859.712 | +10.58% | 2970516/2967018
+range:uniform:10000@8 | 472.4 [213.2,731.6] | 773.1 [764.8,781.4] | +63.65% | 81002.496/23068.672 | +34.30% | 2882049/2881803
+samples 20 errors 0 violations 0

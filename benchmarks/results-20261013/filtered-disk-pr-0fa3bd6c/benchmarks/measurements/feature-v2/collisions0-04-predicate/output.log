@@ -1,0 +1,15 @@
+Events disabled
+loaded=524288 elapsed_ns=370127396
+Events enabled
+Events disabled
+mode,collisions,keys_per_tenant,limit,queries,ns_per_query,visited,predicate_calls,checksum,warmup_queries,cpu_s,read_bytes,write_bytes
+predicate,0,16384,1,10000,10893.7,10000,164872,82092296,500,0.096548,9842688,401408
+Events enabled
+Events disabled
+predicate,0,16384,2,10000,6357.2,20000,484872,165340036,500,0.062442,380928,0
+Events enabled
+Events disabled
+predicate,0,16384,10,10000,14718.9,100000,3044872,819143660,500,0.146992,4096,0
+Events enabled
+Events disabled
+predicate,0,16384,100,10000,106365.3,1000000,31844872,8268776600,500,1.063401,0,0

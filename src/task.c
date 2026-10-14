@@ -348,7 +348,11 @@ task_enqueue(task_system *ts,
       group->stats[tid].total_tasks_enqueued += 1;
    }
    platform_condvar_signal(&group->cv);
-   return task_group_unlock(group);
+   /* Publication transfers ownership to the queue. Do not report a
+    * recoverable failure once a worker may already have consumed the task. */
+   rc = task_group_unlock(group);
+   platform_assert_status_ok(rc);
+   return STATUS_OK;
 }
 
 /*

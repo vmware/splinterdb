@@ -1,0 +1,3 @@
+# Preserve raw measurement files and the byte-identical source patch.
+*.csv whitespace=cr-at-eol
+*.patch -whitespace

@@ -1,0 +1,61 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1  of event 'cpu_atom/cycles/u'
+# Event count (approx.): 501504
+#
+# Overhead  Symbol                  IPC   [IPC Coverage]
+# ........  ......................  ....................
+#
+   100.00%  [.] 0x000000000003cba5  -      -            
+
+
+# Samples: 16K of event 'cpu_core/cycles/u'
+# Event count (approx.): 59202519974
+#
+# Overhead  Symbol                                                           IPC   [IPC Coverage]
+# ........  ...............................................................  ....................
+#
+    17.08%  [.] trunk_ondisk_bundle_merge_lookup.constprop.0                 -      -            
+    16.27%  [.] btree_find_pivot_checked.lto_priv.0                          -      -            
+    11.71%  [.] btree_find_tuple_checked.lto_priv.0                          -      -            
+     7.93%  [.] clockcache_try_get_read.constprop.0                          -      -            
+     5.91%  [.] clockcache_unget_virtual                                     -      -            
+     4.06%  [.] clockcache_get_virtual                                       -      -            
+     3.91%  [.] key_compare                                                  -      -            
+     3.29%  [.] 0x0000000000162419                                           -      -            
+     3.23%  [.] __vdso_clock_gettime                                         -      -            
+     2.48%  [.] 0x00000000001621f8                                           -      -            
+     2.17%  [.] core_lookup.constprop.0                                      -      -            
+     2.13%  [.] 0x000000000016241d                                           -      -            
+     1.49%  [.] __popcountdi2                                                -      -            
+     1.38%  [.] 0x00000000001624c7                                           -      -            
+     1.24%  [.] point_worker                                                 -      -            
+     0.95%  [.] 0x00000000001621f4                                           -      -            
+     0.81%  [.] splinterdb_lookup.constprop.0                                -      -            
+     0.81%  [.] batch_rwlock_get                                             -      -            
+     0.76%  [.] routing_get_header.isra.0                                    -      -            
+     0.74%  [.] trunk_ondisk_node_handle_init.lto_priv.0                     -      -            
+     0.72%  [.] XXH32                                                        -      -            
+     0.70%  [.] trunk_init_root_handle                                       -      -            
+     0.68%  [.] 0x00000000001624cb                                           -      -            
+     0.64%  [.] batch_rwlock_get.constprop.0                                 -      -            
+     0.53%  [.] 0x0000000000162428                                           -      -            
+     0.48%  [.] routing_header_view_init.lto_priv.0                          -      -            
+     0.44%  [.] btree_node_get_checked.lto_priv.0                            -      -            
+     0.43%  [.] 0x00000000001621fe                                           -      -            
+     0.43%  [.] memcmp@plt                                                   -      -            
+     0.43%  [.] trunk_merge_lookup.constprop.0                               -      -            
+     0.40%  [.] routing_filter_get_params.lto_priv.0                         -      -            
+     0.37%  [.] 0x0000000000162405                                           -      -            
+     0.35%  [.] btree_lookup_node_internal.lto_priv.0                        -      -            
+     0.34%  [.] 0x0000000000162423                                           -      -            
+     0.33%  [.] trunk_ondisk_node_read_pivot.lto_priv.0                      -      -            
+     0.33%  [.] 0x000000000016288d                                           -      -            
+
+
+#
+# (Tip: Compare performance results with: perf diff [<old file> <new file>])
+#

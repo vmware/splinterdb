@@ -1,0 +1,9 @@
+Running 1 CTests, suite name 'splinterdb_quick', test case 'test_filtered_range'.
+TEST 1/6 splinterdb_quick:test_filtered_range_merges_only_matching_keys [OK]
+TEST 2/6 splinterdb_quick:test_filtered_range_crosses_empty_trunk_leaves [OK]
+TEST 3/6 splinterdb_quick:test_filtered_range_persisted_mixed_seeds [OK]
+TEST 4/6 splinterdb_quick:test_filtered_range_predicate_only_and_bounds [OK]
+TEST 5/6 splinterdb_quick:test_filtered_range_propagates_matching_merge_errors setup_ordered_iterators: exception: Cannot allocate memory
+[OK]
+TEST 6/6 splinterdb_quick:test_filtered_range_context_survives_thread_handoff [OK]
+RESULTS: 6 tests (6 ok, 0 failed, 0 skipped) ran in 2458 ms

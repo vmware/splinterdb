@@ -1,0 +1,32 @@
+[
+  {
+    "name": "merge",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/debug/bin/unit/merge_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests/scratch-debug",
+    "started": 1791921643.430319,
+    "returncode": 0,
+    "finished": 1791921643.4383323,
+    "log_sha256": "31f4ede9008b7a88e6a00dea681eb741ba1f0d54edf683f05059bc3043166c2b",
+    "summaries": [
+      "RESULTS: 10 tests (10 ok, 0 failed, 0 skipped) ran in 2 ms"
+    ],
+    "nonzero_tests_passed": true
+  },
+  {
+    "name": "quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests/scratch-debug",
+    "started": 1791921643.4389455,
+    "returncode": 1,
+    "finished": 1791921657.8504364,
+    "log_sha256": "7db07f5e6e3aa177151e8b0d89dc8fc1cb840b098f6d67504fbf6b0ae49593a0",
+    "summaries": [
+      "RESULTS: 54 tests (53 ok, 1 failed, 0 skipped) ran in 14389 ms"
+    ],
+    "nonzero_tests_passed": false
+  }
+]
