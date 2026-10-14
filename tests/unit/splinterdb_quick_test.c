@@ -3293,6 +3293,289 @@ CTEST2(splinterdb_quick, test_filtered_range_crosses_empty_trunk_leaves)
    }
 }
 
+/* The hash function stays fixed across every reopen. Only construction seeds
+ * change. Tenants a/b collide at seed 11 and differ at every other seed. */
+static bool32 range_mixed_seed_track;
+static bool32 range_mixed_seed_reject_b_merge;
+static uint32 range_mixed_seed_seen;
+
+static uint32
+range_mixed_seed_hash(const data_config *cfg, user_key k, uint32 seed)
+{
+   const uint8 *bytes = slice_data(k.key);
+   uint64       len   = slice_length(k.key);
+   ASSERT_TRUE(len == 1 || len == 9);
+   if (range_mixed_seed_track && k.is_query_key && len == 1) {
+      ASSERT_EQUAL('a', bytes[0]);
+      range_mixed_seed_seen |= seed == 11   ? 1
+                               : seed == 22 ? 2
+                               : seed == 99 ? 4
+                                            : 8;
+   }
+   uint8 tenant = bytes[len - 1];
+   return seed * 2654435761U
+          ^ ((tenant == 'b' && seed != 11) ? 0x80000000U : 0);
+}
+
+typedef struct range_mixed_seed_value {
+   uint64 multiplier;
+   uint64 addend;
+   uint8  padding[80];
+} range_mixed_seed_value;
+
+/* Updates encode x -> multiplier*x + addend. Composition is deliberately
+ * noncommutative: base 1, then append 2, then append 3 must produce 123. */
+static int
+range_mixed_seed_merge(const data_config *cfg,
+                       slice              tuple_key,
+                       message            older,
+                       merge_accumulator *newer)
+{
+   const uint8 *key_bytes = slice_data(tuple_key);
+   if (range_mixed_seed_reject_b_merge
+       && key_bytes[slice_length(tuple_key) - 1] == 'b')
+   {
+      return EINVAL;
+   }
+   range_mixed_seed_value prior = {0};
+   range_mixed_seed_value result;
+   ASSERT_EQUAL_U(sizeof(result), merge_accumulator_length(newer));
+   memcpy(&result, merge_accumulator_data(newer), sizeof(result));
+   if (message_class(older) != MESSAGE_TYPE_DELETE) {
+      ASSERT_EQUAL_U(sizeof(prior), message_length(older));
+      memcpy(&prior, message_data(older), sizeof(prior));
+   }
+   result.addend += result.multiplier * prior.addend;
+   result.multiplier *= prior.multiplier;
+   memcpy(merge_accumulator_data(newer), &result, sizeof(result));
+   merge_accumulator_set_class(newer,
+                               message_class(older) == MESSAGE_TYPE_UPDATE
+                                  ? MESSAGE_TYPE_UPDATE
+                                  : MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+static int
+range_mixed_seed_finalize(const data_config *cfg,
+                          slice              tuple_key,
+                          merge_accumulator *msg)
+{
+   const uint8 *key_bytes = slice_data(tuple_key);
+   if (range_mixed_seed_reject_b_merge
+       && key_bytes[slice_length(tuple_key) - 1] == 'b')
+   {
+      return EINVAL;
+   }
+   range_mixed_seed_value result;
+   ASSERT_EQUAL_U(sizeof(result), merge_accumulator_length(msg));
+   memcpy(&result, merge_accumulator_data(msg), sizeof(result));
+   result.multiplier = 0;
+   memcpy(merge_accumulator_data(msg), &result, sizeof(result));
+   merge_accumulator_set_class(msg, MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+static slice
+range_mixed_seed_key(uint8 *bytes, uint64 id, uint8 tenant)
+{
+   uint64 encoded = __builtin_bswap64(id);
+   memcpy(bytes, &encoded, sizeof(encoded));
+   bytes[8] = tenant;
+   return slice_create(9, bytes);
+}
+
+static void
+range_mixed_seed_construction_config(splinterdb *db, uint32 seed)
+{
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(db);
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(core->ts)));
+   trunk_config *trunk_cfg = (trunk_config *)core->trunk_context.cfg;
+   trunk_cfg->incorporation_size_kv_bytes          = 64 * KiB;
+   ((routing_config *)trunk_cfg->filter_cfg)->seed = seed;
+}
+
+static void
+range_mixed_seed_check_scan(splinterdb *db,
+                            uint64      total,
+                            bool32      bounded,
+                            bool32      forwards,
+                            bool32      pruned)
+{
+   uint8                lower[9], upper[9];
+   uint8                routing_key[] = {'a'};
+   const uint64         low           = bounded ? 1200 : 0;
+   const uint64         high          = bounded ? total - 1200 : total;
+   range_tenant_context tenant        = {.tenant = 'a'};
+   splinterdb_iterator *it            = NULL;
+   range_mixed_seed_seen              = 0;
+   range_mixed_seed_track             = TRUE;
+   ASSERT_EQUAL(
+      0,
+      splinterdb_iterator_init_with_bounds_and_filter(
+         db,
+         &it,
+         greater_than,
+         bounded ? range_mixed_seed_key(lower, low, 'a') : NULL_SLICE,
+         less_than,
+         bounded ? range_mixed_seed_key(upper, high, 'a') : NULL_SLICE,
+         forwards ? greater_than_or_equal : less_than_or_equal,
+         NULL_SLICE,
+         range_tenant_matches,
+         &tenant,
+         pruned ? slice_create(sizeof(routing_key), routing_key) : NULL_SLICE));
+   const uint32 initial_seed_mask = range_mixed_seed_seen;
+   /* The iterator must retain its own routing key for later saved seeds.
+    * a and b collide under seed 11, but differ under seed 22. */
+   routing_key[0] = 'b';
+   int64 expected =
+      forwards ? (bounded ? low + 1 : 0) : (bounded ? high - 1 : total);
+   uint64 count = 0;
+   while (splinterdb_iterator_valid(it)) {
+      while (expected >= 0 && expected < total && expected % 13 == 0) {
+         expected += forwards ? 1 : -1;
+      }
+      ASSERT_TRUE(expected >= (bounded ? low + 1 : 0));
+      ASSERT_TRUE(expected <= (bounded ? high - 1 : total));
+      slice key, value;
+      splinterdb_iterator_get_current(it, &key, &value);
+      uint8 expected_key[9];
+      slice expected_slice = range_mixed_seed_key(expected_key, expected, 'a');
+      ASSERT_EQUAL(0, slice_lex_cmp(key, expected_slice));
+      range_mixed_seed_value result;
+      ASSERT_EQUAL_U(sizeof(result), slice_length(value));
+      memcpy(&result, slice_data(value), sizeof(result));
+      range_mixed_seed_value wanted = {
+         .addend = expected == total   ? 7
+                   : expected % 7 == 0 ? 123
+                                       : 12,
+      };
+      ASSERT_EQUAL(0, memcmp(&wanted, &result, sizeof(result)));
+      count++;
+      expected += forwards ? 1 : -1;
+      if (forwards) {
+         splinterdb_iterator_next(it);
+      } else {
+         splinterdb_iterator_prev(it);
+      }
+   }
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   uint64 wanted_count = 0;
+   for (uint64 id = bounded ? low + 1 : 0; id <= (bounded ? high - 1 : total);
+        id++)
+   {
+      wanted_count += id == total || id % 13 != 0;
+   }
+   ASSERT_EQUAL_U(wanted_count, count);
+   splinterdb_iterator_deinit(it);
+   range_mixed_seed_track = FALSE;
+   if (pruned) {
+      /* This proves actual persisted descriptors with both seeds were read.
+       * Changing cfg->seed alone would not prove a mixed-seed fixture. */
+      CTEST_LOG_INFO("mixed-seed scan bounded=%u forwards=%u: "
+                     "initial seeds=%u final seeds=%u\n",
+                     bounded,
+                     forwards,
+                     initial_seed_mask,
+                     range_mixed_seed_seen);
+      /* A different persisted seed must first be hashed after caller storage
+       * was overwritten. The hash callback also checks the retained tenant. */
+      ASSERT_EQUAL_U(forwards ? 1 : 2, initial_seed_mask);
+      ASSERT_EQUAL_U(3, range_mixed_seed_seen);
+   } else {
+      ASSERT_EQUAL_U(0, range_mixed_seed_seen);
+   }
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_persisted_mixed_seeds)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->default_data_cfg.super.key_hash           = range_mixed_seed_hash;
+   data->default_data_cfg.super.merge_tuples       = range_mixed_seed_merge;
+   data->default_data_cfg.super.merge_tuples_final = range_mixed_seed_finalize;
+   data->cfg.memtable_capacity                     = 4 * MiB;
+   data->cfg.disk_size                             = 512 * MiB;
+   data->cfg.fanout                                = 2;
+   data->cfg.num_normal_bg_threads                 = 0;
+   data->cfg.num_memtable_bg_threads               = 0;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   const uint64           per_seed = 4096;
+   const uint64           total    = 2 * per_seed;
+   range_mixed_seed_value initial  = {.addend = 1};
+   range_mixed_seed_value second   = {.multiplier = 10, .addend = 2};
+   uint8                  key[9];
+   range_mixed_seed_track          = FALSE;
+   range_mixed_seed_reject_b_merge = FALSE;
+   for (uint64 round = 0; round < 2; round++) {
+      range_mixed_seed_construction_config(data->kvsb, round ? 22 : 11);
+      for (uint64 id = round * per_seed; id < (round + 1) * per_seed; id++) {
+         for (uint8 tenant = 'a'; tenant <= 'b'; tenant++) {
+            ASSERT_EQUAL(
+               0,
+               splinterdb_insert(data->kvsb,
+                                 range_mixed_seed_key(key, id, tenant),
+                                 slice_create(sizeof(initial), &initial),
+                                 NULL));
+         }
+         if (id % 1024 == 1023) {
+            force_flush_current_memtable(data->kvsb);
+         }
+      }
+      for (uint64 id = round * per_seed; id < (round + 1) * per_seed; id++) {
+         for (uint8 tenant = 'a'; tenant <= 'b'; tenant++) {
+            ASSERT_EQUAL(
+               0,
+               splinterdb_update(data->kvsb,
+                                 range_mixed_seed_key(key, id, tenant),
+                                 slice_create(sizeof(second), &second),
+                                 NULL));
+         }
+      }
+      force_flush_current_memtable(data->kvsb);
+      ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+      ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+   }
+   /* Neither persisted construction seed equals the current default. */
+   range_mixed_seed_construction_config(data->kvsb, 99);
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   uint64       height;
+   ASSERT_TRUE(SUCCESS(trunk_get_height(&core->trunk_context, &height)));
+   ASSERT_TRUE(height > 0);
+   range_mixed_seed_value third = {.multiplier = 10, .addend = 3};
+   for (uint64 id = 0; id < total; id++) {
+      if (id % 7 == 0) {
+         for (uint8 tenant = 'a'; tenant <= 'b'; tenant++) {
+            ASSERT_EQUAL(
+               0,
+               splinterdb_update(data->kvsb,
+                                 range_mixed_seed_key(key, id, tenant),
+                                 slice_create(sizeof(third), &third),
+                                 NULL));
+         }
+      }
+      if (id % 13 == 0) {
+         ASSERT_EQUAL(0,
+                      splinterdb_delete(
+                         data->kvsb, range_mixed_seed_key(key, id, 'a'), NULL));
+      }
+   }
+   range_mixed_seed_value live = {.addend = 7};
+   ASSERT_EQUAL(0,
+                splinterdb_insert(data->kvsb,
+                                  range_mixed_seed_key(key, total, 'a'),
+                                  slice_create(sizeof(live), &live),
+                                  NULL));
+   range_mixed_seed_reject_b_merge = TRUE;
+   for (bool32 bounded = FALSE; bounded <= TRUE; bounded++) {
+      for (bool32 forwards = FALSE; forwards <= TRUE; forwards++) {
+         for (bool32 pruned = FALSE; pruned <= TRUE; pruned++) {
+            range_mixed_seed_check_scan(
+               data->kvsb, total, bounded, forwards, pruned);
+         }
+      }
+   }
+   range_mixed_seed_reject_b_merge = FALSE;
+}
+
 typedef struct range_digit_context {
    uint8  modulus;
    uint8  remainder;

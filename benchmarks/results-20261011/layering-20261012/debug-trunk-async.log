@@ -1,0 +1,3 @@
+Running 1 CTests, suite name 'trunk_async', test case 'all'.
+TEST 1/1 trunk_async:pivot_header_survives_cross_thread_yield [OK]
+RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 0 ms

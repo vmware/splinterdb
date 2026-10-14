@@ -1,0 +1,48 @@
+{
+  "test": "test_filtered_range_persisted_mixed_seeds",
+  "source_sha256": "1e16a72c548c05507729c6051aee200a172d07c92063bf5062e604482e7ee480",
+  "scope": "Companion integration only; original predicate and disk-format branches unchanged",
+  "fixture": {
+    "persisted_seeds": [
+      11,
+      22
+    ],
+    "current_construction_seed": 99,
+    "keys_per_seed_per_tenant": 4096,
+    "tenants": [
+      "a",
+      "b"
+    ],
+    "collision": "full 32-bit a/b collision only for seed11",
+    "minimum_trunk_height": 1,
+    "value_bytes": 96,
+    "updates": "noncommutative affine composition:1 then10*x+2 then live10*x+3 for id%7==0",
+    "deletes": "tenant a id%13==0",
+    "live_insert": "id8192 tenant a value7",
+    "scan_modes": "bounded/unbounded x forward/reverse x predicate-only/pruned",
+    "verification": "Exact key bytes, all96valuebytes, count, status; rejected b merge/finalize returnsEINVAL"
+  },
+  "routing_key_ownership": {
+    "caller_storage": "a overwritten with b immediately after initialization",
+    "forward_initial_seed_mask": 1,
+    "reverse_initial_seed_mask": 2,
+    "final_seed_mask": 3,
+    "query_callback_asserts_tenant": "a",
+    "seed_bits": {
+      "11": 1,
+      "22": 2,
+      "99": 4,
+      "other": 8
+    },
+    "proof": "Different persisted seed is first hashed after caller storage mutation"
+  },
+  "final_debug_result": "1 test passed,0failed,0skipped,884ms",
+  "initial_failures": {
+    "cause": "Fixture used slice_equals, which compares pointer identity. Actual key bytes matched; corrected to slice_lex_cmp. No runtime source change required.",
+    "logs": [
+      "debug-mixed-seeds-initial-failure.log",
+      "debug-mixed-seeds-diagnostic-failure.log"
+    ],
+    "coordination": "First0.5secondprobe mistakenly called validator directly; another agent continuously held shared machine lock for a core suite, indirectly excluding timed benchmarks. All later builds/tests explicitly used run_job."
+  }
+}

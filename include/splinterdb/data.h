@@ -175,6 +175,11 @@ typedef void (*message_to_str_fn)(const data_config *cfg,
  *  4. How to convert between messages and values (encode and decode functions)
  *  4. Few other debugging aids on how-to print & diagnose messages.
  *
+ * Callback code and application key/value schemas are not serialized. Reopening
+ * an existing database requires callbacks with the same key ordering, hash
+ * algorithm, and message interpretation used when it was written. Persisted
+ * routing filters supply their own hash seed to key_hash.
+ *
  * default_data_config.c is a simple reference implementation, provided
  * as a "batteries included" solution. If an application wishes
  * to do something differently, it has to provide these implementations.

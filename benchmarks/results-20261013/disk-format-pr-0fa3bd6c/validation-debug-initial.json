@@ -1,0 +1,92 @@
+[
+  {
+    "name": "btree",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/btree_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921496.197847,
+    "returncode": 0,
+    "finished": 1791921496.2302623,
+    "log_sha256": "a8c25b1ee3b2fc43370d6441283c933fa286ba1a7c700f0f054c8aaaf7754f7d",
+    "summaries": [
+      "RESULTS: 11 tests (11 ok, 0 failed, 0 skipped) ran in 20 ms"
+    ]
+  },
+  {
+    "name": "superblock",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/superblock_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921496.2308228,
+    "returncode": 0,
+    "finished": 1791921496.2952976,
+    "log_sha256": "5ee130da54171673ce3948c6008ceb771e70eff402e1aea725f5f658e6d97aa6",
+    "summaries": [
+      "RESULTS: 16 tests (16 ok, 0 failed, 0 skipped) ran in 34 ms"
+    ]
+  },
+  {
+    "name": "splinter",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format/.cache/pr-format-0fa3bd6c/debug-splinter.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921496.295597,
+    "returncode": 0,
+    "finished": 1791921642.272443,
+    "log_sha256": "493c927e9ead5f1bf636af1274a51b01b044cef220c18e4d79e3005395d25422",
+    "summaries": [
+      "RESULTS: 41 tests (41 ok, 0 failed, 0 skipped) ran in 145924 ms"
+    ]
+  },
+  {
+    "name": "quick",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921642.2731776,
+    "returncode": 0,
+    "finished": 1791921656.6852245,
+    "log_sha256": "f1684a10b1685d3d25ad911be476047ef0e7ce7d189ca9ed2da754422d496d23",
+    "summaries": [
+      "RESULTS: 50 tests (50 ok, 0 failed, 0 skipped) ran in 14366 ms"
+    ]
+  },
+  {
+    "name": "trunk-async",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/trunk_async_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921656.6855757,
+    "returncode": 0,
+    "finished": 1791921656.6897652,
+    "log_sha256": "358786a8840bf748a73c6f3d58cb3eb2bac80a7107a6387bfa11a167fe5265ed",
+    "summaries": [
+      "RESULTS: 2 tests (2 ok, 0 failed, 0 skipped) ran in 0 ms"
+    ]
+  },
+  {
+    "name": "notification",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/notification_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921656.6900198,
+    "returncode": 0,
+    "finished": 1791921656.722245,
+    "log_sha256": "130d8bc6dc03665b8376ceec32bf3652cd9fc4a36c80c076751ace4498230369",
+    "summaries": [
+      "RESULTS: 7 tests (6 ok, 0 failed, 1 skipped) ran in 26 ms"
+    ]
+  }
+]

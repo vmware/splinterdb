@@ -1,0 +1,16 @@
+{
+  "build-filter-disk-integration/debug/lib/libsplinterdb.so": "4642540ba978990d3c476363775c2a43598ba33c55cb1997c1cf620e39a3064d",
+  "build-filter-disk-integration/debug/bin/driver_test": "de95513a3283e8f7e21f7451df9dc657146168ca3703e8ca157d9f5b44270540",
+  "build-filter-disk-integration/debug/bin/unit/splinterdb_quick_test": "c6ae0c6d5c286495baaab88418d447c6b771b0ed739afec4ae7c47e931e668e8",
+  "build-filter-disk-integration/debug/bin/unit/splinter_test": "60aa29344fd321ac6e0d40ab4bee243b19420fc58527886387f7e1e1ac7d97d2",
+  "build-filter-disk-integration/debug/bin/unit/merge_test": "50d36a3c1dd600d711bb5eb757ae57d17d33348af7b43ef3c7c19b37f8112c88",
+  "build-filter-disk-integration/debug/bin/unit/superblock_test": "dc7f9592eb444c77d96513455bd634a503d18cddc4f09cd4288901f7af960446",
+  "build-filter-disk-integration/debug/bin/unit/trunk_async_test": "e5fd136474712f422d50a0ebd209a2bf47430e281a049160ae3db37a4264f96c",
+  "build-filter-disk-integration/release/lib/libsplinterdb.so": "82aefa0c3e9950bc03edd4038ab69a944f46ca8a8d71ec91ba871583914c5cef",
+  "build-filter-disk-integration/release/bin/driver_test": "44f63a8536842daaa3a58fee96af0b78df582bb552d4549f00067e303a331696",
+  "build-filter-disk-integration/release/bin/unit/splinterdb_quick_test": "ca5c0064c45315b0336c45509a36997f3247dfc671864a8872d700d815dae5c5",
+  "build-filter-disk-integration/release/bin/unit/splinter_test": "c221198d92ad3812e041890d4cb4eb98ce04c209b7a2ecd778db4abdc1f07dd9",
+  "build-filter-disk-integration/release/bin/unit/merge_test": "d18cf206f8528d526ac473b766869a4731bf40e7150fcd9e810253d08489d631",
+  "build-filter-disk-integration/release/bin/unit/superblock_test": "f3479602936db8604a716402243a8b60324c967290317b10de18b94270abbac7",
+  "build-filter-disk-integration/release/bin/unit/trunk_async_test": "9c7e028fbfe6cad5f7c59db96f1ac569450a9bfacf0208f913fc7f08f82893c9"
+}

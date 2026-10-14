@@ -1,0 +1,22 @@
+[
+  {
+    "name": "filter",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format/build-filter-disk-integration/debug/bin/driver_test",
+      "filter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/scratch-debug/filter.db",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "4"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/scratch-debug",
+    "started": 1791922648.7831109,
+    "returncode": 0,
+    "finished": 1791922657.0781367,
+    "log_sha256": "89e2860b73b29e444b2e4a4275f1d1c5c4387d8d43724c007575f6d3f0e0fc40",
+    "summaries": [],
+    "passed": true
+  }
+]
