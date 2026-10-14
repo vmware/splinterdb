@@ -1,0 +1,14 @@
+Starting mainmerge-disk-format-debug-build-4 build
+Checking for mismatched config...No mismatched config found
+Compiling            tests/unit/splinter_test.c                         [build-main-7bb5fab/debug/obj/tests/unit/splinter_test.o]
+In file included from tests/unit/unit_tests.h:8,
+                 from tests/unit/splinter_test.c:38:
+tests/unit/splinter_test.c: In function ‘ctest_splinter_test_blob_height_three_and_large_stats_run’:
+tests/unit/splinter_test.c:6048:45: error: ‘BTREE_FORMAT_VERSION’ undeclared (first use in this function); did you mean ‘TRUNK_FORMAT_VERSION’?
+ 6048 |                                             BTREE_FORMAT_VERSION,
+      |                                             ^~~~~~~~~~~~~~~~~~~~
+tests/unit/ctest.h:292:16: note: in definition of macro ‘ASSERT_TRUE’
+  292 |    assert_true(real, __FILE__, __LINE__, "" __VA_ARGS__)
+      |                ^~~~
+compilation terminated due to -Wfatal-errors.
+make: *** [Makefile:365: build-main-7bb5fab/debug/obj/tests/unit/splinter_test.o] Error 1

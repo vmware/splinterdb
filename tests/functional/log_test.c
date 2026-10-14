@@ -1635,8 +1635,17 @@ test_log_large_message(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    rc = cache_durable_barrier(cc);
    platform_assert_status_ok(rc);
 
+   log_head unknown = sealed;
+   unknown.format_version++;
+   platform_assert(
+      !SUCCESS(shard_log_iterator_create(cc, cfg, hid, unknown, 0, &itor)));
+   platform_assert(itor == NULL);
+   platform_assert(!SUCCESS(shard_log_recover_allocations(cc, cfg, unknown)));
+
+   shard_log_config read_cfg = *cfg;
+   read_cfg.seed ^= UINT64_C(0x123456789abcdef0);
    platform_assert_status_ok(
-      shard_log_iterator_create(cc, cfg, hid, sealed, 0, &itor));
+      shard_log_iterator_create(cc, &read_cfg, hid, sealed, 0, &itor));
    platform_assert(log_iterator_stream_complete(itor));
    platform_assert(log_iterator_can_next(itor));
 

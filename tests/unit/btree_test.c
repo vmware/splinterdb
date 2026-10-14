@@ -196,6 +196,181 @@ CTEST2(btree, test_defragmented_index_bytes)
 }
 
 /*
+ * Branch references must be rejected by the btree before any page access.
+ * A NULL cache makes an accidental read fail, including in the async paths.
+ */
+static const struct {
+   uint64 addr;
+   uint16 format_version;
+} invalid_branch_refs[] = {
+   {4096, BTREE_BRANCH_FORMAT_VERSION - 1},
+   {4096, BTREE_BRANCH_FORMAT_VERSION + 1},
+   {0, BTREE_BRANCH_FORMAT_VERSION},
+};
+
+CTEST2(btree, test_invalid_branch_point_lookup)
+{
+   lookup_result result;
+   lookup_result_init(
+      &result, data->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   uint64 keybuf = 1;
+   key    target = key_create(FALSE, sizeof(keybuf), &keybuf);
+
+   for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
+      platform_status rc = btree_lookup(NULL,
+                                        &data->dbtree_cfg,
+                                        invalid_branch_refs[i].addr,
+                                        invalid_branch_refs[i].format_version,
+                                        PAGE_TYPE_BRANCH,
+                                        target,
+                                        &result);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+      ASSERT_FALSE(lookup_result_found(&result));
+
+      bool32 local_found = TRUE;
+      rc                 = btree_lookup_and_merge(NULL,
+                                  &data->dbtree_cfg,
+                                  invalid_branch_refs[i].addr,
+                                  invalid_branch_refs[i].format_version,
+                                  PAGE_TYPE_BRANCH,
+                                  target,
+                                  &result,
+                                  &local_found);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+      ASSERT_FALSE(local_found);
+      ASSERT_FALSE(lookup_result_found(&result));
+   }
+   lookup_result_deinit(&result);
+}
+
+CTEST2(btree, test_invalid_branch_async_point_lookup)
+{
+   lookup_result result;
+   lookup_result_init(
+      &result, data->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   uint64 keybuf = 1;
+   key    target = key_create(FALSE, sizeof(keybuf), &keybuf);
+
+   for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
+      btree_lookup_async_state state;
+      btree_lookup_async_state_init(&state,
+                                    NULL,
+                                    &data->dbtree_cfg,
+                                    invalid_branch_refs[i].addr,
+                                    invalid_branch_refs[i].format_version,
+                                    PAGE_TYPE_BRANCH,
+                                    target,
+                                    &result,
+                                    NULL,
+                                    NULL);
+      ASSERT_EQUAL(ASYNC_STATUS_DONE, btree_lookup_async(&state));
+      ASSERT_TRUE(STATUS_IS_EQ(async_result(&state), STATUS_INVALID_STATE));
+      ASSERT_FALSE(lookup_result_found(&result));
+
+      btree_lookup_and_merge_async_state_init(
+         &state,
+         NULL,
+         &data->dbtree_cfg,
+         invalid_branch_refs[i].addr,
+         invalid_branch_refs[i].format_version,
+         PAGE_TYPE_BRANCH,
+         target,
+         &result,
+         NULL,
+         NULL);
+      ASSERT_EQUAL(ASYNC_STATUS_DONE, btree_lookup_and_merge_async(&state));
+      ASSERT_TRUE(STATUS_IS_EQ(async_result(&state), STATUS_INVALID_STATE));
+      ASSERT_FALSE(lookup_result_found(&result));
+   }
+   lookup_result_deinit(&result);
+}
+
+CTEST2(btree, test_invalid_branch_iterator)
+{
+   for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
+      for (bool32 copy_nodes = FALSE; copy_nodes <= TRUE; copy_nodes++) {
+         btree_iterator itor;
+         memset(&itor, 0xa5, sizeof(itor));
+         platform_status rc =
+            btree_iterator_init(NULL,
+                                &data->dbtree_cfg,
+                                &itor,
+                                invalid_branch_refs[i].addr,
+                                invalid_branch_refs[i].format_version,
+                                PAGE_TYPE_BRANCH,
+                                greater_than_or_equal,
+                                NEGATIVE_INFINITY_KEY,
+                                less_than,
+                                POSITIVE_INFINITY_KEY,
+                                greater_than_or_equal,
+                                NEGATIVE_INFINITY_KEY,
+                                copy_nodes,
+                                0,
+                                1);
+         ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+         btree_iterator_deinit(&itor);
+
+         memset(&itor, 0xa5, sizeof(itor));
+         btree_iterator_async_state state;
+         btree_iterator_async_state_init(&state,
+                                         NULL,
+                                         &data->dbtree_cfg,
+                                         &itor,
+                                         invalid_branch_refs[i].addr,
+                                         invalid_branch_refs[i].format_version,
+                                         PAGE_TYPE_BRANCH,
+                                         greater_than_or_equal,
+                                         NEGATIVE_INFINITY_KEY,
+                                         less_than,
+                                         POSITIVE_INFINITY_KEY,
+                                         greater_than_or_equal,
+                                         NEGATIVE_INFINITY_KEY,
+                                         copy_nodes,
+                                         0,
+                                         1,
+                                         NULL,
+                                         NULL);
+         ASSERT_EQUAL(ASYNC_STATUS_DONE, btree_iterator_init_async(&state));
+         ASSERT_TRUE(STATUS_IS_EQ(btree_iterator_init_async_result(&state),
+                                  STATUS_INVALID_STATE));
+         btree_iterator_deinit(&itor);
+      }
+   }
+}
+
+CTEST2(btree, test_invalid_branch_metadata_queries)
+{
+   for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
+      uint32          height;
+      platform_status rc =
+         btree_get_root_height(NULL,
+                               &data->dbtree_cfg,
+                               invalid_branch_refs[i].addr,
+                               invalid_branch_refs[i].format_version,
+                               PAGE_TYPE_BRANCH,
+                               &height);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+
+      btree_pivot_stats stats;
+      rc = btree_count_in_range(NULL,
+                                &data->dbtree_cfg,
+                                invalid_branch_refs[i].addr,
+                                invalid_branch_refs[i].format_version,
+                                NEGATIVE_INFINITY_KEY,
+                                POSITIVE_INFINITY_KEY,
+                                &stats);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+
+      rc = btree_recover_allocations(NULL,
+                                     &data->dbtree_cfg,
+                                     invalid_branch_refs[i].addr,
+                                     invalid_branch_refs[i].format_version,
+                                     PAGE_TYPE_BRANCH);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+   }
+}
+
+/*
  * *****************************************************************
  * Helper functions, and actual test-case methods.
  * *****************************************************************

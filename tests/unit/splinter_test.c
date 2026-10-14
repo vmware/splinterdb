@@ -1563,6 +1563,154 @@ CTEST2(splinter, test_malformed_trunk_pivot_bundle)
    ASSERT_TRUE(range_rejected);
 }
 
+CTEST2(splinter, test_invalid_branch_reference_rejected)
+{
+   cache      *cc = (cache *)data->clock_cache;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &data->system_cfg->splinter_cfg,
+                                 (allocator *)&data->al,
+                                 cc,
+                                 data->io,
+                                 &data->tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   generate_test_message(&data->gen, 1, &msg);
+   ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                   key_buffer_key(&keybuf),
+                                   merge_accumulator_to_message(&msg),
+                                   NULL)));
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(core_checkpoint(&spl, 0)));
+
+   uint64      root_addr = spl.trunk_context.root->ref.addr;
+   uint64      page_size = cache_page_size(cc);
+   page_handle root_page_storage =
+      test_splinter_claim_page(cc, root_addr, PAGE_TYPE_TRUNK);
+   page_handle         *root_page = &root_page_storage;
+   test_trunk_node_hdr *node =
+      (test_trunk_node_hdr *)page_handle_data(root_page);
+   /* The single freshly incorporated branch is still an inflight bundle. */
+   ASSERT_TRUE(node->num_inflight_bundles != 0);
+   uint64 offset = node->inflight_bundles_offset;
+   test_splinter_unclaim_page(cc, root_page);
+   uint64      page_addr = root_addr + offset - offset % page_size;
+   page_handle page_storage =
+      test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+   page_handle       *page = &page_storage;
+   test_trunk_bundle *bundle =
+      (test_trunk_bundle *)(page_handle_data(page) + offset % page_size);
+   ASSERT_TRUE(bundle->num_branches != 0);
+   branch_ref     saved_branch = bundle->branches[0];
+   routing_filter saved_maplet = bundle->maplet;
+   test_splinter_unclaim_page(cc, page);
+
+   /* Select the branch for its key, but skip it for a known filter miss. The
+    * latter must not inspect a branch that the query does not need to read. */
+   const routing_config *filter_cfg  = spl.cfg.trunk_node_cfg->filter_cfg;
+   routing_filter        null_filter = NULL_ROUTING_FILTER;
+   routing_filter        filter      = NULL_ROUTING_FILTER;
+   uint32                fp          = data_key_hash(
+      spl.cfg.data_cfg, key_buffer_key(&keybuf), filter_cfg->seed);
+   ASSERT_TRUE(SUCCESS(
+      routing_filter_add(cc, filter_cfg, &null_filter, &filter, &fp, 1, 0)));
+   uint64 found_values;
+   ASSERT_TRUE(SUCCESS(routing_filter_lookup(
+      cc, filter_cfg, &filter, key_buffer_key(&keybuf), &found_values)));
+   ASSERT_EQUAL_U(1, found_values);
+
+   DECLARE_AUTO_KEY_BUFFER(miss_keybuf, data->hid);
+   for (uint64 i = 2; i < 1002; i++) {
+      test_key(
+         &miss_keybuf, TEST_RANDOM, i, 0, 0, data->workload_cfg->key_size, 0);
+      ASSERT_TRUE(SUCCESS(routing_filter_lookup(cc,
+                                                filter_cfg,
+                                                &filter,
+                                                key_buffer_key(&miss_keybuf),
+                                                &found_values)));
+      if (found_values == 0) {
+         break;
+      }
+   }
+   ASSERT_EQUAL_U(0, found_values);
+
+   platform_status sync_rc[2];
+   platform_status async_rc[2];
+   platform_status range_rc[2];
+   bool32          sync_miss_ok[2];
+   bool32          async_miss_ok[2];
+   for (uint64 invalid_field = 0; invalid_field < 2; invalid_field++) {
+      *page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      bundle =
+         (test_trunk_bundle *)(page_handle_data(page) + offset % page_size);
+      bundle->maplet = filter;
+      if (invalid_field == 0) {
+         bundle->branches[0].format_version++;
+      } else {
+         bundle->branches[0].addr = 0;
+      }
+      test_splinter_unclaim_page(cc, page);
+
+      lookup_result result;
+      lookup_result_init(
+         &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      sync_rc[invalid_field] =
+         core_lookup(&spl, key_buffer_key(&keybuf), &result);
+      async_rc[invalid_field] =
+         async_call_sync_callback(cache_cleanup(cc),
+                                  core_lookup_async,
+                                  &spl,
+                                  key_buffer_key(&keybuf),
+                                  &result);
+      platform_status rc =
+         core_lookup(&spl, key_buffer_key(&miss_keybuf), &result);
+      sync_miss_ok[invalid_field] =
+         SUCCESS(rc) && !lookup_result_found(&result);
+      rc = async_call_sync_callback(cache_cleanup(cc),
+                                    core_lookup_async,
+                                    &spl,
+                                    key_buffer_key(&miss_keybuf),
+                                    &result);
+      async_miss_ok[invalid_field] =
+         SUCCESS(rc) && !lookup_result_found(&result);
+      lookup_result_deinit(&result);
+
+      core_range_iterator itor;
+      range_rc[invalid_field] = core_range_iterator_init(&spl,
+                                                         &itor,
+                                                         greater_than_or_equal,
+                                                         NEGATIVE_INFINITY_KEY,
+                                                         less_than,
+                                                         POSITIVE_INFINITY_KEY,
+                                                         greater_than_or_equal,
+                                                         NEGATIVE_INFINITY_KEY);
+      if (SUCCESS(range_rc[invalid_field])) {
+         core_range_iterator_deinit(&itor);
+      }
+
+      /* Restore the owning reference before cleanup can release it. */
+      *page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      bundle =
+         (test_trunk_bundle *)(page_handle_data(page) + offset % page_size);
+      bundle->branches[0] = saved_branch;
+      bundle->maplet      = saved_maplet;
+      test_splinter_unclaim_page(cc, page);
+   }
+   routing_filter_dec_ref(cc, &filter);
+   core_destroy(&spl);
+   for (uint64 invalid_field = 0; invalid_field < 2; invalid_field++) {
+      ASSERT_TRUE(STATUS_IS_EQ(sync_rc[invalid_field], STATUS_INVALID_STATE));
+      ASSERT_TRUE(STATUS_IS_EQ(async_rc[invalid_field], STATUS_INVALID_STATE));
+      ASSERT_TRUE(STATUS_IS_EQ(range_rc[invalid_field], STATUS_INVALID_STATE));
+      ASSERT_TRUE(sync_miss_ok[invalid_field]);
+      ASSERT_TRUE(async_miss_ok[invalid_field]);
+   }
+}
+
 /* Persisted pivot statistics are sizing hints, but they still feed arithmetic
  * during writes.  Reject the impossible zero-tuple/nonzero-byte state before
  * it can reach leaf splitting (where it used to cause a division by zero). */
@@ -1874,6 +2022,101 @@ CTEST2(splinter, test_two_log_checkpoint)
    rc = core_checkpoint(&spl, 0);
    ASSERT_TRUE(SUCCESS(rc));
 
+   core_destroy(&spl);
+}
+
+/* Old filters must survive changed creation defaults, including later
+ * compactions that append branches to their existing maplets. */
+CTEST2(splinter, test_reopen_with_changed_filter_config)
+{
+   allocator        *al      = (allocator *)&data->al;
+   cache            *cc      = (cache *)data->clock_cache;
+   system_config    *cfg     = data->system_cfg;
+   allocator_root_id root_id = test_generate_allocator_root_id();
+   cfg->trunk_node_cfg.incorporation_size_kv_bytes = 64 * KiB;
+   cfg->trunk_node_cfg.target_fanout               = 4;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &cfg->splinter_cfg,
+                                 al,
+                                 cc,
+                                 data->io,
+                                 &data->tasks,
+                                 root_id,
+                                 data->hid)));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   const uint64 per_round = 2048;
+   const uint64 rounds    = 8;
+   for (uint64 round = 0; round < rounds; round++) {
+      if (round == rounds / 2) {
+         ASSERT_TRUE(SUCCESS(core_unmount(&spl, FALSE)));
+         cfg->filter_cfg.seed ^= 0x87654321;
+         cfg->filter_cfg.log_index_size--;
+         cfg->filter_cfg.index_size >>= 1;
+         cfg->filter_cfg.fingerprint_size--;
+         ASSERT_TRUE(SUCCESS(core_mount(&spl,
+                                        &cfg->splinter_cfg,
+                                        al,
+                                        cc,
+                                        data->io,
+                                        &data->tasks,
+                                        root_id,
+                                        data->hid)));
+      }
+      for (uint64 i = round * per_round; i < (round + 1) * per_round; i++) {
+         test_key(
+            &keybuf, TEST_RANDOM, i, 0, 0, data->workload_cfg->key_size, 0);
+         generate_test_message(&data->gen, i, &msg);
+         ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                         key_buffer_key(&keybuf),
+                                         merge_accumulator_to_message(&msg),
+                                         NULL)));
+      }
+      ASSERT_TRUE(SUCCESS(core_checkpoint(&spl, 0)));
+   }
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(core_unmount(&spl, FALSE)));
+   ASSERT_TRUE(SUCCESS(core_mount(&spl,
+                                  &cfg->splinter_cfg,
+                                  al,
+                                  cc,
+                                  data->io,
+                                  &data->tasks,
+                                  root_id,
+                                  data->hid)));
+   lookup_result result;
+   lookup_result_init(
+      &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   for (uint64 i = 0; i < per_round * rounds; i++) {
+      test_key(&keybuf, TEST_RANDOM, i, 0, 0, data->workload_cfg->key_size, 0);
+      ASSERT_TRUE(SUCCESS(core_lookup(&spl, key_buffer_key(&keybuf), &result)));
+      verify_tuple(
+         &spl,
+         &data->gen,
+         i,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&result)),
+         TRUE);
+   }
+   lookup_result_deinit(&result);
+   core_range_iterator itor;
+   ASSERT_TRUE(SUCCESS(core_range_iterator_init(&spl,
+                                                &itor,
+                                                greater_than_or_equal,
+                                                NEGATIVE_INFINITY_KEY,
+                                                less_than,
+                                                POSITIVE_INFINITY_KEY,
+                                                greater_than_or_equal,
+                                                NEGATIVE_INFINITY_KEY)));
+   uint64 count = 0;
+   while (iterator_can_next(&itor.super)) {
+      count++;
+      ASSERT_TRUE(SUCCESS(iterator_next(&itor.super)));
+   }
+   core_range_iterator_deinit(&itor);
+   ASSERT_EQUAL(per_round * rounds, count);
    core_destroy(&spl);
 }
 
@@ -6059,6 +6302,7 @@ CTEST2(splinter, test_blob_height_three_and_large_stats)
    ASSERT_TRUE(SUCCESS(btree_count_in_range(cc,
                                             req->cfg,
                                             req->root_addr,
+                                            BTREE_BRANCH_FORMAT_VERSION,
                                             NEGATIVE_INFINITY_KEY,
                                             POSITIVE_INFINITY_KEY,
                                             &stats)));
