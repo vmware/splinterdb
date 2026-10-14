@@ -1156,82 +1156,33 @@ splinterdb_iterator_max_comparison_is_valid(comparison cmp)
 }
 
 int
-splinterdb_iterator_init(splinterdb           *kvs,                  // IN
-                         splinterdb_iterator **iter,                 // OUT
-                         comparison            start_key_comparison, // IN
-                         slice                 user_start_key        // IN
+splinterdb_iterator_init_full(
+   splinterdb                             *kvs,                  // IN
+   splinterdb_iterator                   **iter,                 // OUT
+   comparison                              start_key_comparison, // IN
+   slice                                   user_start_key,       // IN
+   const splinterdb_iterator_init_options *options               // IN
 )
 {
-   return splinterdb_iterator_init_with_bounds(kvs,
-                                               iter,
-                                               greater_than_or_equal,
-                                               NULL_SLICE,
-                                               less_than,
-                                               NULL_SLICE,
-                                               start_key_comparison,
-                                               user_start_key);
-}
+   if (options == NULL
+       || options->struct_size < sizeof(splinterdb_iterator_init_options))
+   {
+      return platform_status_to_int(STATUS_BAD_PARAM);
+   }
+   slice                    user_min_key       = options->min_key;
+   slice                    user_max_key       = options->max_key;
+   splinterdb_key_predicate predicate          = options->predicate;
+   void                    *predicate_context  = options->predicate_context;
+   slice                    routing_filter_key = options->routing_filter_key;
+   comparison               min_key_comparison = greater_than_or_equal;
+   comparison               max_key_comparison = less_than;
+   if (!slice_is_null(user_min_key)) {
+      min_key_comparison = options->min_key_comparison;
+   }
+   if (!slice_is_null(user_max_key)) {
+      max_key_comparison = options->max_key_comparison;
+   }
 
-int
-splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
-                                     splinterdb_iterator **iter,      // OUT
-                                     comparison min_key_comparison,   // IN
-                                     slice      user_min_key,         // IN
-                                     comparison max_key_comparison,   // IN
-                                     slice      user_max_key,         // IN
-                                     comparison start_key_comparison, // IN
-                                     slice      user_start_key        // IN
-)
-{
-   return splinterdb_iterator_init_with_bounds_and_filter(kvs,
-                                                          iter,
-                                                          min_key_comparison,
-                                                          user_min_key,
-                                                          max_key_comparison,
-                                                          user_max_key,
-                                                          start_key_comparison,
-                                                          user_start_key,
-                                                          NULL,
-                                                          NULL,
-                                                          NULL_SLICE);
-}
-
-int
-splinterdb_iterator_init_with_filter(splinterdb           *kvs,
-                                     splinterdb_iterator **iter,
-                                     comparison            start_key_comparison,
-                                     slice                 user_start_key,
-                                     splinterdb_key_predicate predicate,
-                                     void                    *predicate_context,
-                                     slice routing_filter_key)
-{
-   return splinterdb_iterator_init_with_bounds_and_filter(kvs,
-                                                          iter,
-                                                          greater_than_or_equal,
-                                                          NULL_SLICE,
-                                                          less_than,
-                                                          NULL_SLICE,
-                                                          start_key_comparison,
-                                                          user_start_key,
-                                                          predicate,
-                                                          predicate_context,
-                                                          routing_filter_key);
-}
-
-int
-splinterdb_iterator_init_with_bounds_and_filter(
-   splinterdb              *kvs,
-   splinterdb_iterator    **iter,
-   comparison               min_key_comparison,
-   slice                    user_min_key,
-   comparison               max_key_comparison,
-   slice                    user_max_key,
-   comparison               start_key_comparison,
-   slice                    user_start_key,
-   splinterdb_key_predicate predicate,
-   void                    *predicate_context,
-   slice                    routing_filter_key)
-{
    if ((predicate == NULL && !slice_is_null(routing_filter_key))
        || !splinterdb_iterator_min_comparison_is_valid(min_key_comparison)
        || !splinterdb_iterator_max_comparison_is_valid(max_key_comparison))
