@@ -1,0 +1,7 @@
+kvbench version=main splinter=splinterdb_build_version 7bb5fab3 db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/fixtures/resident-main-ordinary.db mode=create n=200000 cache_mib=128 disk_gib=8 log=0 threads=1 mt_bg=0 normal_bg=0 memtable_mib=4 secs=1.0 warmup=1.0 rep=0 sabotage=0
+create took 0.009 s
+phase load:random: T=1 dist=random (fixed count)
+close took 0.123 s
+== load:random            T=1  ops=200000     secs=   0.17 ops/s=    1162109  lat us p50=0.49 p99=2.40 p99.9=4.93 max=2951.3 mean=0.83
+   cpu=0.17s ops/cpu-s=1162757 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   insert/run=0.17s drain(close)=0.12s total=0.30s drain_cpu=0.02s drain_rd=20480 drain_wr=28749824 wamp=1.159 db_apparent=162664448 db_alloc=28905472

@@ -1,0 +1,80 @@
+[
+  {
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "log-async-fc0-debug-0-splinter_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-fc0bc8f7/debug/bin/unit/splinter_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/log-async-fc0/scratch/debug-0-splinter_test",
+    "returncode": 0,
+    "seconds": 108.11490106582642,
+    "results": [
+      "RESULTS: 43 tests (43 ok, 0 failed, 0 skipped) ran in 108059 ms"
+    ],
+    "binary_sha256": "23087ae54000dda3821711d0579141071bde47f7c05fcaa88a90edfb97486819"
+  },
+  {
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "log-async-fc0-debug-1-splinterdb_quick_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-fc0bc8f7/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/log-async-fc0/scratch/debug-1-splinterdb_quick_test",
+    "returncode": 0,
+    "seconds": 15.947850465774536,
+    "results": [
+      "RESULTS: 56 tests (56 ok, 0 failed, 0 skipped) ran in 15876 ms"
+    ],
+    "binary_sha256": "7603d0905a36692f1a3484bd2cb41cc642416c4619b2d45253a6eaf4e075fcd0"
+  },
+  {
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "log-async-fc0-debug-2-splinterdb_forked_child_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-fc0bc8f7/debug/bin/unit/splinterdb_forked_child_test",
+      "automatic_log_barriers_survive_process_exit"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/log-async-fc0/scratch/debug-2-splinterdb_forked_child_test",
+    "returncode": 0,
+    "seconds": 0.8158178329467773,
+    "results": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 769 ms"
+    ],
+    "binary_sha256": "189ac014c8175c3fde2ca3a6d4733be9db3e63ddfb68dbf3d9f7288613bbee7c"
+  },
+  {
+    "command": [
+      "/usr/bin/python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py",
+      "--name",
+      "log-async-fc0-debug-3-driver_test",
+      "test",
+      "--",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-fc0bc8f7/debug/bin/driver_test",
+      "log_test",
+      "--db-location",
+      "log.db",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "4"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/log-async-fc0/scratch/debug-3-driver_test",
+    "returncode": 0,
+    "seconds": 1.567784070968628,
+    "results": [],
+    "binary_sha256": "73356176b3c4e305cee215a3b42aa6bf32b05495e04addedfd5b1e8ae436b2fe"
+  }
+]

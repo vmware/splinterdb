@@ -1,0 +1,107 @@
+diff --git a/benchmarks/insert_benchmark.c b/benchmarks/insert_benchmark.c
+index 8f531470..a51b0a71 100644
+--- a/benchmarks/insert_benchmark.c
++++ b/benchmarks/insert_benchmark.c
+@@ -422,7 +422,7 @@ usage(const char *name)
+       "  --barrier-ms N     call splinterdb_durable_barrier from a "
+       "dedicated thread every N ms (default 0 = disabled)\n"
+       "  --log-group-size-pages N  automatic durability threshold "
+-      "(0 = default, UINT64_MAX = disabled)\n"
++      "(0 = 1024 pages, UINT64_MAX = disabled)\n"
+       "  --trace NEW_CSV    trace internal tasks and waits (optional)\n"
+       "  --direct          use O_DIRECT (default buffered I/O)\n"
+       "  --no-log          disable WAL (default enabled)\n"
+diff --git a/include/splinterdb/splinterdb.h b/include/splinterdb/splinterdb.h
+index 61401daa..a00f6ab8 100644
+--- a/include/splinterdb/splinterdb.h
++++ b/include/splinterdb/splinterdb.h
+@@ -111,7 +111,7 @@ typedef struct splinterdb_config {
+    _Bool use_log;
+ 
+    // Best-effort automatic durability threshold, in pages. Zero selects
+-   // MAX_THREADS pages; UINT64_MAX disables it. Each new staging page and
++   // 1024 pages; UINT64_MAX disables it. Each new staging page and
+    // each blob's logical bytes (rounded to pages) count toward the threshold.
+    // Crossing it submits a fire-and-forget durable barrier after publishing
+    // the update. Concurrent writers and large blobs may overshoot. Failures
+diff --git a/src/shard_log.c b/src/shard_log.c
+index 602bac67..65cee52c 100644
+--- a/src/shard_log.c
++++ b/src/shard_log.c
+@@ -2624,7 +2624,7 @@ shard_log_config_init(shard_log_config *log_cfg,
+    log_cfg->cache_cfg        = cache_cfg;
+    log_cfg->data_cfg         = data_cfg;
+    log_cfg->seed             = HASH_SEED;
+-   log_cfg->group_size_pages = MAX_THREADS;
++   log_cfg->group_size_pages = SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES;
+    log_cfg->blob_cfg         = (blob_build_config){
+               .extent_batch             = 1,
+               .page_batch               = 2,
+diff --git a/src/shard_log.h b/src/shard_log.h
+index 7603e8e0..b0c2e5db 100644
+--- a/src/shard_log.h
++++ b/src/shard_log.h
+@@ -20,6 +20,8 @@
+ #include "platform_mutex.h"
+ #include "writeback_set.h"
+ 
++#define SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES UINT64_C(1024)
++
+ /* Validate the version persisted in a log head before accessing its stream. */
+ platform_status
+ shard_log_validate_format_version(uint16 format_version);
+diff --git a/src/splinterdb.c b/src/splinterdb.c
+index 44f716dc..823b1455 100644
+--- a/src/splinterdb.c
++++ b/src/splinterdb.c
+@@ -206,7 +206,7 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
+       cfg->prefetch_budget = CORE_DEFAULT_PREFETCH_BUDGET;
+    }
+    if (!cfg->log_group_size_pages) {
+-      cfg->log_group_size_pages = MAX_THREADS;
++      cfg->log_group_size_pages = SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES;
+    }
+    if (!cfg->checkpoint_log_size_bytes) {
+       /*
+diff --git a/tests/config.c b/tests/config.c
+index e42843ca..0437283a 100644
+--- a/tests/config.c
++++ b/tests/config.c
+@@ -160,7 +160,7 @@ config_usage()
+    platform_error_log("\t--no-stats\n");
+    platform_error_log("\t--log\n");
+    platform_error_log("\t--no-log\n");
+-   platform_error_log("\t--log-group-size-pages (0 => MAX_THREADS)\n");
++   platform_error_log("\t--log-group-size-pages (0 => 1024)\n");
+    platform_error_log("\t--checkpoint-log-size-gib\n");
+    platform_error_log("\t--checkpoint-log-size-mib\n");
+    platform_error_log("\t--checkpoint-log-size-bytes (0 => cache capacity)\n");
+diff --git a/tests/unit/splinterdb_forked_child_test.c b/tests/unit/splinterdb_forked_child_test.c
+index c2d715ec..d9b916ad 100644
+--- a/tests/unit/splinterdb_forked_child_test.c
++++ b/tests/unit/splinterdb_forked_child_test.c
+@@ -108,9 +108,10 @@ CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
+          .checkpoint_log_grace_bytes = UINT64_MAX,
+       };
+       const uint64 count = variant ? 4 : 32;
+-      /* The final case exceeds a 128-byte descriptor's direct extent array,
++      /* Both blob cases cross the default 1024-page threshold per insert.
++       * The final case exceeds a 128-byte descriptor's direct extent array,
+        * so automatic durability must include blob pointer pages as well. */
+-      const uint64 value_sizes[] = {128, 64 * 4096 + 1, 8 * Mega + 1};
++      const uint64 value_sizes[] = {128, 1024 * 4096 + 1, 8 * Mega + 1};
+       const uint64 value_size    = value_sizes[variant];
+       char        *value         = malloc(value_size);
+       ASSERT_NOT_NULL(value);
+diff --git a/tests/unit/splinterdb_quick_test.c b/tests/unit/splinterdb_quick_test.c
+index c94f110a..ceca0e49 100644
+--- a/tests/unit/splinterdb_quick_test.c
++++ b/tests/unit/splinterdb_quick_test.c
+@@ -256,6 +256,7 @@ CTEST2(splinterdb_quick, test_get_config_returns_effective_config)
+    ASSERT_EQUAL(24 * Mega, cfg->memtable_capacity);
+    ASSERT_EQUAL(8, cfg->fanout);
+    ASSERT_EQUAL_U(UINT64_MAX, cfg->reclaim_threshold);
++   ASSERT_EQUAL(1024, cfg->log_group_size_pages);
+ }
+ 
+ CTEST2(splinterdb_quick, test_get_cost_stats)

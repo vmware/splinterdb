@@ -205,6 +205,9 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    if (!cfg->prefetch_budget) {
       cfg->prefetch_budget = CORE_DEFAULT_PREFETCH_BUDGET;
    }
+   if (!cfg->log_group_size_pages) {
+      cfg->log_group_size_pages = SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES;
+   }
    if (!cfg->checkpoint_log_size_bytes) {
       /*
        * Arm a checkpoint once the log has grown by a cache's worth: replaying
@@ -404,6 +407,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return STATUS_BAD_PARAM;
    }
    shard_log_config_init(&kvs->log_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
+   kvs->log_cfg.group_size_pages = cfg.log_group_size_pages;
    kvs->log_cfg.blob_cfg.blob_max_descriptor_size =
       cfg.blob_max_descriptor_size;
 

@@ -13,6 +13,8 @@
  * functional usages in this multi-process configuration.
  * -----------------------------------------------------------------------------
  */
+#include <fcntl.h>
+#include <stdlib.h>
 #include <sys/wait.h>
 
 #include "splinterdb/default_data_config.h"
@@ -84,6 +86,88 @@ CTEST_SETUP(splinterdb_forked_child)
 
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(splinterdb_forked_child) {}
+
+/* The child never closes, checkpoints, or explicitly makes the log durable.
+ * Only the configured automatic threshold can make these records replayable. */
+CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
+{
+   data_config dcfg;
+   default_data_config_init(&dcfg);
+   for (unsigned variant = 0; variant < 3; variant++) {
+      splinterdb_config cfg = {
+         .filename                   = data->master_cfg.io_filename,
+         .cache_size                 = 64 * Mega,
+         .disk_size                  = 4 * Giga,
+         .data_cfg                   = &dcfg,
+         .use_log                    = TRUE,
+         .num_normal_bg_threads      = 1,
+         .queue_scale_percent        = UINT64_MAX,
+         .log_group_size_pages       = variant ? 0 : 1,
+         .blob_max_descriptor_size   = variant == 2 ? 128 : 0,
+         .checkpoint_log_size_bytes  = UINT64_MAX,
+         .checkpoint_log_grace_bytes = UINT64_MAX,
+      };
+      const uint64 count = variant ? 4 : 32;
+      /* Both blob cases cross the default 1024-page threshold per insert.
+       * The final case exceeds a 128-byte descriptor's direct extent array,
+       * so automatic durability must include blob pointer pages as well. */
+      const uint64 value_sizes[] = {128, 1024 * 4096 + 1, 8 * Mega + 1};
+      const uint64 value_size    = value_sizes[variant];
+      char        *value         = malloc(value_size);
+      ASSERT_NOT_NULL(value);
+      pid_t child = fork();
+      ASSERT_TRUE(child >= 0);
+      if (child == 0) {
+         cfg.io_flags = O_RDWR | O_CREAT | O_TRUNC;
+         splinterdb *db;
+         if (splinterdb_create(&cfg, &db) != 0) {
+            _exit(1);
+         }
+         for (uint64 i = 0; i < count; i++) {
+            memset(value, i + 1, value_size);
+            if (splinterdb_insert(db,
+                                  slice_create(sizeof(i), &i),
+                                  slice_create(value_size, value),
+                                  NULL)
+                != 0)
+            {
+               _exit(2);
+            }
+         }
+         /* Wait only for already-enqueued work, without cutting a new group
+          * or performing a checkpoint. An arbitrary crash before completion
+          * is deliberately permitted to lose the queued suffix. */
+         if (!SUCCESS(task_perform_until_quiescent(
+                (task_system *)splinterdb_get_task_system_handle(db))))
+         {
+            _exit(3);
+         }
+         _exit(0);
+      }
+      int status;
+      ASSERT_EQUAL(child, waitpid(child, &status, 0));
+      ASSERT_TRUE(WIFEXITED(status));
+      ASSERT_EQUAL(0, WEXITSTATUS(status));
+      splinterdb *db;
+      ASSERT_EQUAL(0, splinterdb_open(&cfg, &db));
+      splinterdb_lookup_result result;
+      splinterdb_lookup_result_init(
+         db, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      for (uint64 i = 0; i < count; i++) {
+         ASSERT_EQUAL(
+            0, splinterdb_lookup(db, slice_create(sizeof(i), &i), &result));
+         ASSERT_TRUE(splinterdb_lookup_found(&result));
+         slice actual;
+         ASSERT_EQUAL(0, splinterdb_lookup_result_value(&result, &actual));
+         ASSERT_EQUAL(value_size, slice_length(actual));
+         memset(value, i + 1, value_size);
+         ASSERT_EQUAL(0, memcmp(value, slice_data(actual), value_size));
+      }
+      splinterdb_lookup_result_deinit(&result);
+      ASSERT_EQUAL(0, splinterdb_close(&db, FALSE));
+      free(value);
+   }
+}
 
 /*
  * ------------------------------------------------------------------------------

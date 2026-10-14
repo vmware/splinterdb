@@ -269,6 +269,9 @@ struct core_handle {
    platform_mutex        checkpoint_state_lock;
    core_checkpoint_state checkpoint;
 
+   /* Held only while submitting an automatic durability barrier. */
+   bool32 automatic_barrier_submitting;
+
    /*
     * Hint that the live log has reached checkpoint_log_size_bytes.  Set by
     * core_log_insert() -- which already holds the shared insert lock, the same
