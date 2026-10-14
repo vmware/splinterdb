@@ -57,6 +57,12 @@ leaf bytes can trade off against rebuilding and key reconstruction.
 
 # Measurements
 
+The latest integration and merge-readiness assessment is in
+[the 2026-10-14 archive](../benchmarks/results-20261014/prefix-main-6105c49f/README.md).
+Its comparison with main `6105c49f` confirms shared-prefix disk benefits but
+retains a reproducible nonlexical short-scan regression that blocks a
+performance-ready merge. The following earlier measurements remain historical.
+
 All runs used O_DIRECT files on ext4, CPU affinity 0–11, 64-byte keys,
 100-byte values and WAL disabled. Loading used one thread and zero background
 workers for reproducible construction within each format. Baseline and candidate
@@ -194,3 +200,34 @@ The [integration evidence](../benchmarks/results-20261013/prefix-main-fc0bc8f7/R
 records exact commands and source/binary hashes. Prior benchmark evidence is
 preserved under `benchmarks/branch-prefix-history`; it does not establish
 performance on this new main.
+
+# Current-main integration and performance review, 2026-10-14
+
+Merged `origin/main` at `6105c49f` (bounded automatic log groups) without
+conflicts, as merge commit `97e5c0e3`. The custom IPv4 comparator example now
+clears the lexical flag. Debug and release each passed 141 unit cases plus the
+functional log test. The benchmark libraries exactly match the recorded main
+and merge runtime sources.
+
+The refreshed comparison completed 28 read, 16 overwrite and 24 targeted repeat
+runs, all with zero errors/violations, on real ext4 storage with O_DIRECT,
+serialized execution, identical harness source and fsynced fixture copies.
+Shared-prefix disk point/short/long scans improved 10.45% / 10.86% / 20.29%,
+and file allocation fell 34.73%.
+
+Performance remains a merge blocker. Resident nonlexical short scans were
+5.36% slower initially and 5.73% slower in three longer paired repetitions,
+with nonoverlapping sample ranges in both. Common-prefix resident long scans
+averaged 12.10% slower in the repeat, although their sample ranges overlap.
+The initial 20.10% disabled-compression long-scan loss did not repeat; that
+repeat averaged -2.38% with overlapping ranges. Logged random overwrites
+including close/drain averaged -6.09% in the repeat, also with overlapping
+ranges. These short writes do not establish steady-state insertion performance.
+
+Each public iterator is also 38 KiB larger (94,592 -> 133,504 bytes on this
+build), even when compression is disabled. This is an object-size comparison,
+not an RSS measurement. The unchanged-cache benchmark does not impose a total
+memory cap. This branch is suitable for review as a PR, but the nonlexical
+regression and remaining resident scan costs should be addressed before merging
+the default-enabled feature. Full results, limitations, hashes, commands and
+validation are in [the current archive](../benchmarks/results-20261014/prefix-main-6105c49f/README.md).

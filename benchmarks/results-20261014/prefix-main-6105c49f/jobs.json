@@ -1,0 +1,28 @@
+[
+  {
+    "mode": "reads",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/benchmarks/results-20261014/prefix-main-6105c49f/run_benchmarks.py",
+      "--mode",
+      "reads"
+    ],
+    "started": 1792007320.8491955,
+    "locks": "exclusive benchmark and machine",
+    "finished": 1792008135.14136,
+    "returncode": 0
+  },
+  {
+    "mode": "writes",
+    "command": [
+      "python3",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/benchmarks/results-20261014/prefix-main-6105c49f/run_benchmarks.py",
+      "--mode",
+      "writes"
+    ],
+    "started": 1792008135.1415071,
+    "locks": "exclusive benchmark and machine",
+    "finished": 1792008299.6501558,
+    "returncode": 0
+  }
+]
