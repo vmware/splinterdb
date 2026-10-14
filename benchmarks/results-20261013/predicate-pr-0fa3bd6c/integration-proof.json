@@ -1,0 +1,10 @@
+{
+  "branch": "robj/filtered-ranges-disk-format",
+  "commit": "361838074656ddf04ad37c0452f4373da9211269",
+  "worktree": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
+  "evidence": "worktrees/filtered-ranges-disk-format/benchmarks/results-20261013/filter-predicate-disk-integration",
+  "validation": "Debug and release each passed 125 unit cases plus full routing-filter suite; saved seeds 11/22 with construction default99, six-seed cache eviction, and key ownership after caller storage reuse. Correctness proof only; no combined performance claim.",
+  "verified_source_files": 167,
+  "verified_archive_files": 41,
+  "root_review": "Validated source and archive hashes; full PR diff check passed; reviewed persisted-seed selection and selected-root reference admission."
+}

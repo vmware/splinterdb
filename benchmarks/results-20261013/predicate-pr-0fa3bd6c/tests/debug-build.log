@@ -1,0 +1,5 @@
+Checking for mismatched config...No mismatched config found
+make: 'build-filter-predicate/debug/bin/unit/splinter_test' is up to date.
+make: 'build-filter-predicate/debug/bin/driver_test' is up to date.
+Compiling            tests/unit/splinterdb_quick_test.c                 [build-filter-predicate/debug/obj/tests/unit/splinterdb_quick_test.o]
+Linking              build-filter-predicate/debug/bin/unit/splinterdb_quick_test

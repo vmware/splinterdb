@@ -1,0 +1,13 @@
+{
+  "complete": true,
+  "runs": {
+    "fixtures": 4,
+    "resident": 6,
+    "disk": 6,
+    "feature": 12,
+    "repeat-resident-disk-point8": 4
+  },
+  "errors": 0,
+  "violations": 0,
+  "verification": "All processes succeeded; all manifests verified; exact warm/load counts and output checks validated."
+}

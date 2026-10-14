@@ -1,0 +1,1152 @@
+{
+  "mode": "smoke",
+  "storage": "ext4 /dev/mapper/snafu-root_crypt[/home/rob/projects/splinterdb]",
+  "io": "O_DIRECT",
+  "runner_sha256": "65d814a2282dc63b3661004ed6ae5cac5eb57f07d43402627b61844f329b4507",
+  "runs": [
+    {
+      "label": "point-uniform-8-00-disk-format",
+      "profile": "disk-format",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "perf",
+        "stat",
+        "-D",
+        "-1",
+        "--control",
+        "fifo:/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-00-disk-format/control.fifo,/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-00-disk-format/ack.fifo",
+        "-x,",
+        "-e",
+        "{cpu_core/cycles/u,cpu_core/ref-cycles/u,cpu_core/instructions/u,cpu_core/branches/u,cpu_core/branch-misses/u},task-clock,context-switches,cpu-migrations",
+        "-o",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-00-disk-format/perf-stat.csv",
+        "--",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filtered-disk-pr-20261013/benchmarks/bin/disk-format/kvbench_controlled",
+        "--db",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-00-disk-format/scratch.db",
+        "--open",
+        "--n",
+        "200000",
+        "--cache-mib",
+        "128",
+        "--disk-gib",
+        "8",
+        "--log",
+        "0",
+        "--threads",
+        "8",
+        "--mt-bg",
+        "0",
+        "--normal-bg",
+        "0",
+        "--memtable-mib",
+        "4",
+        "--secs",
+        "2",
+        "--warmup",
+        "1",
+        "--csv",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-00-disk-format/results.csv",
+        "--vtag",
+        "disk-format",
+        "--stag",
+        "resident",
+        "--otag",
+        "0",
+        "--rep",
+        "0",
+        "--seed",
+        "42",
+        "--hang-secs",
+        "60",
+        "--hang-dir",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-00-disk-format",
+        "warm@1",
+        "point:uniform@8"
+      ],
+      "environment": {
+        "KVBENCH_CPU_MAP": "0,2,4,6,8,10,1,3",
+        "KVBENCH_SERIAL_REGISTER": "1",
+        "KVBENCH_PERF_CONTROL": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-00-disk-format/control.fifo",
+        "KVBENCH_PERF_ACK": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-00-disk-format/ack.fifo"
+      },
+      "build_manifest": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filtered-disk-pr-20261013/benchmarks/disk-format-build.json",
+      "build_manifest_sha256": "b29aec620c837e2a970858b5b55a1a5381f46d2d103f354672d259a817c42fd4",
+      "binary_sha256": "13650e3ac7131871569cc13f2cf60c9cc76743b004d25c61d32cc9497b86d3c0",
+      "library_sha256": "4b2eb5decdc347afe224775b61566483c95f8ee58def3f30a2f9755a3721a1e4",
+      "started": 1791947978.600018,
+      "power_start": {
+        "time": 1791947978.6000187,
+        "thermal": {
+          "thermal_zone2": {
+            "type": "SEN1",
+            "millidegrees": 45050
+          },
+          "thermal_zone0": {
+            "type": "INT3400 Thermal",
+            "millidegrees": 20000
+          },
+          "thermal_zone9": {
+            "type": "SEN8",
+            "millidegrees": 65050
+          },
+          "thermal_zone12": {
+            "type": "x86_pkg_temp",
+            "millidegrees": 85000
+          },
+          "thermal_zone7": {
+            "type": "SEN6",
+            "millidegrees": 49050
+          },
+          "thermal_zone10": {
+            "type": "TCPU",
+            "millidegrees": 81050
+          },
+          "thermal_zone5": {
+            "type": "SEN4",
+            "millidegrees": 44050
+          },
+          "thermal_zone3": {
+            "type": "SEN2",
+            "millidegrees": 49050
+          },
+          "thermal_zone1": {
+            "type": "SKIN",
+            "millidegrees": 50050
+          },
+          "thermal_zone13": {
+            "type": "iwlwifi_1",
+            "millidegrees": 39000
+          },
+          "thermal_zone8": {
+            "type": "SEN7",
+            "millidegrees": 32050
+          },
+          "thermal_zone11": {
+            "type": "TCPU_PCI",
+            "millidegrees": 81000
+          },
+          "thermal_zone6": {
+            "type": "SEN5",
+            "millidegrees": 61050
+          },
+          "thermal_zone4": {
+            "type": "SEN3",
+            "millidegrees": 33050
+          }
+        },
+        "cpu": {
+          "0": {
+            "cpufreq/scaling_cur_freq": "4430409",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4831321",
+            "thermal_throttle/package_throttle_count": "32298816",
+            "thermal_throttle/core_throttle_total_time_ms": "16651188",
+            "thermal_throttle/package_throttle_total_time_ms": "151394660"
+          },
+          "1": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4831324",
+            "thermal_throttle/package_throttle_count": "32298804",
+            "thermal_throttle/core_throttle_total_time_ms": "16651324",
+            "thermal_throttle/package_throttle_total_time_ms": "151394940"
+          },
+          "2": {
+            "cpufreq/scaling_cur_freq": "552173",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19240905",
+            "thermal_throttle/package_throttle_count": "31769491",
+            "thermal_throttle/core_throttle_total_time_ms": "103285284",
+            "thermal_throttle/package_throttle_total_time_ms": "149893180"
+          },
+          "3": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19240896",
+            "thermal_throttle/package_throttle_count": "31769463",
+            "thermal_throttle/core_throttle_total_time_ms": "103285604",
+            "thermal_throttle/package_throttle_total_time_ms": "149895724"
+          },
+          "4": {
+            "cpufreq/scaling_cur_freq": "816117",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5107810",
+            "thermal_throttle/package_throttle_count": "29979574",
+            "thermal_throttle/core_throttle_total_time_ms": "25374948",
+            "thermal_throttle/package_throttle_total_time_ms": "155069940"
+          },
+          "5": {
+            "cpufreq/scaling_cur_freq": "528917",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5107814",
+            "thermal_throttle/package_throttle_count": "29979612",
+            "thermal_throttle/core_throttle_total_time_ms": "25374372",
+            "thermal_throttle/package_throttle_total_time_ms": "155072124"
+          },
+          "6": {
+            "cpufreq/scaling_cur_freq": "3825957",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5295179",
+            "thermal_throttle/package_throttle_count": "29993682",
+            "thermal_throttle/core_throttle_total_time_ms": "25011736",
+            "thermal_throttle/package_throttle_total_time_ms": "155326768"
+          },
+          "7": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5295179",
+            "thermal_throttle/package_throttle_count": "29993700",
+            "thermal_throttle/core_throttle_total_time_ms": "25011084",
+            "thermal_throttle/package_throttle_total_time_ms": "155328148"
+          },
+          "8": {
+            "cpufreq/scaling_cur_freq": "1431702",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544339",
+            "thermal_throttle/package_throttle_count": "27604618",
+            "thermal_throttle/core_throttle_total_time_ms": "1885692",
+            "thermal_throttle/package_throttle_total_time_ms": "159107600"
+          },
+          "9": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544342",
+            "thermal_throttle/package_throttle_count": "27604656",
+            "thermal_throttle/core_throttle_total_time_ms": "1885580",
+            "thermal_throttle/package_throttle_total_time_ms": "159107520"
+          },
+          "10": {
+            "cpufreq/scaling_cur_freq": "2401483",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3760985",
+            "thermal_throttle/package_throttle_count": "31662108",
+            "thermal_throttle/core_throttle_total_time_ms": "12433128",
+            "thermal_throttle/package_throttle_total_time_ms": "152835568"
+          },
+          "11": {
+            "cpufreq/scaling_cur_freq": "400627",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3760991",
+            "thermal_throttle/package_throttle_count": "31662207",
+            "thermal_throttle/core_throttle_total_time_ms": "12432932",
+            "thermal_throttle/package_throttle_total_time_ms": "152838404"
+          }
+        }
+      },
+      "verified": true,
+      "returncode": 0,
+      "finished": 1791947981.8499906,
+      "power_end": {
+        "time": 1791947981.8499932,
+        "thermal": {
+          "thermal_zone2": {
+            "type": "SEN1",
+            "millidegrees": 45050
+          },
+          "thermal_zone0": {
+            "type": "INT3400 Thermal",
+            "millidegrees": 20000
+          },
+          "thermal_zone9": {
+            "type": "SEN8",
+            "millidegrees": 65050
+          },
+          "thermal_zone12": {
+            "type": "x86_pkg_temp",
+            "millidegrees": 76000
+          },
+          "thermal_zone7": {
+            "type": "SEN6",
+            "millidegrees": 49050
+          },
+          "thermal_zone10": {
+            "type": "TCPU",
+            "millidegrees": 88050
+          },
+          "thermal_zone5": {
+            "type": "SEN4",
+            "millidegrees": 44050
+          },
+          "thermal_zone3": {
+            "type": "SEN2",
+            "millidegrees": 48050
+          },
+          "thermal_zone1": {
+            "type": "SKIN",
+            "millidegrees": 50050
+          },
+          "thermal_zone13": {
+            "type": "iwlwifi_1",
+            "millidegrees": 45000
+          },
+          "thermal_zone8": {
+            "type": "SEN7",
+            "millidegrees": 32050
+          },
+          "thermal_zone11": {
+            "type": "TCPU_PCI",
+            "millidegrees": 80000
+          },
+          "thermal_zone6": {
+            "type": "SEN5",
+            "millidegrees": 61050
+          },
+          "thermal_zone4": {
+            "type": "SEN3",
+            "millidegrees": 33050
+          }
+        },
+        "cpu": {
+          "0": {
+            "cpufreq/scaling_cur_freq": "4284653",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4831325",
+            "thermal_throttle/package_throttle_count": "32298822",
+            "thermal_throttle/core_throttle_total_time_ms": "16651236",
+            "thermal_throttle/package_throttle_total_time_ms": "151394708"
+          },
+          "1": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4831328",
+            "thermal_throttle/package_throttle_count": "32298810",
+            "thermal_throttle/core_throttle_total_time_ms": "16651372",
+            "thermal_throttle/package_throttle_total_time_ms": "151394988"
+          },
+          "2": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19240907",
+            "thermal_throttle/package_throttle_count": "31769497",
+            "thermal_throttle/core_throttle_total_time_ms": "103285312",
+            "thermal_throttle/package_throttle_total_time_ms": "149893212"
+          },
+          "3": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19240898",
+            "thermal_throttle/package_throttle_count": "31769469",
+            "thermal_throttle/core_throttle_total_time_ms": "103285632",
+            "thermal_throttle/package_throttle_total_time_ms": "149895756"
+          },
+          "4": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5107810",
+            "thermal_throttle/package_throttle_count": "29979579",
+            "thermal_throttle/core_throttle_total_time_ms": "25374948",
+            "thermal_throttle/package_throttle_total_time_ms": "155070000"
+          },
+          "5": {
+            "cpufreq/scaling_cur_freq": "1263086",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5107814",
+            "thermal_throttle/package_throttle_count": "29979617",
+            "thermal_throttle/core_throttle_total_time_ms": "25374372",
+            "thermal_throttle/package_throttle_total_time_ms": "155072184"
+          },
+          "6": {
+            "cpufreq/scaling_cur_freq": "400163",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5295179",
+            "thermal_throttle/package_throttle_count": "29993687",
+            "thermal_throttle/core_throttle_total_time_ms": "25011736",
+            "thermal_throttle/package_throttle_total_time_ms": "155326828"
+          },
+          "7": {
+            "cpufreq/scaling_cur_freq": "400309",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5295179",
+            "thermal_throttle/package_throttle_count": "29993705",
+            "thermal_throttle/core_throttle_total_time_ms": "25011084",
+            "thermal_throttle/package_throttle_total_time_ms": "155328208"
+          },
+          "8": {
+            "cpufreq/scaling_cur_freq": "3903834",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544339",
+            "thermal_throttle/package_throttle_count": "27604623",
+            "thermal_throttle/core_throttle_total_time_ms": "1885692",
+            "thermal_throttle/package_throttle_total_time_ms": "159107660"
+          },
+          "9": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544342",
+            "thermal_throttle/package_throttle_count": "27604661",
+            "thermal_throttle/core_throttle_total_time_ms": "1885580",
+            "thermal_throttle/package_throttle_total_time_ms": "159107580"
+          },
+          "10": {
+            "cpufreq/scaling_cur_freq": "400170",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3760985",
+            "thermal_throttle/package_throttle_count": "31662113",
+            "thermal_throttle/core_throttle_total_time_ms": "12433128",
+            "thermal_throttle/package_throttle_total_time_ms": "152835628"
+          },
+          "11": {
+            "cpufreq/scaling_cur_freq": "2637049",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3760991",
+            "thermal_throttle/package_throttle_count": "31662212",
+            "thermal_throttle/core_throttle_total_time_ms": "12432932",
+            "thermal_throttle/package_throttle_total_time_ms": "152838464"
+          }
+        }
+      },
+      "counters": {
+        "cpu_core/cycles/u": 41787950295.0,
+        "cpu_core/ref-cycles/u": 44759379140.0,
+        "cpu_core/instructions/u": 56514245261.0,
+        "cpu_core/branches/u": 10303144125.0,
+        "cpu_core/branch-misses/u": 116581140.0,
+        "task-clock": 16001.2,
+        "context-switches": 108.0,
+        "cpu-migrations": 0.0
+      },
+      "rows": [
+        {
+          "version": "disk-format",
+          "size": "resident",
+          "order": "0",
+          "log": "0",
+          "phase": "warm@1",
+          "threads": "1",
+          "rep": "0",
+          "n": "200000",
+          "ops": "200000",
+          "secs": "0.045",
+          "ops_s": "4410067.2",
+          "p50_us": "nan",
+          "p99_us": "nan",
+          "p999_us": "nan",
+          "max_us": "0.000",
+          "mean_us": "nan",
+          "cpu_s": "0.034",
+          "ops_per_cpu_s": "5858230.8",
+          "rd_bytes": "27459584",
+          "wr_bytes": "0",
+          "rd_B_op": "137.30",
+          "wr_B_op": "0.00",
+          "startup_p50_us": "nan",
+          "startup_p99_us": "nan",
+          "startup_mean_us": "nan",
+          "per_tuple_ns": "nan",
+          "deinit_mean_us": "nan",
+          "tuples": "200000",
+          "tuples_s": "4410067.2",
+          "insert_s": "0.045",
+          "drain_s": "0.000",
+          "total_s": "0.045",
+          "drain_cpu_s": "0.000",
+          "drain_rd": "0",
+          "drain_wr": "0",
+          "wamp": "nan",
+          "db_apparent": "0",
+          "db_alloc": "0",
+          "open_s": "0.005",
+          "violations": "0",
+          "errors": "0",
+          "swapin": "0",
+          "swapout": "0",
+          "majflt": "0"
+        },
+        {
+          "version": "disk-format",
+          "size": "resident",
+          "order": "0",
+          "log": "0",
+          "phase": "point:uniform@8",
+          "threads": "8",
+          "rep": "0",
+          "n": "200000",
+          "ops": "9742886",
+          "secs": "2.000",
+          "ops_s": "4870875.2",
+          "p50_us": "1.616",
+          "p99_us": "2.208",
+          "p999_us": "2.656",
+          "max_us": "138.400",
+          "mean_us": "1.598",
+          "cpu_s": "15.998",
+          "ops_per_cpu_s": "609024.6",
+          "rd_bytes": "0",
+          "wr_bytes": "0",
+          "rd_B_op": "0.00",
+          "wr_B_op": "0.00",
+          "startup_p50_us": "nan",
+          "startup_p99_us": "nan",
+          "startup_mean_us": "nan",
+          "per_tuple_ns": "nan",
+          "deinit_mean_us": "nan",
+          "tuples": "0",
+          "tuples_s": "0.0",
+          "insert_s": "2.000",
+          "drain_s": "0.095",
+          "total_s": "2.096",
+          "drain_cpu_s": "0.012",
+          "drain_rd": "0",
+          "drain_wr": "307200",
+          "wamp": "nan",
+          "db_apparent": "162664448",
+          "db_alloc": "28655616",
+          "open_s": "0.005",
+          "violations": "0",
+          "errors": "0",
+          "swapin": "0",
+          "swapout": "92",
+          "majflt": "0"
+        }
+      ],
+      "registrations": [
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          2,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          4,
+          4
+        ],
+        [
+          3,
+          4,
+          6,
+          6
+        ],
+        [
+          4,
+          5,
+          8,
+          8
+        ],
+        [
+          5,
+          6,
+          10,
+          10
+        ],
+        [
+          6,
+          7,
+          1,
+          1
+        ],
+        [
+          7,
+          8,
+          3,
+          3
+        ]
+      ],
+      "fixture": {
+        "fixture": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filter-predicate-20261013/fixtures/resident-disk-format.db",
+        "fixture_sha256": "c853e677543afdfa7efcd67fa13e5c9d57b0a1465aff245641584f65c1dbecc4",
+        "allocated_bytes": 28905472,
+        "apparent_bytes": 162664448
+      },
+      "fixture_copy_fsynced": true
+    },
+    {
+      "label": "point-uniform-8-01-combined",
+      "profile": "combined",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "perf",
+        "stat",
+        "-D",
+        "-1",
+        "--control",
+        "fifo:/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-01-combined/control.fifo,/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-01-combined/ack.fifo",
+        "-x,",
+        "-e",
+        "{cpu_core/cycles/u,cpu_core/ref-cycles/u,cpu_core/instructions/u,cpu_core/branches/u,cpu_core/branch-misses/u},task-clock,context-switches,cpu-migrations",
+        "-o",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-01-combined/perf-stat.csv",
+        "--",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filtered-disk-pr-20261013/benchmarks/bin/combined/kvbench_controlled",
+        "--db",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-01-combined/scratch.db",
+        "--open",
+        "--n",
+        "200000",
+        "--cache-mib",
+        "128",
+        "--disk-gib",
+        "8",
+        "--log",
+        "0",
+        "--threads",
+        "8",
+        "--mt-bg",
+        "0",
+        "--normal-bg",
+        "0",
+        "--memtable-mib",
+        "4",
+        "--secs",
+        "2",
+        "--warmup",
+        "1",
+        "--csv",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-01-combined/results.csv",
+        "--vtag",
+        "combined",
+        "--stag",
+        "resident",
+        "--otag",
+        "1",
+        "--rep",
+        "1",
+        "--seed",
+        "42",
+        "--hang-secs",
+        "60",
+        "--hang-dir",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-01-combined",
+        "warm@1",
+        "point:uniform@8"
+      ],
+      "environment": {
+        "KVBENCH_CPU_MAP": "0,2,4,6,8,10,1,3",
+        "KVBENCH_SERIAL_REGISTER": "1",
+        "KVBENCH_PERF_CONTROL": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-01-combined/control.fifo",
+        "KVBENCH_PERF_ACK": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filtered-disk-pr-20261013/smoke/point-uniform-8-01-combined/ack.fifo"
+      },
+      "build_manifest": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filtered-disk-pr-20261013/benchmarks/combined-build.json",
+      "build_manifest_sha256": "f192491970c7f51e6b070ec1081bdf2888633258569ec72e4a730aac48a47018",
+      "binary_sha256": "88aa0bbff580e534d768f3cce5e74f4145053e12258fb132cd407abd5fde1eed",
+      "library_sha256": "f7b3f67e019d891c673793724b71382c5da30475d57018d0337e9feb649a0541",
+      "started": 1791947982.0968735,
+      "power_start": {
+        "time": 1791947982.0968742,
+        "thermal": {
+          "thermal_zone2": {
+            "type": "SEN1",
+            "millidegrees": 45050
+          },
+          "thermal_zone0": {
+            "type": "INT3400 Thermal",
+            "millidegrees": 20000
+          },
+          "thermal_zone9": {
+            "type": "SEN8",
+            "millidegrees": 65050
+          },
+          "thermal_zone12": {
+            "type": "x86_pkg_temp",
+            "millidegrees": 88000
+          },
+          "thermal_zone7": {
+            "type": "SEN6",
+            "millidegrees": 49050
+          },
+          "thermal_zone10": {
+            "type": "TCPU",
+            "millidegrees": 88050
+          },
+          "thermal_zone5": {
+            "type": "SEN4",
+            "millidegrees": 44050
+          },
+          "thermal_zone3": {
+            "type": "SEN2",
+            "millidegrees": 49050
+          },
+          "thermal_zone1": {
+            "type": "SKIN",
+            "millidegrees": 50050
+          },
+          "thermal_zone13": {
+            "type": "iwlwifi_1",
+            "millidegrees": 45000
+          },
+          "thermal_zone8": {
+            "type": "SEN7",
+            "millidegrees": 32050
+          },
+          "thermal_zone11": {
+            "type": "TCPU_PCI",
+            "millidegrees": 83000
+          },
+          "thermal_zone6": {
+            "type": "SEN5",
+            "millidegrees": 61050
+          },
+          "thermal_zone4": {
+            "type": "SEN3",
+            "millidegrees": 33050
+          }
+        },
+        "cpu": {
+          "0": {
+            "cpufreq/scaling_cur_freq": "4378581",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4831325",
+            "thermal_throttle/package_throttle_count": "32298852",
+            "thermal_throttle/core_throttle_total_time_ms": "16651236",
+            "thermal_throttle/package_throttle_total_time_ms": "151394820"
+          },
+          "1": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4831328",
+            "thermal_throttle/package_throttle_count": "32298840",
+            "thermal_throttle/core_throttle_total_time_ms": "16651372",
+            "thermal_throttle/package_throttle_total_time_ms": "151395100"
+          },
+          "2": {
+            "cpufreq/scaling_cur_freq": "2250181",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19240907",
+            "thermal_throttle/package_throttle_count": "31769527",
+            "thermal_throttle/core_throttle_total_time_ms": "103285312",
+            "thermal_throttle/package_throttle_total_time_ms": "149893324"
+          },
+          "3": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19240898",
+            "thermal_throttle/package_throttle_count": "31769499",
+            "thermal_throttle/core_throttle_total_time_ms": "103285632",
+            "thermal_throttle/package_throttle_total_time_ms": "149895868"
+          },
+          "4": {
+            "cpufreq/scaling_cur_freq": "592020",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5107810",
+            "thermal_throttle/package_throttle_count": "29979609",
+            "thermal_throttle/core_throttle_total_time_ms": "25374948",
+            "thermal_throttle/package_throttle_total_time_ms": "155070112"
+          },
+          "5": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5107814",
+            "thermal_throttle/package_throttle_count": "29979647",
+            "thermal_throttle/core_throttle_total_time_ms": "25374372",
+            "thermal_throttle/package_throttle_total_time_ms": "155072296"
+          },
+          "6": {
+            "cpufreq/scaling_cur_freq": "3625694",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5295209",
+            "thermal_throttle/package_throttle_count": "29993717",
+            "thermal_throttle/core_throttle_total_time_ms": "25011852",
+            "thermal_throttle/package_throttle_total_time_ms": "155326944"
+          },
+          "7": {
+            "cpufreq/scaling_cur_freq": "3686437",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5295209",
+            "thermal_throttle/package_throttle_count": "29993735",
+            "thermal_throttle/core_throttle_total_time_ms": "25011200",
+            "thermal_throttle/package_throttle_total_time_ms": "155328324"
+          },
+          "8": {
+            "cpufreq/scaling_cur_freq": "569926",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544339",
+            "thermal_throttle/package_throttle_count": "27604653",
+            "thermal_throttle/core_throttle_total_time_ms": "1885692",
+            "thermal_throttle/package_throttle_total_time_ms": "159107772"
+          },
+          "9": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544342",
+            "thermal_throttle/package_throttle_count": "27604691",
+            "thermal_throttle/core_throttle_total_time_ms": "1885580",
+            "thermal_throttle/package_throttle_total_time_ms": "159107692"
+          },
+          "10": {
+            "cpufreq/scaling_cur_freq": "400174",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3760985",
+            "thermal_throttle/package_throttle_count": "31662143",
+            "thermal_throttle/core_throttle_total_time_ms": "12433128",
+            "thermal_throttle/package_throttle_total_time_ms": "152835744"
+          },
+          "11": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3760991",
+            "thermal_throttle/package_throttle_count": "31662242",
+            "thermal_throttle/core_throttle_total_time_ms": "12432932",
+            "thermal_throttle/package_throttle_total_time_ms": "152838576"
+          }
+        }
+      },
+      "verified": true,
+      "returncode": 0,
+      "finished": 1791947985.298664,
+      "power_end": {
+        "time": 1791947985.2986655,
+        "thermal": {
+          "thermal_zone2": {
+            "type": "SEN1",
+            "millidegrees": 45050
+          },
+          "thermal_zone0": {
+            "type": "INT3400 Thermal",
+            "millidegrees": 20000
+          },
+          "thermal_zone9": {
+            "type": "SEN8",
+            "millidegrees": 64050
+          },
+          "thermal_zone12": {
+            "type": "x86_pkg_temp",
+            "millidegrees": 79000
+          },
+          "thermal_zone7": {
+            "type": "SEN6",
+            "millidegrees": 49050
+          },
+          "thermal_zone10": {
+            "type": "TCPU",
+            "millidegrees": 89050
+          },
+          "thermal_zone5": {
+            "type": "SEN4",
+            "millidegrees": 45050
+          },
+          "thermal_zone3": {
+            "type": "SEN2",
+            "millidegrees": 48050
+          },
+          "thermal_zone1": {
+            "type": "SKIN",
+            "millidegrees": 50050
+          },
+          "thermal_zone13": {
+            "type": "iwlwifi_1",
+            "millidegrees": 40000
+          },
+          "thermal_zone8": {
+            "type": "SEN7",
+            "millidegrees": 32050
+          },
+          "thermal_zone11": {
+            "type": "TCPU_PCI",
+            "millidegrees": 77000
+          },
+          "thermal_zone6": {
+            "type": "SEN5",
+            "millidegrees": 61050
+          },
+          "thermal_zone4": {
+            "type": "SEN3",
+            "millidegrees": 33050
+          }
+        },
+        "cpu": {
+          "0": {
+            "cpufreq/scaling_cur_freq": "4310770",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4831329",
+            "thermal_throttle/package_throttle_count": "32298857",
+            "thermal_throttle/core_throttle_total_time_ms": "16651276",
+            "thermal_throttle/package_throttle_total_time_ms": "151394860"
+          },
+          "1": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "4831332",
+            "thermal_throttle/package_throttle_count": "32298845",
+            "thermal_throttle/core_throttle_total_time_ms": "16651412",
+            "thermal_throttle/package_throttle_total_time_ms": "151395140"
+          },
+          "2": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19240908",
+            "thermal_throttle/package_throttle_count": "31769532",
+            "thermal_throttle/core_throttle_total_time_ms": "103285328",
+            "thermal_throttle/package_throttle_total_time_ms": "149893352"
+          },
+          "3": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "19240899",
+            "thermal_throttle/package_throttle_count": "31769504",
+            "thermal_throttle/core_throttle_total_time_ms": "103285648",
+            "thermal_throttle/package_throttle_total_time_ms": "149895896"
+          },
+          "4": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5107810",
+            "thermal_throttle/package_throttle_count": "29979613",
+            "thermal_throttle/core_throttle_total_time_ms": "25374948",
+            "thermal_throttle/package_throttle_total_time_ms": "155070156"
+          },
+          "5": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5107814",
+            "thermal_throttle/package_throttle_count": "29979651",
+            "thermal_throttle/core_throttle_total_time_ms": "25374372",
+            "thermal_throttle/package_throttle_total_time_ms": "155072340"
+          },
+          "6": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5295209",
+            "thermal_throttle/package_throttle_count": "29993721",
+            "thermal_throttle/core_throttle_total_time_ms": "25011852",
+            "thermal_throttle/package_throttle_total_time_ms": "155326988"
+          },
+          "7": {
+            "cpufreq/scaling_cur_freq": "3085672",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "5295209",
+            "thermal_throttle/package_throttle_count": "29993739",
+            "thermal_throttle/core_throttle_total_time_ms": "25011200",
+            "thermal_throttle/package_throttle_total_time_ms": "155328368"
+          },
+          "8": {
+            "cpufreq/scaling_cur_freq": "400000",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544339",
+            "thermal_throttle/package_throttle_count": "27604657",
+            "thermal_throttle/core_throttle_total_time_ms": "1885692",
+            "thermal_throttle/package_throttle_total_time_ms": "159107816"
+          },
+          "9": {
+            "cpufreq/scaling_cur_freq": "400419",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "544342",
+            "thermal_throttle/package_throttle_count": "27604695",
+            "thermal_throttle/core_throttle_total_time_ms": "1885580",
+            "thermal_throttle/package_throttle_total_time_ms": "159107736"
+          },
+          "10": {
+            "cpufreq/scaling_cur_freq": "1972126",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3760985",
+            "thermal_throttle/package_throttle_count": "31662147",
+            "thermal_throttle/core_throttle_total_time_ms": "12433128",
+            "thermal_throttle/package_throttle_total_time_ms": "152835788"
+          },
+          "11": {
+            "cpufreq/scaling_cur_freq": "1216087",
+            "cpufreq/scaling_governor": "powersave",
+            "thermal_throttle/core_throttle_count": "3760991",
+            "thermal_throttle/package_throttle_count": "31662246",
+            "thermal_throttle/core_throttle_total_time_ms": "12432932",
+            "thermal_throttle/package_throttle_total_time_ms": "152838620"
+          }
+        }
+      },
+      "counters": {
+        "cpu_core/cycles/u": 42936156549.0,
+        "cpu_core/ref-cycles/u": 44770299210.0,
+        "cpu_core/instructions/u": 57022368743.0,
+        "cpu_core/branches/u": 10490703690.0,
+        "cpu_core/branch-misses/u": 122747264.0,
+        "task-clock": 16001.86,
+        "context-switches": 82.0,
+        "cpu-migrations": 0.0
+      },
+      "rows": [
+        {
+          "version": "combined",
+          "size": "resident",
+          "order": "1",
+          "log": "0",
+          "phase": "warm@1",
+          "threads": "1",
+          "rep": "1",
+          "n": "200000",
+          "ops": "200000",
+          "secs": "0.044",
+          "ops_s": "4498808.0",
+          "p50_us": "nan",
+          "p99_us": "nan",
+          "p999_us": "nan",
+          "max_us": "0.000",
+          "mean_us": "nan",
+          "cpu_s": "0.033",
+          "ops_per_cpu_s": "5990535.0",
+          "rd_bytes": "27459584",
+          "wr_bytes": "0",
+          "rd_B_op": "137.30",
+          "wr_B_op": "0.00",
+          "startup_p50_us": "nan",
+          "startup_p99_us": "nan",
+          "startup_mean_us": "nan",
+          "per_tuple_ns": "nan",
+          "deinit_mean_us": "nan",
+          "tuples": "200000",
+          "tuples_s": "4498808.0",
+          "insert_s": "0.044",
+          "drain_s": "0.000",
+          "total_s": "0.044",
+          "drain_cpu_s": "0.000",
+          "drain_rd": "0",
+          "drain_wr": "0",
+          "wamp": "nan",
+          "db_apparent": "0",
+          "db_alloc": "0",
+          "open_s": "0.005",
+          "violations": "0",
+          "errors": "0",
+          "swapin": "0",
+          "swapout": "0",
+          "majflt": "0"
+        },
+        {
+          "version": "combined",
+          "size": "resident",
+          "order": "1",
+          "log": "0",
+          "phase": "point:uniform@8",
+          "threads": "8",
+          "rep": "1",
+          "n": "200000",
+          "ops": "10265534",
+          "secs": "2.000",
+          "ops_s": "5132144.8",
+          "p50_us": "1.520",
+          "p99_us": "2.144",
+          "p999_us": "2.464",
+          "max_us": "107.852",
+          "mean_us": "1.516",
+          "cpu_s": "15.998",
+          "ops_per_cpu_s": "641668.3",
+          "rd_bytes": "0",
+          "wr_bytes": "0",
+          "rd_B_op": "0.00",
+          "wr_B_op": "0.00",
+          "startup_p50_us": "nan",
+          "startup_p99_us": "nan",
+          "startup_mean_us": "nan",
+          "per_tuple_ns": "nan",
+          "deinit_mean_us": "nan",
+          "tuples": "0",
+          "tuples_s": "0.0",
+          "insert_s": "2.000",
+          "drain_s": "0.083",
+          "total_s": "2.083",
+          "drain_cpu_s": "0.012",
+          "drain_rd": "0",
+          "drain_wr": "307200",
+          "wamp": "nan",
+          "db_apparent": "162664448",
+          "db_alloc": "28655616",
+          "open_s": "0.005",
+          "violations": "0",
+          "errors": "0",
+          "swapin": "0",
+          "swapout": "0",
+          "majflt": "0"
+        }
+      ],
+      "registrations": [
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          1,
+          2,
+          2,
+          2
+        ],
+        [
+          2,
+          3,
+          4,
+          4
+        ],
+        [
+          3,
+          4,
+          6,
+          6
+        ],
+        [
+          4,
+          5,
+          8,
+          8
+        ],
+        [
+          5,
+          6,
+          10,
+          10
+        ],
+        [
+          6,
+          7,
+          1,
+          1
+        ],
+        [
+          7,
+          8,
+          3,
+          3
+        ]
+      ],
+      "fixture": {
+        "fixture": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filter-predicate-20261013/fixtures/resident-disk-format.db",
+        "fixture_sha256": "c853e677543afdfa7efcd67fa13e5c9d57b0a1465aff245641584f65c1dbecc4",
+        "allocated_bytes": 28905472,
+        "apparent_bytes": 162664448
+      },
+      "fixture_copy_fsynced": true
+    }
+  ],
+  "complete": true,
+  "order": [
+    "disk-format",
+    "combined"
+  ],
+  "phases": [
+    "point:uniform@8"
+  ],
+  "seconds": 2,
+  "cpu_map": [
+    0,
+    2,
+    4,
+    6,
+    8,
+    10,
+    1,
+    3
+  ],
+  "full_warm_scan_threads": 1
+}

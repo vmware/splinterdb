@@ -1,0 +1,18 @@
+Running 1 CTests, suite name 'merge', test case 'all'.
+TEST 1/10 merge:direction_change_propagates_child_errors [OK]
+TEST 2/10 merge:direction_change_succeeds [OK]
+TEST 3/10 merge:failed_direction_change_preserves_iterator_ownership setup_ordered_iterators: exception: Cannot allocate memory
+setup_ordered_iterators: exception: Cannot allocate memory
+[OK]
+TEST 4/10 merge:failed_creation_cleans_up setup_ordered_iterators: exception: Cannot allocate memory
+[OK]
+TEST 5/10 merge:maximum_arity_is_accepted merge_iterator_create: bad parameter merge_itor 0x7f4864100030 num_trees 1025 itor_arr 0x7f4864100100 cfg 0x7f4864100050
+[OK]
+TEST 6/10 merge:direction_change_clears_stale_equal_key_flag [OK]
+TEST 7/10 merge:direction_change_at_duplicate_key_moves_to_adjacent_key [OK]
+TEST 8/10 merge:random_direction_changes_match_merged_sequence [OK]
+TEST 9/10 merge:filtering_does_not_eagerly_drain_nonmatching_sources [OK]
+TEST 10/10 merge:filtering_propagates_errors_while_skipping_rejected_keys setup_ordered_iterators: exception: Input/output error
+setup_ordered_iterators: exception: Input/output error
+[OK]
+RESULTS: 10 tests (10 ok, 0 failed, 0 skipped) ran in 6 ms

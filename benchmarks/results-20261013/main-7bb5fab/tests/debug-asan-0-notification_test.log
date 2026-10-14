@@ -1,0 +1,10 @@
+Starting main-merge-async-debug-asan-0-notification_test test
+Running 1 CTests, suite name 'notification', test case 'all'.
+TEST 1/7 notification:test_completion_before_waiter_release [OK]
+TEST 2/7 notification:test_waiter_abandons_before_completion [OK]
+TEST 3/7 notification:test_concurrent_final_releases [OK]
+TEST 4/7 notification:test_repeated_early_release_and_rejected_submission [OK]
+TEST 5/7 notification:test_completion_in_another_process [OK]
+TEST 6/7 notification:test_caller_owned_notification_remains_caller_owned [OK]
+TEST 7/7 notification:test_blocking_allocation_failure [OK]
+RESULTS: 7 tests (7 ok, 0 failed, 0 skipped) ran in 112 ms

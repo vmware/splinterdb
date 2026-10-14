@@ -1,0 +1,58 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1  of event 'cpu_atom/cycles/u'
+# Event count (approx.): 501504
+#
+# Overhead  Symbol                  IPC   [IPC Coverage]
+# ........  ......................  ....................
+#
+   100.00%  [.] 0x0000000000163d34  -      -            
+
+
+# Samples: 127K of event 'cpu_core/cycles/u'
+# Event count (approx.): 344814990024
+#
+# Overhead  Symbol                                                           IPC   [IPC Coverage]
+# ........  ...............................................................  ....................
+#
+    15.10%  [.] clockcache_try_get_read.constprop.0                          -      -            
+    14.91%  [.] trunk_ondisk_bundle_merge_lookup.constprop.0                 -      -            
+    13.85%  [.] btree_find_pivot_checked.lto_priv.0                          -      -            
+     8.11%  [.] clockcache_unget_virtual                                     -      -            
+     7.84%  [.] btree_find_tuple_checked.lto_priv.0                          -      -            
+     3.56%  [.] clockcache_get_virtual                                       -      -            
+     3.35%  [.] key_compare                                                  -      -            
+     3.34%  [.] batch_rwlock_get                                             -      -            
+     2.67%  [.] 0x0000000000162419                                           -      -            
+     2.65%  [.] __vdso_clock_gettime                                         -      -            
+     2.53%  [.] core_lookup.constprop.0                                      -      -            
+     2.14%  [.] 0x00000000001621f8                                           -      -            
+     1.99%  [.] __popcountdi2                                                -      -            
+     1.71%  [.] batch_rwlock_get.constprop.0                                 -      -            
+     1.50%  [.] 0x000000000016241d                                           -      -            
+     1.43%  [.] point_worker                                                 -      -            
+     1.00%  [.] trunk_init_root_handle                                       -      -            
+     0.95%  [.] 0x00000000001624c7                                           -      -            
+     0.71%  [.] routing_get_header.isra.0                                    -      -            
+     0.67%  [.] splinterdb_lookup.constprop.0                                -      -            
+     0.64%  [.] 0x00000000001621f4                                           -      -            
+     0.59%  [.] XXH32                                                        -      -            
+     0.53%  [.] 0x00000000001624cb                                           -      -            
+     0.49%  [.] trunk_ondisk_node_handle_init.lto_priv.0                     -      -            
+     0.45%  [.] routing_filter_get_params.lto_priv.0                         -      -            
+     0.44%  [.] memcmp@plt                                                   -      -            
+     0.41%  [.] btree_node_get_checked.lto_priv.0                            -      -            
+     0.38%  [.] 0x00000000001621fe                                           -      -            
+     0.38%  [.] trunk_merge_lookup.constprop.0                               -      -            
+     0.37%  [.] routing_header_view_init.lto_priv.0                          -      -            
+     0.32%  [.] 0x0000000000162428                                           -      -            
+     0.30%  [.] btree_lookup_node_internal.lto_priv.0                        -      -            
+     0.30%  [.] trunk_ondisk_node_read_pivot.lto_priv.0                      -      -            
+
+
+#
+# (Tip: To show context switches in perf report sample context add --switch-events to perf record.)
+#

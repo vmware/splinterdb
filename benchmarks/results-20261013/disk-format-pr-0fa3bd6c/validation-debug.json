@@ -1,0 +1,176 @@
+[
+  {
+    "name": "btree",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/btree_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921496.197847,
+    "returncode": 0,
+    "finished": 1791921496.2302623,
+    "log_sha256": "a8c25b1ee3b2fc43370d6441283c933fa286ba1a7c700f0f054c8aaaf7754f7d",
+    "summaries": [
+      "RESULTS: 11 tests (11 ok, 0 failed, 0 skipped) ran in 20 ms"
+    ]
+  },
+  {
+    "name": "superblock",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/superblock_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921496.2308228,
+    "returncode": 0,
+    "finished": 1791921496.2952976,
+    "log_sha256": "5ee130da54171673ce3948c6008ceb771e70eff402e1aea725f5f658e6d97aa6",
+    "summaries": [
+      "RESULTS: 16 tests (16 ok, 0 failed, 0 skipped) ran in 34 ms"
+    ]
+  },
+  {
+    "name": "splinter",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format/.cache/pr-format-0fa3bd6c/debug-splinter.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921496.295597,
+    "returncode": 0,
+    "finished": 1791921642.272443,
+    "log_sha256": "493c927e9ead5f1bf636af1274a51b01b044cef220c18e4d79e3005395d25422",
+    "summaries": [
+      "RESULTS: 41 tests (41 ok, 0 failed, 0 skipped) ran in 145924 ms"
+    ]
+  },
+  {
+    "name": "quick",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921642.2731776,
+    "returncode": 0,
+    "finished": 1791921656.6852245,
+    "log_sha256": "f1684a10b1685d3d25ad911be476047ef0e7ce7d189ca9ed2da754422d496d23",
+    "summaries": [
+      "RESULTS: 50 tests (50 ok, 0 failed, 0 skipped) ran in 14366 ms"
+    ]
+  },
+  {
+    "name": "trunk-async",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/trunk_async_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921656.6855757,
+    "returncode": 0,
+    "finished": 1791921656.6897652,
+    "log_sha256": "358786a8840bf748a73c6f3d58cb3eb2bac80a7107a6387bfa11a167fe5265ed",
+    "summaries": [
+      "RESULTS: 2 tests (2 ok, 0 failed, 0 skipped) ran in 0 ms"
+    ]
+  },
+  {
+    "name": "notification",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/notification_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921656.6900198,
+    "returncode": 0,
+    "finished": 1791921656.722245,
+    "log_sha256": "130d8bc6dc03665b8376ceec32bf3652cd9fc4a36c80c076751ace4498230369",
+    "summaries": [
+      "RESULTS: 7 tests (6 ok, 0 failed, 1 skipped) ran in 26 ms"
+    ]
+  },
+  {
+    "name": "notification-shmem",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/notification_test",
+      "--use-shmem"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921691.0008066,
+    "returncode": 0,
+    "finished": 1791921691.0661204,
+    "log_sha256": "d1733e068c1253eda4857bf932cc22a96e0fe5dce091dadf70a8d4d1a0ee1692",
+    "summaries": [
+      "RESULTS: 7 tests (6 ok, 0 failed, 1 skipped) ran in 46 ms"
+    ]
+  },
+  {
+    "name": "optimize",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/splinterdb_optimize_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921691.0671747,
+    "returncode": 0,
+    "finished": 1791921692.8885548,
+    "log_sha256": "5405b28c462027da805092d9e27a67cd2aebb951d28ccd435a9915bf2e645e76",
+    "summaries": [
+      "RESULTS: 9 tests (9 ok, 0 failed, 0 skipped) ran in 1808 ms"
+    ]
+  },
+  {
+    "name": "optimize-shmem",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/unit/splinterdb_optimize_test",
+      "--use-shmem"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921692.8890648,
+    "returncode": 0,
+    "finished": 1791921694.7592235,
+    "log_sha256": "a71df7f97878ce2aac53c309ae4fa5eaff835ccc8ebbcfa03563006b51858866",
+    "summaries": [
+      "RESULTS: 9 tests (9 ok, 0 failed, 0 skipped) ran in 1829 ms"
+    ]
+  },
+  {
+    "name": "filter",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/driver_test",
+      "filter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format/.cache/pr-format-0fa3bd6c/debug-filter.db",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "4"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921694.7597108,
+    "returncode": 0,
+    "finished": 1791921703.1533566,
+    "log_sha256": "d7369d01bde3fd47424d5844da5c5a6264838e045dc4a97b78a47019e6ab6603",
+    "summaries": []
+  },
+  {
+    "name": "log",
+    "command": [
+      "build-pr-0fa3bd6c/debug/bin/driver_test",
+      "log_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format/.cache/pr-format-0fa3bd6c/debug-log.db",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "4",
+      "--num-inserts",
+      "10000"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "started": 1791921703.1539109,
+    "returncode": 0,
+    "finished": 1791921704.472754,
+    "log_sha256": "e993f4d28620de1d8fb9da246a8405c77ede7aed82a4b0b99b880a7da1c9c538",
+    "summaries": []
+  }
+]

@@ -1,0 +1,25 @@
+[
+  {
+    "name": "build",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j4",
+      "BUILD_ROOT=build-filtered-disk-pr",
+      "BUILD_MODE=release",
+      "CC=gcc",
+      "LD=gcc",
+      "libs",
+      "build-filtered-disk-pr/release/bin/unit/merge_test",
+      "build-filtered-disk-pr/release/bin/unit/splinterdb_quick_test",
+      "build-filtered-disk-pr/release/bin/driver_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges",
+    "started": 1791947854.569598,
+    "returncode": 0,
+    "finished": 1791947873.738688,
+    "log_sha256": "aa604b7a0404074da687e5076eea4ec6c7dd783059640e24b3f288ddc7e54071",
+    "summaries": [],
+    "passed": true
+  }
+]

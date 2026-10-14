@@ -17,6 +17,19 @@
 #include "platform_typed_alloc.h"
 #include "poison.h"
 
+platform_status
+rc_allocator_validate_format_version(uint16 format_version)
+{
+   if (format_version != RC_ALLOCATOR_FORMAT_VERSION) {
+      platform_error_log("Unsupported allocator format version %u; "
+                         "this build requires version %u.\n",
+                         format_version,
+                         RC_ALLOCATOR_FORMAT_VERSION);
+      return STATUS_INVALID_STATE;
+   }
+   return STATUS_OK;
+}
+
 /*
  * The refcount map is the allocator's only durable structure.  It lives in a
  * fixed run of extents starting at extent 1 (extent 0 is reserved for the

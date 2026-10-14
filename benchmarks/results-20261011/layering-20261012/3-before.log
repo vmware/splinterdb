@@ -1,0 +1,29 @@
+kvbench version=before splinter=splinterdb_build_version db3047a8-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/disk-format/resident-layering-20261012/3-before.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=1 normal_bg=3 memtable_mib=4 secs=15.0 warmup=1.0 rep=0 sabotage=0
+open took 0.005 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.02 ops/s=    9802225  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.06s ops/cpu-s=3619582 rd=138.4 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=4
+phase point:uniform@1: T=1 dist=uniform (fixed duration)
+  [point:uniform@1] progress 13502389 ops (+1350030 ops/s)
+   found=18557383 notfound=0
+== point:uniform@1        T=1  ops=18557383   secs=  15.00 ops/s=    1237144  lat us p50=0.78 p99=1.10 p99.9=1.33 max=47.7 mean=0.78
+   cpu=15.00s ops/cpu-s=1237172 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+  [point:uniform@8] progress 30795643 ops (+1729168 ops/s)
+  [point:uniform@8] progress 90151142 ops (+5935128 ops/s)
+   found=89708915 notfound=0
+== point:uniform@8        T=8  ops=89708915   secs=  15.00 ops/s=    5980510  lat us p50=1.26 p99=1.84 p99.9=2.27 max=102.6 mean=1.30
+   cpu=119.98s ops/cpu-s=747677 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@1: T=1 dist=uniform (fixed duration)
+  [range:uniform:1@1] progress 1032990 ops (+1844405605717911808 ops/s)
+== range:uniform:1@1      T=1  ops=1718133    secs=  15.00 ops/s=     114541  lat us p50=8.58 p99=12.16 p99.9=34.30 max=166.9 mean=8.70
+   cpu=15.00s ops/cpu-s=114544 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=8.32 p99=11.90 mean=8.43  per-tuple=nan ns  deinit mean=0.24 us  tuples/s=114541
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 1799568 ops (+76648 ops/s)
+  [range:uniform:1@8] progress 7622617 ops (+582264 ops/s)
+close took 0.074 s
+== range:uniform:1@8      T=8  ops=8717825    secs=  15.00 ops/s=     581179  lat us p50=12.67 p99=18.69 p99.9=26.88 max=111.1 mean=13.72
+   cpu=119.98s ops/cpu-s=72660 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=12.16 p99=17.66 mean=13.11  per-tuple=nan ns  deinit mean=0.57 us  tuples/s=581179
+   insert/run=15.00s drain(close)=0.07s total=15.07s drain_cpu=0.01s drain_rd=0 drain_wr=311296 wamp=nan db_apparent=162664448 db_alloc=28655616

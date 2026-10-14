@@ -1,0 +1,26 @@
+[
+  {
+    "name": "build",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j4",
+      "BUILD_ROOT=build-filtered-disk-pr",
+      "BUILD_MODE=debug",
+      "CC=gcc",
+      "LD=gcc",
+      "BUILD_ASAN=1",
+      "libs",
+      "build-filtered-disk-pr/debug-asan/bin/unit/merge_test",
+      "build-filtered-disk-pr/debug-asan/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges",
+    "started": 1791947859.43099,
+    "ASAN_OPTIONS": "detect_leaks=0:abort_on_error=1",
+    "returncode": 0,
+    "finished": 1791947862.3037605,
+    "log_sha256": "f05f0f000816b9dc703d1742ace97b2bc64f73c35b8dd5cceae56636ad18d17b",
+    "summaries": [],
+    "passed": true
+  }
+]

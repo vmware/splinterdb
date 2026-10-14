@@ -1,0 +1,21 @@
+Controlled integrated predicate + disk-format benchmark, 2026-10-13
+
+Source stage: combined7b2c37da has exactly the runtime sources of the previously validated integration36183807. Benchmark only after all build/test jobs complete and root grants the stage. All measured jobs take the campaign's exclusive real-disk benchmark lock. Keep historical inputs immutable.
+
+Fresh ordinary baseline isolation:
+- Main0fa3bd6c, production disk-format3e302c04 (documentation head7a0c8171), combined7b2c37da. Pinned library/source/binary/harness SHA256 per build manifest.
+- Same controlled kvbench source as previous disk-format diagnosis, same compile flags, linked separately against each release library.
+- Original fixture copies/fsync/checksum: resident200k keys128MiB cache; disk2M keys64MiB cache; 24-byte keys100-byte values, randomload seed42, logging/background workers disabled. Combined and disk-format read byte-identical format8 images; main has equivalent format7 logical data.
+- Each invocation performs a serial full validating scan and1s warmup, then one measured point8, range1@8, or range10000@8 phase.
+- Fixed worker CPU map0,2,4,6,8,10,1,3 and deterministic registration; acknowledged perf FIFO gating excludes open, full scan, warmup, close.
+- Each phase and storage regime uses main/disk/combined/combined/disk/main order.15s resident,8s disk (36 measured invocations).2s disk/combined smoke precedes full runs and stays separate.
+- Report wall rate, instructions/query, cycles/query, physical bytes/query, estimated effective frequency and whole-invocation thermal snapshots. For I/O workloads cycles do not include waiting; throughput/I/O remain required. Laptop thermal drift precludes attributing a wall-rate difference to code from wall rates alone.
+
+Feature effectiveness and correctness:
+- One combined binary supports application filtering, iterator predicate only, and predicate+filter pruning. The application mode calls the existing ordinary API; same binary avoids cross-build code-layout differences.
+- 32 tenants with 16384 rows each, grouped ingestion leaves selective immutable branches. Hash operates on tenant; collision variant intentionally maps pairs of tenants to the same hash. Exact predicate must suppress false positives.
+- 10000 deterministic queries per limit1/2/10/100;500 warmup queries each. Every returned key/value/count is checked and an independent Python checksum verified.
+- Run application/predicate/pruned/pruned/predicate/application, separately with/without collisions. Pin process to CPU0. Counters sum the four measured limits only; per-limit wall/CPU/I/O remain available.
+- Mixed persisted hash-seed/index geometry behavior is verified by the fresh integration correctness suite; this effectiveness workload uses one creation config and is not evidence for mixed-seed correctness by itself.
+
+Preservation: scratch DBs are removed only after successful validations; original fixtures are never modified. Harnesses/scripts/manifests/raw measurements remain. No production source edits here.

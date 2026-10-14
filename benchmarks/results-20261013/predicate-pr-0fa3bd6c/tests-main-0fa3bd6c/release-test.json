@@ -1,0 +1,97 @@
+[
+  {
+    "name": "merge",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/release/bin/unit/merge_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests-main-0fa3bd6c/scratch-release",
+    "started": 1791922070.4419446,
+    "returncode": 0,
+    "finished": 1791922070.445976,
+    "log_sha256": "aa563edd57a903fd00b92bd06e410f0fd4c3f859e30aaa4b69e4c9d068cc9b3e",
+    "summaries": [
+      "RESULTS: 10 tests (10 ok, 0 failed, 0 skipped) ran in 1 ms"
+    ],
+    "nonzero_tests_passed": true
+  },
+  {
+    "name": "quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/release/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests-main-0fa3bd6c/scratch-release",
+    "started": 1791922070.4465656,
+    "returncode": 0,
+    "finished": 1791922083.1092515,
+    "log_sha256": "ff1e6ff17b0e7917431b47bafb5491d1321f2cd093db02c7cf0cb0e848f1e3ae",
+    "summaries": [
+      "RESULTS: 55 tests (55 ok, 0 failed, 0 skipped) ran in 12637 ms"
+    ],
+    "nonzero_tests_passed": true
+  },
+  {
+    "name": "cache-core",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/release/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests-main-0fa3bd6c/scratch-release/core.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64",
+      "test_cache_read_errors_"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests-main-0fa3bd6c/scratch-release",
+    "started": 1791922083.1102054,
+    "returncode": 0,
+    "finished": 1791922083.2759624,
+    "log_sha256": "ac73ed74099ecb504b4f1bcfb725cb83e7eec57de415491411389e2db78568b1",
+    "summaries": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 161 ms"
+    ],
+    "nonzero_tests_passed": true
+  },
+  {
+    "name": "blob-core",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/release/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests-main-0fa3bd6c/scratch-release/core.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64",
+      "test_blob_"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests-main-0fa3bd6c/scratch-release",
+    "started": 1791922083.276899,
+    "returncode": 0,
+    "finished": 1791922084.7974472,
+    "log_sha256": "195bec63433e3866a513c59408a2f2c61042037dc339cfd1e107ff33d60f8151",
+    "summaries": [
+      "RESULTS: 4 tests (4 ok, 0 failed, 0 skipped) ran in 1486 ms"
+    ],
+    "nonzero_tests_passed": true
+  },
+  {
+    "name": "filter",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-filter-predicate/release/bin/driver_test",
+      "filter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests-main-0fa3bd6c/scratch-release/filter.db",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "4"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/tests-main-0fa3bd6c/scratch-release",
+    "started": 1791922084.799469,
+    "returncode": 0,
+    "finished": 1791922089.0287416,
+    "log_sha256": "11a27d288f43201b0d731fdc537e10398b04a49b267132f13ea966ccf4a7f7c6",
+    "summaries": [],
+    "completed_filter_cases": 4,
+    "nonzero_tests_passed": true
+  }
+]

@@ -1,0 +1,340 @@
+{
+  "project": "cache-invalid-addresses",
+  "branch": "robj/cache-invalid-addresses",
+  "merge_head": "f2dc7bf6dcd21214b03fd7e18ec91b940d50f30a",
+  "integrated_main": "7bb5fab305b9c6179e31f75998dabea833537a08",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 2347,
+      "sha256": "0a57897a45a6cdc6a1822458410f57abb545eba0b508f7fd9e3d6ace404456fe",
+      "source": "generated archive guide"
+    },
+    {
+      "path": "debug-async.log",
+      "bytes": 11445,
+      "sha256": "7490321d44f2e517ffcc2b7b32cdafc06a4f88b81c59d54caa7f75f9ba3789ca",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-async.log"
+    },
+    {
+      "path": "debug-blob-core.log",
+      "bytes": 319,
+      "sha256": "52ae3e66364ea1409fa9f52bda22dfd32e59a2e7d3580ca672e288092332ef14",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-blob-core.log"
+    },
+    {
+      "path": "debug-build.log",
+      "bytes": 8738,
+      "sha256": "15c554dfcacc0909c5f1dfb9a443184427ed4015637977841d751e80fb07093e",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-build.log"
+    },
+    {
+      "path": "debug-cache-core.initial.json",
+      "bytes": 639,
+      "sha256": "4cf37389deda21f7f1dea03ee87053f4fde061a1904831d0e924bacc599f4ad6",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-cache-core.initial.json"
+    },
+    {
+      "path": "debug-cache-core.initial.log",
+      "bytes": 296,
+      "sha256": "02cee5d8fca0fb240ad02a4236cab68c398d034430d59efdefbcbf8efc4dc3be",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-cache-core.initial.log"
+    },
+    {
+      "path": "debug-cache-core.log",
+      "bytes": 473,
+      "sha256": "337ae86e7c79fea8489a93a847ca161da898fb71f564aba07d8e8c1b09c48cc1",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-cache-core.log"
+    },
+    {
+      "path": "debug-prefetch-admission.log",
+      "bytes": 562,
+      "sha256": "573a20c5930b08a822002ca1fb44827a62f53294f0c9b8eed13750345fde5b98",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-prefetch-admission.log"
+    },
+    {
+      "path": "debug-quick.log",
+      "bytes": 3943,
+      "sha256": "4ef88a53fd12d1c7445ea83217f002ef2c73906c1ef08bf59481bb15a85a8317",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-quick.log"
+    },
+    {
+      "path": "debug-tests-corrected.log",
+      "bytes": 239,
+      "sha256": "73283b268cae86f77ca0fcb32c56c32cd9bd3397699d10d2d6f33174474f51a0",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-tests-corrected.log"
+    },
+    {
+      "path": "debug-tests.log",
+      "bytes": 164,
+      "sha256": "d6e0be59b46e3edb231bb6828924fbb1a33baf8ec28a48809fa2de2cb18fda24",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-tests.log"
+    },
+    {
+      "path": "debug-writeback.log",
+      "bytes": 16655,
+      "sha256": "859e39d4f652f8ad5b752a4c07d3c2f6b9288e72a17c00cde73a7f6e66b8df43",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/debug-writeback.log"
+    },
+    {
+      "path": "release-blob-core.log",
+      "bytes": 319,
+      "sha256": "d8ae263eb470bd818a062e1f110075729d3dc33172655324225ec64de0e72968",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/release-blob-core.log"
+    },
+    {
+      "path": "release-build.log",
+      "bytes": 10032,
+      "sha256": "161935f3462539c2b844e73e8f75a2c638faa61d7a89bfd514fca357ae871588",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/release-build.log"
+    },
+    {
+      "path": "release-cache-core.log",
+      "bytes": 473,
+      "sha256": "a2843bc276425f5609c0fc1c8efa3139749f3a686a2ad1fbfd94ab8894fbf346",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/release-cache-core.log"
+    },
+    {
+      "path": "release-quick.log",
+      "bytes": 3943,
+      "sha256": "4724203b886fb3440b7f85c3c96b8798b14ed8c5139b678c7e79a2ec3661f5fb",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/release-quick.log"
+    },
+    {
+      "path": "release-tests.log",
+      "bytes": 230,
+      "sha256": "ef551631b30d7190da5aba16fea06ebe6e501acae7772953e82d720e9216f310",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/release-tests.log"
+    },
+    {
+      "path": "release-writeback.log",
+      "bytes": 16655,
+      "sha256": "7adeca2e34b90a72bac4a365fd2e6e4e4e923fbe5e8be069b549805df240afc1",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/release-writeback.log"
+    },
+    {
+      "path": "shared/before.json",
+      "bytes": 4460,
+      "sha256": "133ae8f9f5fda20e884fd1d283d857d389a96cef6a74a82b7a17fa094a0cc6e5",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/before.json"
+    },
+    {
+      "path": "shared/run_job.py",
+      "bytes": 2461,
+      "sha256": "908d86de805e6efd41b423c919187f2df14715104f047e10fa8a6c57129cc773",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/run_job.py"
+    },
+    {
+      "path": "shared/test_root_branches.py",
+      "bytes": 3223,
+      "sha256": "36f5b93940442f3806266d12284fe4da2927b56b4f1882c957df7519696d3da7",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/test_root_branches.py"
+    },
+    {
+      "path": "source-manifest.json",
+      "bytes": 17396,
+      "sha256": "adba3cf367c10e064642098ee39bdb52c4dc5c17ea8dab26d071619644cbe76b",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/source-manifest.json"
+    },
+    {
+      "path": "stall/0-main.log",
+      "bytes": 12392,
+      "sha256": "12a47cdd502aaee382414992348b578d19055e8a9d34c65d747200bc0826f536",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/0-main.log"
+    },
+    {
+      "path": "stall/1-candidate.log",
+      "bytes": 12457,
+      "sha256": "e14b3324b551cb83b8c178e0d37d108ff3a2cca45d45615eb3815247f27e4947",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/1-candidate.log"
+    },
+    {
+      "path": "stall/2-candidate.log",
+      "bytes": 12457,
+      "sha256": "e14b3324b551cb83b8c178e0d37d108ff3a2cca45d45615eb3815247f27e4947",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/2-candidate.log"
+    },
+    {
+      "path": "stall/3-main.log",
+      "bytes": 12392,
+      "sha256": "12a47cdd502aaee382414992348b578d19055e8a9d34c65d747200bc0826f536",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/3-main.log"
+    },
+    {
+      "path": "stall/README.md",
+      "bytes": 4371,
+      "sha256": "adadcc88bfc735eef000fe6292c62d7ec39689968c607d48e4ca6cece54659de",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/README.md"
+    },
+    {
+      "path": "stall/baseline-build.log",
+      "bytes": 7734,
+      "sha256": "606e9c8fdb5401af009254d5823e29a35e47e94cfac8e89ae696cf6ec57af237",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/baseline-build.log"
+    },
+    {
+      "path": "stall/cache-state-with-contexts.log",
+      "bytes": 3763,
+      "sha256": "03c8bcf10c66cf64763c011ce99abcc36f8393021acd528f1d5b4323130c390c",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/cache-state-with-contexts.log"
+    },
+    {
+      "path": "stall/cache-state.log",
+      "bytes": 2520,
+      "sha256": "44a29624a64c8779c625501939492f49de649ec653aec90db80c6003b946c734",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/cache-state.log"
+    },
+    {
+      "path": "stall/compare-skew.py",
+      "bytes": 2270,
+      "sha256": "ac0e2caf00646b821ce4700c4ac274d62ceab55cd27d42606a923ad5fd64f361",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/compare-skew.py"
+    },
+    {
+      "path": "stall/compare.py",
+      "bytes": 2003,
+      "sha256": "0be42fc7639780963cd8fdb2ce471a9bd21ced667b3505f5526feb11882310cf",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/compare.py"
+    },
+    {
+      "path": "stall/comparison-runner.log",
+      "bytes": 3445,
+      "sha256": "e802811d1d9d30d91994950a4fbfaa022e9a848f51fad004f3ac318596961be2",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/comparison-runner.log"
+    },
+    {
+      "path": "stall/comparison.json",
+      "bytes": 3798,
+      "sha256": "3bf578b5e8991392c2fd037e01c5bb9a4b7705f492a5e7f40a6b6bf0dfe5ce39",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/comparison.json"
+    },
+    {
+      "path": "stall/initial-stacks.log",
+      "bytes": 17090,
+      "sha256": "2215646e6d674a979b5f6ff830e0c57e195c6e5760239badfef7a394f6be6eff",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/initial-stacks.log"
+    },
+    {
+      "path": "stall/initial-termination.json",
+      "bytes": 490,
+      "sha256": "a999f2ee17cd39c4726ef7e527e76529deb11d7d8b0c1ef337f5288949ae64bf",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/initial-termination.json"
+    },
+    {
+      "path": "stall/inspect.gdb",
+      "bytes": 2653,
+      "sha256": "fc03e9e0282d62f5cd3aa20cbac0583b216da24be0994db500a8c930f0fb1633",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/inspect.gdb"
+    },
+    {
+      "path": "stall/skew-0-main-stacks-state.log",
+      "bytes": 19730,
+      "sha256": "f318e86cdd7a60611443bc3cc86b1b843033a04a7fced21fe98e6d0f07286bfe",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-0-main-stacks-state.log"
+    },
+    {
+      "path": "stall/skew-0-main.log",
+      "bytes": 9559,
+      "sha256": "bf8d1cf9419e6d18bffa238290b321cbddcd2baab04921c64c2a36bbe0735a55",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-0-main.log"
+    },
+    {
+      "path": "stall/skew-1-main-stacks-state.log",
+      "bytes": 20051,
+      "sha256": "6ccd28f3ef3b24ef3f907bc13ea3ebf554b17ce2dbe56c0164f62d72e5521371",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-1-main-stacks-state.log"
+    },
+    {
+      "path": "stall/skew-1-main.log",
+      "bytes": 9578,
+      "sha256": "caec5516acb6f9783d8f61255a1833bb79a88dcd58c8905e188d6d4fcd686d24",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-1-main.log"
+    },
+    {
+      "path": "stall/skew-2-main-stacks-state.log",
+      "bytes": 19683,
+      "sha256": "add76eabab9f22f9e537f6898e36afee84b3ad0971e9dc44d92ee495ff2c7738",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-2-main-stacks-state.log"
+    },
+    {
+      "path": "stall/skew-2-main.log",
+      "bytes": 9388,
+      "sha256": "a1e3882ca9eb0454b7d60e7a7949fcf6079ae33196ddfd6efe0742da3ff06a75",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-2-main.log"
+    },
+    {
+      "path": "stall/skew-3-candidate-stacks-state.log",
+      "bytes": 20268,
+      "sha256": "8afdd2c18f314604b39f510440769245fcfd760c29035c93e0a0c02988413044",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-3-candidate-stacks-state.log"
+    },
+    {
+      "path": "stall/skew-3-candidate.log",
+      "bytes": 9453,
+      "sha256": "ca1adb13a87fbcbfea2f962057bd3245eabdf2e2f7b2cb673eb47a545f042d2f",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-3-candidate.log"
+    },
+    {
+      "path": "stall/skew-4-candidate-stacks-state.log",
+      "bytes": 20666,
+      "sha256": "9fb4a9a873c3d73b32d164cdffec8160ac8a4f8c49d8760087547b62bf61c14d",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-4-candidate-stacks-state.log"
+    },
+    {
+      "path": "stall/skew-4-candidate.log",
+      "bytes": 9453,
+      "sha256": "ca1adb13a87fbcbfea2f962057bd3245eabdf2e2f7b2cb673eb47a545f042d2f",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-4-candidate.log"
+    },
+    {
+      "path": "stall/skew-5-candidate.log",
+      "bytes": 12457,
+      "sha256": "e896987c25733d0e1f53c19d2d133c601aaeef3784de75c5d4ee542313c41852",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-5-candidate.log"
+    },
+    {
+      "path": "stall/skew-comparison.json",
+      "bytes": 9354,
+      "sha256": "fd0659b1deaaf362e7ff7ccfb206f4b8c0f23cc940771e1539f5d07f47795d4c",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-comparison.json"
+    },
+    {
+      "path": "stall/skew-runner.log",
+      "bytes": 8079,
+      "sha256": "8ce616d40e53dc8c9bb8c9057ea0a00995c4db381d1f674830c5c302c6975ab8",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/skew-runner.log"
+    },
+    {
+      "path": "stall/source-comparison.json",
+      "bytes": 375,
+      "sha256": "097d65c4bc4f59b48074e2531f4e6226c80be323b64c407221edacaaf00e0a55",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/source-comparison.json"
+    },
+    {
+      "path": "stall/summary.json",
+      "bytes": 39764,
+      "sha256": "f3b9360286bead74910d04182ae9920bf276edf6f8ccb7edd0f73551a6613a0c",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/summary.json"
+    },
+    {
+      "path": "stall/symbolic-stacks.log",
+      "bytes": 16818,
+      "sha256": "a3bcac51a6ec9a7afbe0606c4f586089dc4f482e0699cc16b870b6440b0e49d7",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/stall/symbolic-stacks.log"
+    },
+    {
+      "path": "validation-debug.json",
+      "bytes": 3822,
+      "sha256": "b2b4fcd146ba034715e3cbec9fc80f2ec01740984e46570190ff19738e9023f4",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/validation-debug.json"
+    },
+    {
+      "path": "validation-release.json",
+      "bytes": 2455,
+      "sha256": "6ae678a2ff74cc0dbc237e174bd7de9dc49612b4e510cd3b721b3b93055e741f",
+      "source": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/validation-release.json"
+    }
+  ],
+  "manifest_excludes_itself": true,
+  "archived_payload_bytes": 445800
+}

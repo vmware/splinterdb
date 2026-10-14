@@ -24,7 +24,7 @@
  */
 #define MAX_FILTERS                   32
 #define ROUTING_NOT_FOUND             (UINT16_MAX)
-#define ROUTING_FILTER_FORMAT_VERSION (1)
+#define ROUTING_FILTER_FORMAT_VERSION (2)
 
 
 /*
@@ -84,15 +84,19 @@ typedef struct ONDISK routing_filter {
    uint32 value_size;
    uint16 format_version;
    uint16 fingerprint_size;
+   uint32 hash_seed;
+   uint16 log_index_size;
 } routing_filter;
 
-_Static_assert(sizeof(routing_filter) == 32,
+_Static_assert(sizeof(routing_filter) == 38,
                "routing filter descriptor layout changed");
 
 #define NULL_ROUTING_FILTER ((routing_filter){0})
 
 typedef struct ONDISK routing_hdr routing_hdr;
 
+/* Extending a filter retains its encoding configuration. Incoming hashes must
+ * use old_filter->hash_seed (or cfg->seed for a new filter). */
 platform_status
 routing_filter_add(cache                *cc,
                    const routing_config *cfg,
@@ -108,6 +112,45 @@ routing_filter_lookup(cache                *cc,
                       routing_filter       *filter,
                       key                   target,
                       uint64               *found_values);
+
+/* A query retains borrowed key bytes and a small cache of hashes. The caller
+ * keeps target alive and must not change the data configuration while using it.
+ * Eviction merely recomputes a hash if a scan encounters many distinct seeds.
+ */
+#define ROUTING_FILTER_QUERY_HASHES 4
+
+typedef struct routing_filter_query {
+   key target;
+   struct {
+      uint32 seed;
+      uint32 hash;
+   } hashes[ROUTING_FILTER_QUERY_HASHES];
+   uint32 num_hashes;
+   uint32 next_hash;
+} routing_filter_query;
+
+static inline void
+routing_filter_query_init(routing_filter_query *query, key target)
+{
+   *query = (routing_filter_query){.target = target};
+}
+
+/* The routing-filter module selects the seed, so callers do not depend on
+ * where a filter's hash configuration is stored. */
+platform_status
+routing_filter_lookup_with_query(cache                *cc,
+                                 const routing_config *cfg,
+                                 routing_filter       *filter,
+                                 routing_filter_query *query,
+                                 uint64               *found_values);
+
+/* Lookup a full-width hash produced with filter->hash_seed. */
+platform_status
+routing_filter_lookup_hash(cache                *cc,
+                           const routing_config *cfg,
+                           routing_filter       *filter,
+                           uint32                hash,
+                           uint64               *found_values);
 
 static inline uint16
 routing_filter_get_next_value(uint64 found_values, uint16 last_value)
@@ -140,11 +183,13 @@ routing_filters_equal(const routing_filter *f1, const routing_filter *f2)
           && f1->num_unique == f2->num_unique
           && f1->value_size == f2->value_size
           && f1->format_version == f2->format_version
-          && f1->fingerprint_size == f2->fingerprint_size;
+          && f1->fingerprint_size == f2->fingerprint_size
+          && f1->hash_seed == f2->hash_seed
+          && f1->log_index_size == f2->log_index_size;
 }
 
 /* Validate fields that are self-contained in the descriptor.  The remaining
- * encoding geometry depends on the database-wide index size and is checked by
+ * encoding geometry depends on the descriptor index size and is checked by
  * routing_filter_get_params() before the filter is accessed. */
 static inline bool32
 routing_filter_descriptor_is_valid(const routing_filter *filter)
@@ -161,7 +206,9 @@ routing_filter_descriptor_is_valid(const routing_filter *filter)
           && filter->value_size <= 5
           && filter->format_version == ROUTING_FILTER_FORMAT_VERSION
           && 0 < filter->fingerprint_size && filter->fingerprint_size <= 32
-          && filter->fingerprint_size + filter->value_size <= 32;
+          && filter->fingerprint_size + filter->value_size <= 32
+          && filter->log_index_size < 32
+          && filter->log_index_size <= filter->fingerprint_size;
 }
 
 static inline uint64
@@ -170,8 +217,16 @@ routing_filter_max_fingerprints(cache_config         *cache_cfg,
 {
    uint64 extent_size      = cache_config_extent_size(cache_cfg);
    uint64 addrs_per_extent = extent_size / sizeof(uint64);
-   return 2ULL * addrs_per_extent * (1ULL << cfg->log_index_size) - 1;
+   uint64 index_limit =
+      2ULL * addrs_per_extent * (1ULL << cfg->log_index_size) - 1;
+   uint64 fingerprint_limit = (1ULL << (cfg->fingerprint_size + 1)) - 1;
+   return MIN(UINT32_MAX, MIN(index_limit, fingerprint_limit));
 }
+
+/* Capacity of an existing instance, independent of new-filter settings. */
+uint64
+routing_filter_max_fingerprints_for_filter(cache_config         *cache_cfg,
+                                           const routing_filter *filter);
 
 // clang-format off
 DEFINE_ASYNC_STATE(routing_filter_lookup_async_state, 2,

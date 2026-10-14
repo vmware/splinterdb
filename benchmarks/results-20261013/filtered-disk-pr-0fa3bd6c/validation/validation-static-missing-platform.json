@@ -1,0 +1,25 @@
+[
+  {
+    "name": "public-header-c",
+    "command": [
+      "gcc",
+      "-x",
+      "c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-I",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/include",
+      "-c",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filtered-disk-pr-20261013/validation-api.c",
+      "-o",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filtered-disk-pr-20261013/validation-api-c.o"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges",
+    "started": 1791947912.591748,
+    "returncode": 1,
+    "finished": 1791947912.5972638,
+    "log_sha256": "12a44fef1d646a245c294c90d3d1bab78ba40c0c9100a06b1ae6be032c3ff5e2"
+  }
+]

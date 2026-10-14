@@ -1,0 +1,10 @@
+{
+  "authorized_by": "root explicit TIMING READY message",
+  "time": 1791922360.9153633,
+  "heads": {
+    "main": "0fa3bd6c7723690c760294d33ba610e3724bd8d2",
+    "filtered-ranges": "cf7dc4f710aad91dfad9050dca0d326ff0fccac5",
+    "disk-format": "3e302c04c60babb8afecb58d27f808848624f83c"
+  },
+  "resumed_after_companion_tests": 1791922976.7800455
+}

@@ -183,9 +183,11 @@ CTEST2(superblock, test_snapshot_persists_state)
    rc = superblock_format(&ctx, &data->allocator_cfg);
    ASSERT_TRUE(SUCCESS(rc));
 
-   superblock_log_head live = {.head = {.addr      = TEST_EXTENT_ADDR(6),
-                                        .meta_addr = TEST_EXTENT_ADDR(8),
-                                        .nonce     = {.low = 0x11}}};
+   superblock_log_head live = {
+      .head = {.addr           = TEST_EXTENT_ADDR(6),
+               .meta_addr      = TEST_EXTENT_ADDR(8),
+               .format_version = SHARD_LOG_FORMAT_VERSION,
+               .nonce          = {.low = 0x11}}};
    superblock_log_cut(&ctx, live);
    superblock_snapshot_tree(&ctx, TEST_EXTENT_ADDR(4), 0);
    rc = superblock_make_durable(&ctx);
@@ -221,14 +223,16 @@ CTEST2(superblock, test_snapshot_persists_state)
  * covers generations 0..5 and is cut at 5, so L2 takes over at 6.
  */
 static const superblock_log_head TEST_LOG_L1 = {
-   .head             = {.addr      = TEST_EXTENT_ADDR(6),
-                        .meta_addr = TEST_EXTENT_ADDR(8),
-                        .nonce     = {.low = 0x11}},
+   .head             = {.addr           = TEST_EXTENT_ADDR(6),
+                        .meta_addr      = TEST_EXTENT_ADDR(8),
+                        .format_version = SHARD_LOG_FORMAT_VERSION,
+                        .nonce          = {.low = 0x11}},
    .start_generation = 0};
 static const superblock_log_head TEST_LOG_L2 = {
-   .head             = {.addr      = TEST_EXTENT_ADDR(10),
-                        .meta_addr = TEST_EXTENT_ADDR(12),
-                        .nonce     = {.low = 0x22}},
+   .head             = {.addr           = TEST_EXTENT_ADDR(10),
+                        .meta_addr      = TEST_EXTENT_ADDR(12),
+                        .format_version = SHARD_LOG_FORMAT_VERSION,
+                        .nonce          = {.low = 0x22}},
    .start_generation = 6};
 
 /*
@@ -519,9 +523,10 @@ CTEST2(superblock, test_mount_rejects_invalid_metadata)
       ASSERT_TRUE(SUCCESS(rc));
 
       superblock_log_head valid_log = {
-         .head = {.addr      = TEST_EXTENT_ADDR(6),
-                  .meta_addr = TEST_EXTENT_ADDR(8),
-                  .nonce     = {.low = 1}}};
+         .head = {.addr           = TEST_EXTENT_ADDR(6),
+                  .meta_addr      = TEST_EXTENT_ADDR(8),
+                  .format_version = SHARD_LOG_FORMAT_VERSION,
+                  .nonce          = {.low = 1}}};
       switch (test_case) {
          case INVALID_MAP_ADDRESS:
             ctx.image->allocation_state_addr = TEST_EXTENT_ADDR(2);
@@ -705,4 +710,67 @@ CTEST2(superblock, test_bootstrap_geometry_metadata_budget)
    splinterdb *kvs = NULL;
    ASSERT_NOT_EQUAL(0, splinterdb_open(&cfg, &kvs));
    ASSERT_TRUE(kvs == NULL);
+}
+
+/* A checksummed newer version is not permission to roll back to its peer. */
+CTEST2(superblock, test_unknown_structure_version_rejected)
+{
+   for (uint64 component = 0; component < 4; component++) {
+      superblock_context ctx;
+      platform_status    rc = superblock_context_init(
+         &ctx, data->ioh, &data->allocator_cfg, data->hid);
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_TRUE(SUCCESS(superblock_format(&ctx, &data->allocator_cfg)));
+      if (component == 0) {
+         ctx.image->trunk_format_version++;
+      } else if (component == 1) {
+         ctx.image->allocator_format_version++;
+      } else if (component == 2) {
+         superblock_log_cut(&ctx, TEST_LOG_L1);
+         ctx.image->tree.live_log.head.format_version++;
+      } else {
+         superblock_log_cut(&ctx, TEST_LOG_L1);
+         superblock_log_cut(&ctx, TEST_LOG_L2);
+         ctx.image->tree.sealed_log.head.format_version++;
+      }
+      ASSERT_TRUE(SUCCESS(superblock_make_durable(&ctx)));
+      superblock image;
+      ASSERT_TRUE(
+         STATUS_IS_EQ(superblock_read_bootstrap(data->io_cfg.filename, &image),
+                      STATUS_INVALID_STATE));
+      ASSERT_TRUE(STATUS_IS_EQ(superblock_mount(&ctx, &data->allocator_cfg),
+                               STATUS_INVALID_STATE));
+      superblock_context_deinit(&ctx);
+   }
+}
+
+CTEST2(superblock, test_unsupported_superblock_version_rejected)
+{
+   uint64 versions[] = {SUPERBLOCK_FORMAT_VERSION - 1,
+                        SUPERBLOCK_FORMAT_VERSION + 1};
+   for (uint64 i = 0; i < ARRAY_SIZE(versions); i++) {
+      superblock_context ctx;
+      ASSERT_TRUE(SUCCESS(superblock_context_init(
+         &ctx, data->ioh, &data->allocator_cfg, data->hid)));
+      ASSERT_TRUE(SUCCESS(superblock_format(&ctx, &data->allocator_cfg)));
+      ctx.image->format_version = versions[i];
+      ASSERT_TRUE(SUCCESS(superblock_make_durable(&ctx)));
+      superblock image;
+      /* A valid older peer must not hide an unsupported newest record. */
+      ASSERT_TRUE(
+         STATUS_IS_EQ(superblock_read_bootstrap(data->io_cfg.filename, &image),
+                      STATUS_INVALID_STATE));
+      ASSERT_TRUE(STATUS_IS_EQ(superblock_mount(&ctx, &data->allocator_cfg),
+                               STATUS_INVALID_STATE));
+      ASSERT_TRUE(SUCCESS(superblock_make_durable(&ctx)));
+      ASSERT_TRUE(
+         STATUS_IS_EQ(superblock_read_bootstrap(data->io_cfg.filename, &image),
+                      STATUS_INVALID_STATE));
+      /* Reformat replaces both slots, including the unsupported old peer. */
+      ASSERT_TRUE(SUCCESS(superblock_format(&ctx, &data->allocator_cfg)));
+      ASSERT_TRUE(
+         SUCCESS(superblock_read_bootstrap(data->io_cfg.filename, &image)));
+      ASSERT_TRUE(SUCCESS(superblock_mount(&ctx, &data->allocator_cfg)));
+      superblock_context_deinit(&ctx);
+   }
 }

@@ -172,4 +172,30 @@ These are updated-feature comparisons against main `7bb5fab`, not an isolated
 measurement of merge cost. Main controls drifted; observed range overlap is
 descriptive, not a statistical confidence interval. Exact samples, build/source
 hashes, commands, verification scope and fresh correctness evidence are in
-[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
+[the integration archive](../benchmarks/results-20261013/cache-invalid-addresses-main-7bb5fab/README.md).
+
+## Filtered-ranges main integration (2026-10-13)
+
+Merged main `fc0bc8f7e39566f14822bb598376458bdf1e28b3`, including the async
+barrier, disk-format and predicate-based filtered-range changes. The invalid
+address extension applies without runtime conflicts: its diff against this
+main is byte-for-byte identical to its previous diff against `7bb5fab3`.
+No address-validation behavior or default changed.
+
+Debug and release builds each pass all 18 writeback/cache cases, all 56 public
+API quick cases, and the core cache-read-error propagation case: **150 unit
+cases total**. The quick suite includes the new predicate scans, mixed saved
+hash seeds, cross-thread iterators, and asynchronous barrier notifications.
+The debug deterministic prefetch-admission functional check also passes.
+The full format check and Git whitespace check pass. These are targeted
+integration checks; they do not resolve the inherited async allocation stall
+or establish new performance neutrality.
+
+Builds use `build-main-fc0bc8f7/{debug,release}`. Commands, logs, binary and source
+hashes, and archive-preservation checks are in
+[the integration evidence](../benchmarks/results-20261013/cache-invalid-addresses-main-fc0bc8f7/).
+An initial core-test invocation used an unsupported `--test` option; the
+correct trailing-name invocation passes in both builds. The old 137-file
+branch-specific `main-7bb5fab` evidence is preserved byte-for-byte at the new
+branch-specific archive path linked above; main's 132-file archive is retained
+at its original path. No benchmarks were rerun as part of this merge check.

@@ -1,0 +1,33 @@
+Starting mainmerge-disk-format-debug-build build
+Checking for mismatched config...No mismatched config found
+Saving config to build-main-7bb5fab/debug/build-config.e33dfc688a9c2bf2dad4e17ef758ec3e
+Compiling            src/PackedArray.c                                  [build-main-7bb5fab/debug/obj/src/PackedArray.o]
+Compiling            src/batch_rwlock.c                                 [build-main-7bb5fab/debug/obj/src/batch_rwlock.o]
+Compiling            src/core.c                                         [build-main-7bb5fab/debug/obj/src/core.o]
+Compiling            src/default_data_config.c                          [build-main-7bb5fab/debug/obj/src/default_data_config.o]
+Compiling            src/memtable.c                                     [build-main-7bb5fab/debug/obj/src/memtable.o]
+Compiling            src/merge.c                                        [build-main-7bb5fab/debug/obj/src/merge.o]
+Compiling            src/notification.c                                 [build-main-7bb5fab/debug/obj/src/notification.o]
+Compiling            src/routing_filter.c                               [build-main-7bb5fab/debug/obj/src/routing_filter.o]
+Compiling            src/shard_log.c                                    [build-main-7bb5fab/debug/obj/src/shard_log.o]
+Compiling            src/splinterdb.c                                   [build-main-7bb5fab/debug/obj/src/splinterdb.o]
+Compiling            src/superblock.c                                   [build-main-7bb5fab/debug/obj/src/superblock.o]
+src/routing_filter.c: In function ‘routing_filter_add’:
+src/routing_filter.c:849:1: error: version control conflict marker in file
+  849 | <<<<<<< HEAD
+      | ^~~~~~~
+compilation terminated due to -Wfatal-errors.
+make: *** [Makefile:365: build-main-7bb5fab/debug/obj/src/routing_filter.o] Error 1
+make: *** Waiting for unfinished jobs....
+src/shard_log.c: In function ‘shard_log_iterator_create_recovered’:
+src/shard_log.c:3101:1: error: version control conflict marker in file
+ 3101 | <<<<<<< HEAD
+      | ^~~~~~~
+compilation terminated due to -Wfatal-errors.
+make: *** [Makefile:365: build-main-7bb5fab/debug/obj/src/shard_log.o] Error 1
+In file included from src/PackedArray.c:296,
+                 from src/PackedArray.c:356:
+src/PackedArray.c: In function ‘__PackedArray_unpack_21’:
+src/PackedArray.c:177: note: ‘-Wmisleading-indentation’ is disabled from this point onwards, since column-tracking was disabled due to the size of the code/headers
+  177 |         PACKEDARRAY_IMPL_UNPACK_CASE_BREAK
+src/PackedArray.c:177: note: adding ‘-flarge-source-files’ will allow for more column-tracking support, at the expense of compilation time and memory
