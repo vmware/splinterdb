@@ -1,0 +1,21 @@
+prefix-pattern=random key_bytes=64 compression_disabled=false
+kvbench version=branch-prefix splinter=splinterdb_build_version 100800cb-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-fc0bc8f7/branch-screen/scratch.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=3.0 warmup=1.0 rep=2 sabotage=0
+open took 0.007 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.01 ops/s=   14714134  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.06s ops/cpu-s=3284018 rd=178.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+   found=11900064 notfound=0
+== point:uniform@8        T=8  ops=11900064   secs=   3.00 ops/s=    3966374  lat us p50=1.81 p99=2.53 p99.9=5.44 max=60.0 mean=1.86
+   cpu=24.00s ops/cpu-s=495849 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+== range:uniform:1@8      T=8  ops=3183221    secs=   3.00 ops/s=    1060998  lat us p50=6.34 p99=10.37 p99.9=18.69 max=88.1 mean=7.39
+   cpu=24.00s ops/cpu-s=132640 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=5.95 p99=9.60 mean=6.90  per-tuple=nan ns  deinit mean=0.44 us  tuples/s=1060998
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:10000@8] progress 9287 ops (+929 ops/s)
+close took 0.062 s
+== range:uniform:10000@8  T=8  ops=9377       secs=   3.00 ops/s=       3125  lat us p50=2654.21 p99=4259.84 p99.9=4259.84 max=4356.1 mean=2559.23
+   cpu=24.00s ops/cpu-s=391 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=8.32 p99=11.14 mean=8.42  per-tuple=261.5 ns  deinit mean=0.69 us  tuples/s=30492432
+   insert/run=3.00s drain(close)=0.06s total=3.06s drain_cpu=0.01s drain_rd=0 drain_wr=307200 wamp=nan db_apparent=237375488 db_alloc=37285888

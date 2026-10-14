@@ -1,0 +1,21 @@
+prefix-pattern=random key_bytes=64 compression_disabled=false
+kvbench version=main splinter=splinterdb_build_version fc0bc8f7 db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-fc0bc8f7/branch-screen/scratch.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=3.0 warmup=1.0 rep=0 sabotage=0
+open took 0.007 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.01 ops/s=   14907959  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.05s ops/cpu-s=3640335 rd=178.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+   found=11845141 notfound=0
+== point:uniform@8        T=8  ops=11845141   secs=   3.00 ops/s=    3948079  lat us p50=1.84 p99=2.53 p99.9=7.62 max=114.5 mean=1.87
+   cpu=24.00s ops/cpu-s=493579 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+== range:uniform:1@8      T=8  ops=3251826    secs=   3.00 ops/s=    1083863  lat us p50=6.34 p99=10.11 p99.9=17.66 max=452.2 mean=7.23
+   cpu=23.99s ops/cpu-s=135543 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=5.95 p99=9.60 mean=6.80  per-tuple=nan ns  deinit mean=0.39 us  tuples/s=1083863
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:10000@8] progress 10208 ops (+1021 ops/s)
+close took 0.043 s
+== range:uniform:10000@8  T=8  ops=10186      secs=   3.00 ops/s=       3395  lat us p50=2129.92 p99=4784.13 p99.9=4915.20 max=5084.6 mean=2355.18
+   cpu=24.00s ops/cpu-s=424 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=8.32 p99=14.72 mean=8.96  per-tuple=240.9 ns  deinit mean=0.67 us  tuples/s=33093493
+   insert/run=3.00s drain(close)=0.04s total=3.04s drain_cpu=0.01s drain_rd=0 drain_wr=307200 wamp=nan db_apparent=237375488 db_alloc=37285888

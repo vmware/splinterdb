@@ -1,0 +1,21 @@
+prefix-pattern=common key_bytes=64 compression_disabled=false
+kvbench version=main splinter=splinterdb_build_version fc0bc8f7 db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-fc0bc8f7/branch-screen/scratch.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=3.0 warmup=1.0 rep=3 sabotage=0
+open took 0.007 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.01 ops/s=   14096139  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.07s ops/cpu-s=2875422 rd=178.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+   found=12648917 notfound=0
+== point:uniform@8        T=8  ops=12648917   secs=   3.00 ops/s=    4215987  lat us p50=1.81 p99=2.46 p99.9=8.32 max=90.0 mean=1.82
+   cpu=24.00s ops/cpu-s=527105 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+== range:uniform:1@8      T=8  ops=3334860    secs=   3.00 ops/s=    1111537  lat us p50=6.21 p99=10.11 p99.9=17.66 max=86.0 mean=7.15
+   cpu=24.00s ops/cpu-s=138961 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=5.82 p99=9.60 mean=6.74  per-tuple=nan ns  deinit mean=0.37 us  tuples/s=1111537
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:10000@8] progress 11056 ops (+1106 ops/s)
+close took 0.067 s
+== range:uniform:10000@8  T=8  ops=11117      secs=   3.00 ops/s=       3705  lat us p50=2080.77 p99=4521.98 p99.9=4521.98 max=4600.3 mean=2158.06
+   cpu=24.00s ops/cpu-s=463 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=7.87 p99=12.42 mean=8.38  per-tuple=220.2 ns  deinit mean=0.64 us  tuples/s=36169664
+   insert/run=3.00s drain(close)=0.07s total=3.07s drain_cpu=0.01s drain_rd=0 drain_wr=307200 wamp=nan db_apparent=237375488 db_alloc=37285888
