@@ -1,0 +1,17 @@
+[
+  {
+    "name": "quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format/build-filter-disk-integration/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/filter-predicate-20261013/integration/scratch-debug/quick",
+    "started": 1791922898.5759017,
+    "returncode": 0,
+    "finished": 1791922914.7031028,
+    "log_sha256": "01a7fa1da4cd251a5babed2c607c757b307f8c07b628bafaa6bf7690faad28c8",
+    "summaries": [
+      "RESULTS: 56 tests (56 ok, 0 failed, 0 skipped) ran in 16112 ms"
+    ],
+    "passed": true
+  }
+]

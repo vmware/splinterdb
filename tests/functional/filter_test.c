@@ -794,6 +794,163 @@ out:
    return rc;
 }
 
+/* Record the actual seed passed to the application's hash callback. The
+ * configuration used for lookup deliberately names none of the saved seeds. */
+typedef struct filter_seed_test_config {
+   data_config super;
+   uint32      calls;
+   uint32      seeds[32];
+} filter_seed_test_config;
+
+static uint32
+filter_seed_test_hash_value(uint64 value, uint32 seed)
+{
+   uint32 hash = (uint32)value ^ seed;
+   hash ^= hash >> 16;
+   hash *= 0x7feb352d;
+   hash ^= hash >> 15;
+   hash *= 0x846ca68b;
+   return hash ^ (hash >> 16);
+}
+
+static uint32
+filter_seed_test_hash(const data_config *cfg, user_key target, uint32 seed)
+{
+   filter_seed_test_config *test_cfg = (filter_seed_test_config *)cfg;
+   platform_assert(test_cfg->calls < ARRAY_SIZE(test_cfg->seeds));
+   test_cfg->seeds[test_cfg->calls++] = seed;
+   uint64 value;
+   platform_assert(slice_length(target.key) == sizeof(value));
+   memcpy(&value, slice_data(target.key), sizeof(value));
+   return filter_seed_test_hash_value(value, seed);
+}
+
+static platform_status
+test_filter_query_saved_seeds(cache *cc, routing_config *cfg)
+{
+   platform_default_log("filter_test: saved-seed query cache test started\n");
+   const uint32            seeds[]  = {0, 1, 2, 3, 4, UINT32_MAX};
+   const uint32            visits[] = {0, 1, 2, 3, 0, 1, 4, 5, 2, 3, 0, 5};
+   const uint32            expected_hashes[]  = {0, 1, 2, 3, 4, UINT32_MAX, 0};
+   filter_seed_test_config data_cfg           = {.super = *cfg->data_cfg};
+   data_cfg.super.key_hash                    = filter_seed_test_hash;
+   routing_config lookup_cfg                  = *cfg;
+   lookup_cfg.data_cfg                        = &data_cfg.super;
+   lookup_cfg.seed                            = 0xa5a5a5a5;
+   routing_filter  filters[ARRAY_SIZE(seeds)] = {0};
+   routing_filter  empty                      = NULL_ROUTING_FILTER;
+   uint64          key_data                   = 0x123456789;
+   key             target = key_create(TRUE, sizeof(key_data), &key_data);
+   platform_status rc     = STATUS_OK;
+   const char     *stage  = "construct six filters";
+   for (uint32 i = 0; i < ARRAY_SIZE(seeds); i++) {
+      routing_config create_cfg = lookup_cfg;
+      create_cfg.seed           = seeds[i];
+      uint32 hash = filter_seed_test_hash_value(key_data, seeds[i]);
+      rc =
+         routing_filter_add(cc, &create_cfg, &empty, &filters[i], &hash, 1, 0);
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
+      if (filters[i].hash_seed != seeds[i]) {
+         rc = STATUS_TEST_FAILED;
+         goto out;
+      }
+   }
+
+   stage = "query across cache eviction";
+   routing_filter_query query;
+   routing_filter_query_init(&query, target);
+   data_cfg.calls = 0;
+   for (uint32 i = 0; i < ARRAY_SIZE(visits); i++) {
+      uint64 found = 0;
+      rc           = routing_filter_lookup_with_query(
+         cc, &lookup_cfg, &filters[visits[i]], &query, &found);
+      if (!SUCCESS(rc) || found != 1) {
+         rc = STATUS_TEST_FAILED;
+         goto out;
+      }
+   }
+   if (data_cfg.calls != ARRAY_SIZE(expected_hashes)
+       || memcmp(data_cfg.seeds, expected_hashes, sizeof(expected_hashes)) != 0
+       || query.num_hashes != ROUTING_FILTER_QUERY_HASHES)
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   stage          = "ordinary lookup uses saved seed";
+   data_cfg.calls = 0;
+   for (uint32 i = 0; i < ARRAY_SIZE(seeds); i++) {
+      uint64 found = 0;
+      rc = routing_filter_lookup(cc, &lookup_cfg, &filters[i], target, &found);
+      if (!SUCCESS(rc) || found != 1) {
+         rc = STATUS_TEST_FAILED;
+         goto out;
+      }
+   }
+   if (data_cfg.calls != ARRAY_SIZE(seeds)
+       || memcmp(data_cfg.seeds, seeds, sizeof(seeds)) != 0)
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   stage                     = "reject descriptors before calling hash";
+   routing_filter invalid[4] = {filters[0], filters[0], filters[0], empty};
+   invalid[0].format_version++;
+   invalid[1].fingerprint_size = 0;
+   invalid[2].log_index_size   = 32;
+   invalid[3].hash_seed        = 1;
+   data_cfg.calls              = 0;
+   routing_filter_query_init(&query, target);
+   for (uint32 i = 0; i < ARRAY_SIZE(invalid); i++) {
+      uint64 found;
+      if (SUCCESS(routing_filter_lookup_with_query(
+             cc, &lookup_cfg, &invalid[i], &query, &found))
+          || SUCCESS(routing_filter_lookup(
+             cc, &lookup_cfg, &invalid[i], target, &found)))
+      {
+         rc = STATUS_TEST_FAILED;
+         goto out;
+      }
+   }
+   uint64 found = UINT64_MAX;
+   if (SUCCESS(routing_filter_lookup_with_query(
+          cc, &lookup_cfg, NULL, &query, &found))
+       || SUCCESS(routing_filter_lookup(cc, &lookup_cfg, NULL, target, &found)))
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   rc =
+      routing_filter_lookup_with_query(cc, &lookup_cfg, &empty, &query, &found);
+   if (!SUCCESS(rc) || found != 0) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   found = UINT64_MAX;
+   rc    = routing_filter_lookup(cc, &lookup_cfg, &empty, target, &found);
+   if (!SUCCESS(rc) || found != 0 || data_cfg.calls != 0
+       || query.num_hashes != 0)
+   {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+   platform_default_log("filter_test: six saved seeds, seven hash calls, "
+                        "invalid and empty descriptors never hashed\n");
+out:
+   if (!SUCCESS(rc)) {
+      platform_error_log("saved-seed test failed during %s: %s\n",
+                         stage,
+                         platform_status_to_string(rc));
+   }
+   for (uint32 i = 0; i < ARRAY_SIZE(filters); i++) {
+      routing_filter_dec_ref(cc, &filters[i]);
+   }
+   return rc;
+}
+
 static platform_status
 test_filter_arithmetic_limits(cache *cc, routing_config *cfg)
 {
@@ -1244,6 +1401,8 @@ filter_test(int argc, char *argv[])
       platform_assert(SUCCESS(rc));
       rc = test_filter_mixed_fingerprint_sizes(
          (cache *)cc, &system_cfg.filter_cfg, hid);
+      platform_assert(SUCCESS(rc));
+      rc = test_filter_query_saved_seeds((cache *)cc, &system_cfg.filter_cfg);
       platform_assert(SUCCESS(rc));
       rc = test_filter_arithmetic_limits((cache *)cc, &system_cfg.filter_cfg);
       platform_assert(SUCCESS(rc));

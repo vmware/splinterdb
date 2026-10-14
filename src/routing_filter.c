@@ -1515,53 +1515,26 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state)
  *      them in the reverse order.
  *----------------------------------------------------------------------
  */
-platform_status
-routing_filter_lookup(cache                *cc,
-                      const routing_config *cfg,
-                      routing_filter       *filter,
-                      key                   target,
-                      uint64               *found_values)
+/* The descriptor is validated before this helper is called or any target key
+ * is hashed. Encoding geometry and the hash seed belong to the saved filter. */
+static platform_status
+routing_filter_lookup_validated_hash(cache                       *cc,
+                                     const routing_config        *cfg,
+                                     routing_filter              *filter,
+                                     const routing_filter_params *params,
+                                     uint32                       hash,
+                                     uint64                      *found_values)
 {
-#if 0
-   return async_call_sync_callback(cache_cleanup(cc),
-                                   routing_filter_lookup_async,
-                                   cc,
-                                   cfg,
-                                   *filter,
-                                   target,
-                                   found_values);
-#else
-   debug_assert(key_is_user_key(target));
-
-   if (filter == NULL || found_values == NULL) {
-      return STATUS_BAD_PARAM;
-   }
-   if (cfg == NULL) {
-      return STATUS_BAD_PARAM;
-   }
-   if (filter->addr == 0) {
-      *found_values = 0;
-      routing_filter_params params;
-      return routing_filter_get_params(cfg, filter, &params);
-   }
-
-   routing_filter_params params;
-   platform_status       rc = routing_filter_get_params(cfg, filter, &params);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   uint32 fp = data_key_hash(cfg->data_cfg, target, filter->hash_seed);
-   fp >>= 32 - filter->fingerprint_size;
-   uint32 index = routing_get_index(fp << params.value_size,
-                                    params.index_remainder_and_value_size);
-   if (index >= params.num_indices) {
+   uint32 fp    = hash >> (32 - filter->fingerprint_size);
+   uint32 index = routing_get_index(fp << params->value_size,
+                                    params->index_remainder_and_value_size);
+   if (index >= params->num_indices) {
       return STATUS_INVALID_STATE;
    }
 
-   page_handle filter_node = {0};
-   uint64      hdr_raw_addr;
-   rc = routing_get_header(
+   page_handle     filter_node = {0};
+   uint64          hdr_raw_addr;
+   platform_status rc = routing_get_header(
       cc, cfg, filter->addr, index, &filter_node, &hdr_raw_addr);
    if (!SUCCESS(rc)) {
       return rc;
@@ -1571,15 +1544,103 @@ routing_filter_lookup(cache                *cc,
                                  1U << filter->log_index_size,
                                  &filter_node,
                                  hdr_raw_addr,
-                                 params.remainder_and_value_size,
+                                 params->remainder_and_value_size,
                                  &view);
    if (SUCCESS(rc)) {
       rc = routing_filter_lookup_view(
-         1U << filter->log_index_size, &params, fp, &view, found_values);
+         1U << filter->log_index_size, params, fp, &view, found_values);
    }
    routing_unget_header(cc, &filter_node);
    return rc;
-#endif
+}
+
+static platform_status
+routing_filter_validate_lookup(const routing_config  *cfg,
+                               const routing_filter  *filter,
+                               uint64                *found_values,
+                               routing_filter_params *params)
+{
+   if (cfg == NULL || filter == NULL || found_values == NULL) {
+      return STATUS_BAD_PARAM;
+   }
+   *found_values = 0;
+   return routing_filter_get_params(cfg, filter, params);
+}
+
+platform_status
+routing_filter_lookup(cache                *cc,
+                      const routing_config *cfg,
+                      routing_filter       *filter,
+                      key                   target,
+                      uint64               *found_values)
+{
+   debug_assert(key_is_user_key(target));
+   routing_filter_params params;
+   platform_status       rc =
+      routing_filter_validate_lookup(cfg, filter, found_values, &params);
+   if (!SUCCESS(rc) || filter->addr == 0) {
+      return rc;
+   }
+   uint32 hash = data_key_hash(cfg->data_cfg, target, filter->hash_seed);
+   return routing_filter_lookup_validated_hash(
+      cc, cfg, filter, &params, hash, found_values);
+}
+
+static uint32
+routing_filter_query_hash(const routing_config *cfg,
+                          routing_filter_query *query,
+                          uint32                seed)
+{
+   for (uint32 i = 0; i < query->num_hashes; i++) {
+      if (query->hashes[i].seed == seed) {
+         return query->hashes[i].hash;
+      }
+   }
+   uint32 slot              = query->next_hash;
+   uint32 hash              = data_key_hash(cfg->data_cfg, query->target, seed);
+   query->hashes[slot].seed = seed;
+   query->hashes[slot].hash = hash;
+   query->num_hashes = MIN(query->num_hashes + 1, ROUTING_FILTER_QUERY_HASHES);
+   query->next_hash  = (slot + 1) % ROUTING_FILTER_QUERY_HASHES;
+   return hash;
+}
+
+platform_status
+routing_filter_lookup_with_query(cache                *cc,
+                                 const routing_config *cfg,
+                                 routing_filter       *filter,
+                                 routing_filter_query *query,
+                                 uint64               *found_values)
+{
+   if (query == NULL || key_is_null(query->target)) {
+      return STATUS_BAD_PARAM;
+   }
+   routing_filter_params params;
+   platform_status       rc =
+      routing_filter_validate_lookup(cfg, filter, found_values, &params);
+   if (!SUCCESS(rc) || filter->addr == 0) {
+      return rc;
+   }
+   uint32 hash = routing_filter_query_hash(cfg, query, filter->hash_seed);
+   return routing_filter_lookup_validated_hash(
+      cc, cfg, filter, &params, hash, found_values);
+}
+
+platform_status
+routing_filter_lookup_hash(cache                *cc,
+                           const routing_config *cfg,
+                           routing_filter       *filter,
+                           uint32                hash,
+                           uint64               *found_values)
+{
+   routing_filter_params params;
+   platform_status       rc =
+      routing_filter_validate_lookup(cfg, filter, found_values, &params);
+   if (!SUCCESS(rc) || filter->addr == 0) {
+      return rc;
+   }
+   return routing_filter_lookup_validated_hash(
+      cc, cfg, filter, &params, hash, found_values);
 }
 
 /*

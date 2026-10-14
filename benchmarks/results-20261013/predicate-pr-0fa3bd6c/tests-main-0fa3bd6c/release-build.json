@@ -1,0 +1,22 @@
+[
+  {
+    "name": "build",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j4",
+      "BUILD_ROOT=build-filter-predicate",
+      "BUILD_MODE=release",
+      "build-filter-predicate/release/bin/unit/merge_test",
+      "build-filter-predicate/release/bin/unit/splinterdb_quick_test",
+      "build-filter-predicate/release/bin/unit/splinter_test",
+      "build-filter-predicate/release/bin/driver_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges",
+    "started": 1791922037.7005885,
+    "returncode": 0,
+    "finished": 1791922070.3302367,
+    "log_sha256": "1d25ec834100c78734c034588bc10f5af9fd1436184432837f639030ac7c0989",
+    "summaries": []
+  }
+]

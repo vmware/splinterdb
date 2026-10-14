@@ -1,0 +1,7 @@
+{
+  "head": "cf7dc4f710aad91dfad9050dca0d326ff0fccac5",
+  "pr_diff_check_returncode": 0,
+  "format_returncode": 0,
+  "format_log_sha256": "7ccb810f1948af40af238090955e73089bed883cb5b5c62c05116e9bdbc3c16c",
+  "source_review": "No blocker found in predicate ownership, merge ordering, pruning, query-key copying, span restart or handoff paths; no source edits or database tests run."
+}

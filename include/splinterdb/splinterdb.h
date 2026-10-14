@@ -589,6 +589,53 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,     // IN
                                      slice      start_key           // IN
 );
 
+// A predicate over stored keys. The key slice is borrowed for this call only.
+// The predicate may run repeatedly, including for keys that were deleted, and
+// before values are merged. It must return the same result for keys that
+// compare equal and remain stable for the iterator's lifetime. The context is
+// borrowed until iterator destruction and must be usable by any thread using
+// the iterator.
+typedef bool (*splinterdb_key_predicate)(void *context, slice key);
+
+// Initialize an iterator that returns only keys accepted by predicate.
+// NULL predicate with NULL_SLICE routing_filter_key is an ordinary scan.
+// A predicate without a routing_filter_key scans all branches in the range.
+//
+// An optional routing_filter_key enables branch pruning. For EVERY seed, the
+// application must guarantee that every key accepted by predicate has the same
+// data_config.key_hash value as routing_filter_key. Violating this contract can
+// omit results or parts of their update histories. The routing key uses the
+// query-key representation accepted by key_hash and is copied by
+// initialization; its original storage need not remain alive. NULL_SLICE
+// disables pruning. A routing_filter_key without a predicate is invalid and
+// returns EINVAL.
+//
+// Filtering runs before message merging; it does not change snapshot isolation.
+// Bounds, starting position, direction and errors follow the ordinary iterator
+// contract. The callback is not a value predicate and must not mutate the DB.
+int
+splinterdb_iterator_init_with_filter(splinterdb              *kvs,
+                                     splinterdb_iterator    **iter,
+                                     comparison               start_type,
+                                     slice                    start_key,
+                                     splinterdb_key_predicate predicate,
+                                     void                    *predicate_context,
+                                     slice routing_filter_key);
+
+int
+splinterdb_iterator_init_with_bounds_and_filter(
+   splinterdb              *kvs,
+   splinterdb_iterator    **iter,
+   comparison               min_key_comparison,
+   slice                    min_key,
+   comparison               max_key_comparison,
+   slice                    max_key,
+   comparison               start_type,
+   slice                    start_key,
+   splinterdb_key_predicate predicate,
+   void                    *predicate_context,
+   slice                    routing_filter_key);
+
 // Deinitialize an iterator
 //
 // Failing to do this may cause hangs.

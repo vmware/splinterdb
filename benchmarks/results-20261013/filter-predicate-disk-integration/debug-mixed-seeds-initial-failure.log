@@ -1,0 +1,4 @@
+Running 1 CTests, suite name 'splinterdb_quick', test case 'test_filtered_range_persisted_mixed_seeds'.
+TEST 1/1 splinterdb_quick:test_filtered_range_persisted_mixed_seeds [FAIL]
+  ERR: tests/unit/splinterdb_quick_test.c:3441  should be true
+RESULTS: 1 tests (0 ok, 1 failed, 0 skipped) ran in 518 ms

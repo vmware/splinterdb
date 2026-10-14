@@ -1,0 +1,263 @@
+{
+  "mode": "hash",
+  "storage": "ext4 /dev/mapper/snafu-root_crypt[/home/rob/projects/splinterdb]",
+  "io": "O_DIRECT",
+  "cpu_affinity": "0-11",
+  "scope": "Updated feature branches versus fresh main; not an isolation of merge cost",
+  "runner_sha256": "536f10a1a7fd4b1e8e0250ea01cfe36793c7d6e2345f141092616ec06f64ee50",
+  "runs": [
+    {
+      "label": "0-main",
+      "profile": "main",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/bin/main/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/hash/scratch.db",
+        "16384",
+        "1000"
+      ],
+      "started": 1791907918.7071683,
+      "binary_sha256": "01a0b7d24f4ea70a37a6895bc6a7401a7e8f524176d4ebf269bc3627889ce7f6",
+      "library_sha256": "20944ac1b2f8420bd8f868d20894e462f9c3c240e4380e9c1242287cbb394f9a",
+      "source_head": "7bb5fab305b9c6179e31f75998dabea833537a08",
+      "verified": true,
+      "returncode": 0,
+      "finished": 1791907919.6232164,
+      "log_sha256": "e7ee71c56ee2477ffbbdf918f14f5a81174467562fc897fe2b2532fbcb1a9a82",
+      "process_cpu_s": 0.650427,
+      "process_read_bytes": 24604672,
+      "process_write_bytes": 85708800,
+      "rows": [
+        {
+          "mode": "application-filter",
+          "keys_per_tenant": "16384",
+          "limit": "1",
+          "queries": "1000",
+          "ns_per_query": "26622.0",
+          "visited": "16404",
+          "checksum": "8296973"
+        },
+        {
+          "mode": "application-filter",
+          "keys_per_tenant": "16384",
+          "limit": "2",
+          "queries": "1000",
+          "ns_per_query": "23851.0",
+          "visited": "48404",
+          "checksum": "16981784"
+        },
+        {
+          "mode": "application-filter",
+          "keys_per_tenant": "16384",
+          "limit": "10",
+          "queries": "1000",
+          "ns_per_query": "32551.2",
+          "visited": "304404",
+          "checksum": "81849260"
+        },
+        {
+          "mode": "application-filter",
+          "keys_per_tenant": "16384",
+          "limit": "100",
+          "queries": "1000",
+          "ns_per_query": "150518.6",
+          "visited": "3184404",
+          "checksum": "827043200"
+        }
+      ],
+      "allocated_bytes": 85815296
+    },
+    {
+      "label": "1-filtered-ranges",
+      "profile": "filtered-ranges",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/bin/filtered-ranges/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/hash/scratch.db",
+        "16384",
+        "1000"
+      ],
+      "started": 1791907919.6429644,
+      "binary_sha256": "89b210887838720b1495fd0bac856ca53863a0b626eb1d37029af7def78b9ed5",
+      "library_sha256": "d39e80863dd7f9a66686a0cd1907e4c28d8de12e5dac205a373c89a88c91627b",
+      "source_head": "63e237b92395023337098b6220615b27aeef4383",
+      "verified": true,
+      "returncode": 0,
+      "finished": 1791907920.459243,
+      "log_sha256": "6aef75d22008ce3d85acb8fed6c9977382d7adec2550bb408657e59dbd5230c6",
+      "process_cpu_s": 0.622295,
+      "process_read_bytes": 25722880,
+      "process_write_bytes": 85753856,
+      "rows": [
+        {
+          "mode": "hash-filter",
+          "keys_per_tenant": "16384",
+          "limit": "1",
+          "queries": "1000",
+          "ns_per_query": "25561.8",
+          "visited": "1000",
+          "checksum": "8296973"
+        },
+        {
+          "mode": "hash-filter",
+          "keys_per_tenant": "16384",
+          "limit": "2",
+          "queries": "1000",
+          "ns_per_query": "20525.1",
+          "visited": "2000",
+          "checksum": "16981784"
+        },
+        {
+          "mode": "hash-filter",
+          "keys_per_tenant": "16384",
+          "limit": "10",
+          "queries": "1000",
+          "ns_per_query": "33010.8",
+          "visited": "10000",
+          "checksum": "81849260"
+        },
+        {
+          "mode": "hash-filter",
+          "keys_per_tenant": "16384",
+          "limit": "100",
+          "queries": "1000",
+          "ns_per_query": "136036.1",
+          "visited": "100000",
+          "checksum": "827043200"
+        }
+      ],
+      "allocated_bytes": 85856256
+    },
+    {
+      "label": "2-filtered-ranges",
+      "profile": "filtered-ranges",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/bin/filtered-ranges/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/hash/scratch.db",
+        "16384",
+        "1000"
+      ],
+      "started": 1791907920.479764,
+      "binary_sha256": "89b210887838720b1495fd0bac856ca53863a0b626eb1d37029af7def78b9ed5",
+      "library_sha256": "d39e80863dd7f9a66686a0cd1907e4c28d8de12e5dac205a373c89a88c91627b",
+      "source_head": "63e237b92395023337098b6220615b27aeef4383",
+      "verified": true,
+      "returncode": 0,
+      "finished": 1791907921.295529,
+      "log_sha256": "0acf2859e2e7e173c0392bb20a9d2b37e5586f49d916b11518f4b7c8481769ae",
+      "process_cpu_s": 0.629063,
+      "process_read_bytes": 24674304,
+      "process_write_bytes": 85770240,
+      "rows": [
+        {
+          "mode": "hash-filter",
+          "keys_per_tenant": "16384",
+          "limit": "1",
+          "queries": "1000",
+          "ns_per_query": "26847.3",
+          "visited": "1000",
+          "checksum": "8296973"
+        },
+        {
+          "mode": "hash-filter",
+          "keys_per_tenant": "16384",
+          "limit": "2",
+          "queries": "1000",
+          "ns_per_query": "20694.6",
+          "visited": "2000",
+          "checksum": "16981784"
+        },
+        {
+          "mode": "hash-filter",
+          "keys_per_tenant": "16384",
+          "limit": "10",
+          "queries": "1000",
+          "ns_per_query": "33682.8",
+          "visited": "10000",
+          "checksum": "81849260"
+        },
+        {
+          "mode": "hash-filter",
+          "keys_per_tenant": "16384",
+          "limit": "100",
+          "queries": "1000",
+          "ns_per_query": "138940.3",
+          "visited": "100000",
+          "checksum": "827043200"
+        }
+      ],
+      "allocated_bytes": 85876736
+    },
+    {
+      "label": "3-main",
+      "profile": "main",
+      "command": [
+        "taskset",
+        "-c",
+        "0-11",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/benchmarks/bin/main/hash_range_benchmark",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/hash/scratch.db",
+        "16384",
+        "1000"
+      ],
+      "started": 1791907921.3227699,
+      "binary_sha256": "01a0b7d24f4ea70a37a6895bc6a7401a7e8f524176d4ebf269bc3627889ce7f6",
+      "library_sha256": "20944ac1b2f8420bd8f868d20894e462f9c3c240e4380e9c1242287cbb394f9a",
+      "source_head": "7bb5fab305b9c6179e31f75998dabea833537a08",
+      "verified": true,
+      "returncode": 0,
+      "finished": 1791907922.1388364,
+      "log_sha256": "4cb98d8453c8aeaec69d2cd833bfc5838ac1aff4ed874f5743222a643f56f821",
+      "process_cpu_s": 0.6566950000000001,
+      "process_read_bytes": 25104384,
+      "process_write_bytes": 85921792,
+      "rows": [
+        {
+          "mode": "application-filter",
+          "keys_per_tenant": "16384",
+          "limit": "1",
+          "queries": "1000",
+          "ns_per_query": "28952.5",
+          "visited": "16404",
+          "checksum": "8296973"
+        },
+        {
+          "mode": "application-filter",
+          "keys_per_tenant": "16384",
+          "limit": "2",
+          "queries": "1000",
+          "ns_per_query": "25635.8",
+          "visited": "48404",
+          "checksum": "16981784"
+        },
+        {
+          "mode": "application-filter",
+          "keys_per_tenant": "16384",
+          "limit": "10",
+          "queries": "1000",
+          "ns_per_query": "33771.2",
+          "visited": "304404",
+          "checksum": "81849260"
+        },
+        {
+          "mode": "application-filter",
+          "keys_per_tenant": "16384",
+          "limit": "100",
+          "queries": "1000",
+          "ns_per_query": "153631.3",
+          "visited": "3184404",
+          "checksum": "827043200"
+        }
+      ],
+      "allocated_bytes": 86028288
+    }
+  ],
+  "complete": true
+}

@@ -1,0 +1,125 @@
+Filtered predicates integrated with disk-format: controlled end-to-end comparison
+
+Ordinary tests: same harness; fixed CPU/thread-id assignments; full validating scan at one thread; one-second query warmup; phase-gated counters. Main/disk/combined forward-reverse order. Source/libs/binaries/fixtures are pinned by SHA256. Throughput on this laptop is sensitive to thermal/frequency drift; compare cycles/instructions and I/O with wall rates, not wall rates alone. User cycles/ref-cycles is the relative frequency indicator; user cycles/task-clock also includes kernel time in its denominator and must not be interpreted as physical frequency for I/O workloads. Feature counters aggregate the four measured limits, excluding load/warmup/close.
+
+smoke
+phase | profile | mean op/s [min,max] | instructions/op | cycles/op | user cycles/ref-cycles | CPU utilization | physical read B/op | p99 us
+point:uniform@8 | disk-format | 4870875.2 [4870875.2,4870875.2] | 5800.57 | 4289.07 | 0.934 | 1.000 | 0.00 | 2.208
+point:uniform@8 | combined | 5132144.8 [5132144.8,5132144.8] | 5554.74 | 4182.55 | 0.959 | 1.000 | 0.00 | 2.144
+ combined vs disk-format: throughput +5.36%, instructions/op -4.238%, cycles/op -2.48%
+
+resident
+phase | profile | mean op/s [min,max] | instructions/op | cycles/op | user cycles/ref-cycles | CPU utilization | physical read B/op | p99 us
+point:uniform@8 | main | 5190621.2 [5187743.7,5193498.7] | 5780.14 | 4112.59 | 0.954 | 1.000 | 0.00 | 2.176
+point:uniform@8 | disk-format | 5204755.8 [5164854.7,5244656.9] | 5799.69 | 4102.59 | 0.954 | 1.000 | 0.00 | 2.144
+point:uniform@8 | combined | 5235249.6 [5212835.6,5257663.6] | 5553.91 | 4053.15 | 0.948 | 1.000 | 0.00 | 2.080
+ combined vs main: throughput +0.86%, instructions/op -3.914%, cycles/op -1.45%
+ combined vs disk-format: throughput +0.59%, instructions/op -4.238%, cycles/op -1.21%
+range:uniform:1@8 | main | 510575.4 [504763.4,516387.4] | 49311.97 | 41027.33 | 0.936 | 1.000 | 0.00 | 21.760
+ returned tuples/query 1.000, tuples/s 510575.4, instructions/tuple 49311.973, cycles/tuple 41027.328
+range:uniform:1@8 | disk-format | 513498.6 [511870.0,515127.2] | 49862.84 | 41052.02 | 0.942 | 1.000 | 0.00 | 20.992
+ returned tuples/query 1.000, tuples/s 513498.6, instructions/tuple 49862.839, cycles/tuple 41052.023
+range:uniform:1@8 | combined | 507102.1 [504671.4,509532.7] | 50053.35 | 41259.17 | 0.935 | 1.000 | 0.00 | 21.248
+ combined vs main: throughput -0.68%, instructions/op +1.503%, cycles/op +0.57%
+  per returned tuple: throughput -0.68%, instructions +1.503%, cycles +0.57%
+ combined vs disk-format: throughput -1.25%, instructions/op +0.382%, cycles/op +0.50%
+  per returned tuple: throughput -1.25%, instructions +0.382%, cycles +0.50%
+ returned tuples/query 1.000, tuples/s 507102.1, instructions/tuple 50053.350, cycles/tuple 41259.171
+range:uniform:10000@8 | main | 3753.7 [3717.7,3789.7] | 9188738.53 | 5376069.49 | 0.903 | 1.000 | 0.00 | 2621.440
+ returned tuples/query 9753.554, tuples/s 36611604.8, instructions/tuple 942.091, cycles/tuple 551.191
+range:uniform:10000@8 | disk-format | 3725.2 [3679.7,3770.7] | 9189742.98 | 5375386.14 | 0.907 | 1.000 | 0.00 | 3489.792
+ returned tuples/query 9753.746, tuples/s 36334348.5, instructions/tuple 942.176, cycles/tuple 551.110
+range:uniform:10000@8 | combined | 3819.9 [3796.2,3843.7] | 9135536.78 | 5318075.38 | 0.909 | 1.000 | 0.00 | 2588.672
+ combined vs main: throughput +1.76%, instructions/op -0.579%, cycles/op -1.08%
+  per returned tuple: throughput +1.76%, instructions -0.577%, cycles -1.08%
+ combined vs disk-format: throughput +2.54%, instructions/op -0.590%, cycles/op -1.07%
+  per returned tuple: throughput +2.54%, instructions -0.586%, cycles -1.06%
+ returned tuples/query 9753.376, tuples/s 37257262.5, instructions/tuple 936.654, cycles/tuple 545.255
+
+disk
+phase | profile | mean op/s [min,max] | instructions/op | cycles/op | user cycles/ref-cycles | CPU utilization | physical read B/op | p99 us
+point:uniform@8 | main | 177739.2 [177330.7,178147.8] | 10927.84 | 9449.49 | 1.133 | 0.180 | 3228.87 | 82.944
+point:uniform@8 | disk-format | 179860.4 [179534.1,180186.7] | 10955.98 | 9407.06 | 1.161 | 0.178 | 3229.76 | 81.920
+point:uniform@8 | combined | 176587.4 [175486.1,177688.6] | 10320.23 | 9336.03 | 1.180 | 0.170 | 3230.19 | 83.968
+ combined vs main: throughput -0.65%, instructions/op -5.560%, cycles/op -1.20%
+ combined vs disk-format: throughput -1.82%, instructions/op -5.803%, cycles/op -0.76%
+range:uniform:1@8 | main | 71890.5 [71347.8,72433.2] | 77735.87 | 86331.88 | 0.826 | 0.989 | 19813.74 | 294.912
+ returned tuples/query 1.000, tuples/s 71890.5, instructions/tuple 77735.873, cycles/tuple 86331.884
+range:uniform:1@8 | disk-format | 71333.6 [71297.8,71369.5] | 78241.70 | 86394.87 | 0.825 | 0.988 | 19805.44 | 299.008
+ returned tuples/query 1.000, tuples/s 71333.6, instructions/tuple 78241.696, cycles/tuple 86394.871
+range:uniform:1@8 | combined | 43869.6 [19593.4,68145.9] | 98289.49 | 104587.48 | 0.916 | 0.987 | 19810.49 | 2832.384
+ combined vs main: throughput -38.98%, instructions/op +26.440%, cycles/op +21.15%
+  per returned tuple: throughput -38.98%, instructions +26.440%, cycles +21.15%
+ combined vs disk-format: throughput -38.50%, instructions/op +25.623%, cycles/op +21.06%
+  per returned tuple: throughput -38.50%, instructions +25.623%, cycles +21.06%
+ returned tuples/query 1.000, tuples/s 43869.6, instructions/tuple 98289.485, cycles/tuple 104587.481
+range:uniform:10000@8 | main | 847.9 [838.1,857.7] | 9624158.25 | 5994714.19 | 0.929 | 0.414 | 2385169.19 | 22282.240
+ returned tuples/query 9984.178, tuples/s 8465757.2, instructions/tuple 963.941, cycles/tuple 600.421
+range:uniform:10000@8 | disk-format | 850.9 [849.4,852.4] | 9624509.97 | 5996011.34 | 0.941 | 0.406 | 2381450.64 | 21757.952
+ returned tuples/query 9984.235, tuples/s 8495134.3, instructions/tuple 963.971, cycles/tuple 600.548
+range:uniform:10000@8 | combined | 839.5 [826.9,852.0] | 9593983.14 | 5941795.88 | 0.942 | 0.405 | 2375039.52 | 24903.680
+ combined vs main: throughput -1.00%, instructions/op -0.314%, cycles/op -0.88%
+  per returned tuple: throughput -1.00%, instructions -0.319%, cycles -0.89%
+ combined vs disk-format: throughput -1.35%, instructions/op -0.317%, cycles/op -0.90%
+  per returned tuple: throughput -1.34%, instructions -0.322%, cycles -0.91%
+ returned tuples/query 9984.692, tuples/s 8381287.2, instructions/tuple 960.869, cycles/tuple 595.091
+
+repeat-disk-range1
+phase | profile | mean op/s [min,max] | instructions/op | cycles/op | user cycles/ref-cycles | CPU utilization | physical read B/op | p99 us
+range:uniform:1@8 | disk-format | 73759.8 [72708.9,75567.0] | 78735.99 | 86672.28 | 0.876 | 0.989 | 19807.09 | 285.355
+ kernel cycles/query 175779.30, kernel instructions/query 114119.19; user cycles/query above
+ returned tuples/query 1.000, tuples/s 73759.8, instructions/tuple 78735.995, cycles/tuple 86672.278
+range:uniform:1@8 | combined | 73691.4 [72068.4,75218.6] | 79069.31 | 86658.74 | 0.877 | 0.990 | 19801.26 | 285.355
+ combined vs disk-format: throughput -0.09%, instructions/op +0.423%, cycles/op -0.02%
+  per returned tuple: throughput -0.09%, instructions +0.423%, cycles -0.02%
+ kernel cycles/query 176987.21, kernel instructions/query 114405.06; user cycles/query above
+ returned tuples/query 1.000, tuples/s 73691.4, instructions/tuple 79069.309, cycles/tuple 86658.735
+
+sampled-disk-range1
+phase | profile | mean op/s [min,max] | instructions/op | cycles/op | user cycles/ref-cycles | CPU utilization | physical read B/op | p99 us
+range:uniform:1@8 | disk-format | 71243.4 [69789.7,72697.0] | 79201.19 | 87353.68 | 0.880 | 0.984 | 19813.95 | 303.104
+ kernel cycles/query 185000.90, kernel instructions/query 116810.27; user cycles/query above
+ returned tuples/query 1.000, tuples/s 71243.4, instructions/tuple 79201.187, cycles/tuple 87353.683
+range:uniform:1@8 | combined | 72008.8 [70594.3,73423.2] | 79472.28 | 86842.55 | 0.887 | 0.988 | 19812.55 | 299.008
+ combined vs disk-format: throughput +1.07%, instructions/op +0.342%, cycles/op -0.59%
+  per returned tuple: throughput +1.07%, instructions +0.342%, cycles -0.59%
+ kernel cycles/query 185609.58, kernel instructions/query 116903.49; user cycles/query above
+ returned tuples/query 1.000, tuples/s 72008.8, instructions/tuple 79472.276, cycles/tuple 86842.545
+
+repeat-disk-range10000
+phase | profile | mean op/s [min,max] | instructions/op | cycles/op | user cycles/ref-cycles | CPU utilization | physical read B/op | p99 us
+range:uniform:10000@8 | disk-format | 892.2 [883.3,899.3] | 9667317.84 | 5991824.49 | 1.059 | 0.385 | 2370194.46 | 21233.664
+ kernel cycles/query 3459958.20, kernel instructions/query 4265301.86; user cycles/query above
+ returned tuples/query 9980.553, tuples/s 8904744.6, instructions/tuple 968.615, cycles/tuple 600.350
+range:uniform:10000@8 | combined | 891.3 [879.8,898.1] | 9627107.37 | 5926893.25 | 1.067 | 0.377 | 2371702.44 | 21932.715
+ combined vs disk-format: throughput -0.11%, instructions/op -0.416%, cycles/op -1.08%
+  per returned tuple: throughput -0.10%, instructions -0.416%, cycles -1.08%
+ kernel cycles/query 3386231.50, kernel instructions/query 4232135.68; user cycles/query above
+ returned tuples/query 9980.532, tuples/s 8895422.1, instructions/tuple 964.589, cycles/tuple 593.845
+
+feature
+collisions | limit | mode | mean ns/query | speedup vs application | predicate calls/query
+0 | 1 | application | 12382.9 | 1.00x | 16.5
+0 | 2 | application | 7288.6 | 1.00x | 48.5
+0 | 10 | application | 17190.1 | 1.00x | 304.5
+0 | 100 | application | 133040.5 | 1.00x | 3184.5
+0 | 1 | predicate | 10972.0 | 1.13x | 16.5
+0 | 2 | predicate | 6288.2 | 1.16x | 48.5
+0 | 10 | predicate | 14513.5 | 1.18x | 304.5
+0 | 100 | predicate | 106261.1 | 1.25x | 3184.5
+0 | 1 | pruned | 10019.7 | 1.24x | 13.0
+0 | 2 | pruned | 5393.8 | 1.35x | 39.0
+0 | 10 | pruned | 11377.0 | 1.51x | 246.8
+0 | 100 | pruned | 82743.4 | 1.61x | 2584.7
+1 | 1 | application | 11809.3 | 1.00x | 16.5
+1 | 2 | application | 7148.5 | 1.00x | 48.5
+1 | 10 | application | 18050.8 | 1.00x | 304.5
+1 | 100 | application | 136504.2 | 1.00x | 3184.5
+1 | 1 | predicate | 11480.2 | 1.03x | 16.5
+1 | 2 | predicate | 6861.6 | 1.04x | 48.5
+1 | 10 | predicate | 15435.2 | 1.17x | 304.5
+1 | 100 | predicate | 109633.6 | 1.25x | 3184.5
+1 | 1 | pruned | 10230.5 | 1.15x | 13.1
+1 | 2 | pruned | 5992.0 | 1.19x | 39.3
+1 | 10 | pruned | 12475.8 | 1.45x | 248.6
+1 | 100 | pruned | 87414.1 | 1.56x | 2603.3
