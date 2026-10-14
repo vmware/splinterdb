@@ -1,0 +1,42 @@
+Main fc0bc8f7 integration and asynchronous log policy
+All database files use verified real ext4 disk and O_DIRECT; jobs are serialized.
+These are short closed-loop samples; sample ranges are not confidence intervals.
+
+Branch screen, ordinary: resident200k records,3-second measured phases,8threads;2 candidate samples.
+Prefix format uses separate images with identical logical tuples. Warm/point/range values validated.
+  cache-invalid-addresses  point:uniform@8      mean=5212952/s range=[5161738,5264167] vsMain=-0.25%
+  directory-bucket         point:uniform@8      mean=3840181/s range=[3721427,3958934] vsMain=-26.52%
+  directory-bucket-atomic  point:uniform@8      mean=4899326/s range=[4802080,4996572] vsMain=-6.25%
+  directory-bucket-simd    point:uniform@8      mean=3923342/s range=[3876651,3970033] vsMain=-24.93%
+  directory-direct         point:uniform@8      mean=5044760/s range=[5005074,5084446] vsMain=-3.47%
+  main                     point:uniform@8      mean=5226056/s range=[4934240,5379428] vsMain=+0.00%
+  cache-invalid-addresses  range:uniform:10000@8 mean=3776/s range=[3753,3800] vsMain=+2.59%
+  directory-bucket         range:uniform:10000@8 mean=3627/s range=[3517,3737] vsMain=-1.46%
+  directory-bucket-atomic  range:uniform:10000@8 mean=3521/s range=[3488,3554] vsMain=-4.34%
+  directory-bucket-simd    range:uniform:10000@8 mean=3732/s range=[3688,3776] vsMain=+1.39%
+  directory-direct         range:uniform:10000@8 mean=3686/s range=[3581,3791] vsMain=+0.13%
+  main                     range:uniform:10000@8 mean=3681/s range=[3523,3903] vsMain=+0.00%
+  cache-invalid-addresses  range:uniform:1@8    mean=493541/s range=[477968,509115] vsMain=-4.39%
+  directory-bucket         range:uniform:1@8    mean=428708/s range=[427649,429768] vsMain=-16.95%
+  directory-bucket-atomic  range:uniform:1@8    mean=469227/s range=[469028,469426] vsMain=-9.10%
+  directory-bucket-simd    range:uniform:1@8    mean=426481/s range=[416446,436515] vsMain=-17.38%
+  directory-direct         range:uniform:1@8    mean=504860/s range=[495761,513960] vsMain=-2.20%
+  main                     range:uniform:1@8    mean=516223/s range=[493451,545448] vsMain=+0.00%
+
+Branch screen, common: resident200k records,3-second measured phases,8threads;2 candidate samples.
+Prefix format uses separate images with identical logical tuples. Warm/point/range values validated.
+  branch-prefix            point:uniform@8      mean=4310843/s range=[4231833,4389853] vsMain=+1.95%
+  main                     point:uniform@8      mean=4228331/s range=[4215987,4240675] vsMain=+0.00%
+  branch-prefix            range:uniform:10000@8 mean=3694/s range=[3628,3760] vsMain=-9.52%
+  main                     range:uniform:10000@8 mean=4083/s range=[3705,4460] vsMain=+0.00%
+  branch-prefix            range:uniform:1@8    mean=1132655/s range=[1132470,1132839] vsMain=+1.99%
+  main                     range:uniform:1@8    mean=1110507/s range=[1109478,1111537] vsMain=+0.00%
+
+Branch screen, random: resident200k records,3-second measured phases,8threads;2 candidate samples.
+Prefix format uses separate images with identical logical tuples. Warm/point/range values validated.
+  branch-prefix            point:uniform@8      mean=4058881/s range=[3966374,4151388] vsMain=-0.73%
+  main                     point:uniform@8      mean=4088600/s range=[3948079,4229122] vsMain=+0.00%
+  branch-prefix            range:uniform:10000@8 mean=3411/s range=[3125,3697] vsMain=-5.91%
+  main                     range:uniform:10000@8 mean=3626/s range=[3395,3856] vsMain=+0.00%
+  branch-prefix            range:uniform:1@8    mean=1043180/s range=[1025362,1060998] vsMain=-1.90%
+  main                     range:uniform:1@8    mean=1063372/s range=[1042880,1083863] vsMain=+0.00%

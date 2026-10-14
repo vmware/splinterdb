@@ -1,0 +1,20 @@
+kvbench version=directory-bucket splinter=splinterdb_build_version 9ca98481-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-fc0bc8f7/branch-screen/scratch.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=3.0 warmup=1.0 rep=9 sabotage=0
+open took 0.002 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.02 ops/s=    8897521  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.06s ops/cpu-s=3318731 rd=138.4 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=2
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+   found=11165139 notfound=0
+== point:uniform@8        T=8  ops=11165139   secs=   3.00 ops/s=    3721427  lat us p50=2.08 p99=3.17 p99.9=8.13 max=85.1 mean=2.11
+   cpu=24.00s ops/cpu-s=465235 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+== range:uniform:1@8      T=8  ops=1283040    secs=   3.00 ops/s=     427649  lat us p50=17.15 p99=24.83 p99.9=34.30 max=79.1 mean=18.66
+   cpu=24.00s ops/cpu-s=53462 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=16.64 p99=23.81 mean=17.99  per-tuple=nan ns  deinit mean=0.62 us  tuples/s=427649
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:10000@8] progress 10446 ops (+1045 ops/s)
+close took 0.093 s
+== range:uniform:10000@8  T=8  ops=10552      secs=   3.00 ops/s=       3517  lat us p50=2129.92 p99=2785.28 p99.9=2785.28 max=2836.7 mean=2274.00
+   cpu=24.00s ops/cpu-s=440 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=21.25 p99=28.42 mean=21.41  per-tuple=230.9 ns  deinit mean=0.97 us  tuples/s=34299367
+   insert/run=3.00s drain(close)=0.09s total=3.09s drain_cpu=0.01s drain_rd=0 drain_wr=307200 wamp=nan db_apparent=162664448 db_alloc=28655616
