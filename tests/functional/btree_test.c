@@ -151,8 +151,7 @@ test_btree_pack_height_limit(cache              *cc,
    }
 
    btree_pack_req  req;
-   platform_status rc =
-      btree_pack_req_init(&req, cc, cfg, &itor.super, 0, 0, FALSE, hid);
+   platform_status rc = btree_pack_req_init(&req, cc, cfg, &itor.super, 0, hid);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -955,8 +954,7 @@ test_btree_scan_perf(cache                         *cc,
    }
 
    btree_pack_req req;
-   rc = btree_pack_req_init(
-      &req, cc, btree_cfg, (iterator *)&itor, 0, 0, FALSE, hid);
+   rc = btree_pack_req_init(&req, cc, btree_cfg, (iterator *)&itor, 0, hid);
    if (!SUCCESS(rc)) {
       btree_iterator_deinit(&itor);
       goto out;
@@ -1894,8 +1892,7 @@ test_btree_basic(cache             *cc,
    platform_default_log("btree iterator init time %luns\n",
                         platform_timestamp_elapsed(start_time));
    btree_pack_req req;
-   rc = btree_pack_req_init(
-      &req, cc, btree_cfg, (iterator *)&itor, 0, 0, FALSE, NULL);
+   rc = btree_pack_req_init(&req, cc, btree_cfg, (iterator *)&itor, 0, NULL);
    platform_assert_status_ok(rc);
 
    btree_print_tree_stats(Platform_default_log_handle,
@@ -2078,8 +2075,7 @@ test_btree_create_packed_trees(cache             *cc,
       platform_assert_status_ok(rc);
 
       btree_pack_req req;
-      rc = btree_pack_req_init(
-         &req, cc, btree_cfg, &itor.super, 0, 0, FALSE, hid);
+      rc = btree_pack_req_init(&req, cc, btree_cfg, &itor.super, 0, hid);
       platform_assert_status_ok(rc);
 
       rc = btree_pack(&req);
@@ -2321,8 +2317,7 @@ test_btree_merge_basic(cache             *cc,
       }
 
       btree_pack_req req;
-      rc = btree_pack_req_init(
-         &req, cc, btree_cfg, &merge_itor->super, 0, 0, FALSE, hid);
+      rc = btree_pack_req_init(&req, cc, btree_cfg, &merge_itor->super, 0, hid);
       platform_assert_status_ok(rc);
       btree_pack(&req);
       output_addr[pivot_no] = req.root_addr;
@@ -2713,7 +2708,7 @@ test_btree_merge_perf(cache             *cc,
 
          btree_pack_req req;
          rc = btree_pack_req_init(
-            &req, cc, btree_cfg, &merge_itor->super, 0, 0, FALSE, hid);
+            &req, cc, btree_cfg, &merge_itor->super, 0, hid);
          platform_assert_status_ok(rc);
 
          btree_pack(&req);

@@ -1362,9 +1362,8 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
                                             &data->system_cfg->btree_cfg,
                                             &itor.super,
                                             1,
-                                            42,
-                                            FALSE,
-                                            data->hid);
+                                            data->hid,
+                                            .seed = 42);
    ASSERT_TRUE(SUCCESS(rc));
 
    uint64 before = allocator_in_use(alp);
@@ -1404,9 +1403,8 @@ CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
                                             &data->system_cfg->btree_cfg,
                                             &itor.super,
                                             1,
-                                            42,
-                                            FALSE,
-                                            data->hid);
+                                            data->hid,
+                                            .seed = 42);
    ASSERT_TRUE(SUCCESS(rc));
 
    uint64 before = allocator_in_use(alp);
@@ -6581,14 +6579,8 @@ CTEST2(splinter, test_blob_height_three_and_large_stats)
       .msg   = message_create(MESSAGE_TYPE_INSERT, cc, desc)};
    btree_pack_req *req = TYPED_MALLOC(data->hid, req);
    ASSERT_NOT_NULL(req);
-   ASSERT_TRUE(SUCCESS(btree_pack_req_init(req,
-                                           cc,
-                                           &data->system_cfg->btree_cfg,
-                                           &iter.super,
-                                           16,
-                                           0,
-                                           FALSE,
-                                           data->hid)));
+   ASSERT_TRUE(SUCCESS(btree_pack_req_init(
+      req, cc, &data->system_cfg->btree_cfg, &iter.super, 16, data->hid)));
    ASSERT_TRUE(SUCCESS(btree_pack(req)));
    ASSERT_EQUAL(16 * length, req->message_bytes);
    ASSERT_TRUE(req->height > 0);

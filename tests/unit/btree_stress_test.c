@@ -1136,7 +1136,7 @@ pack_tests(cache           *cc,
 
    rc = STATUS_TEST_FAILED;
    btree_pack_req req;
-   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, 0, FALSE, hid);
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {
@@ -1424,8 +1424,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
                           &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
    btree_pack_req req;
-   rc = btree_pack_req_init(
-      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   rc = btree_pack_req_init(&req, cc, cfg, &source.super, count, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc                 = btree_pack(&req);
    uint64 packed_root = req.root_addr;
@@ -1517,8 +1516,7 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
                           &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
    btree_pack_req req;
-   rc = btree_pack_req_init(
-      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   rc = btree_pack_req_init(&req, cc, cfg, &source.super, count, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc                 = btree_pack(&req);
    uint64 packed_root = req.root_addr;
@@ -1920,8 +1918,7 @@ CTEST2(btree_stress, copied_iterator_prefetch)
                                     0);
    ASSERT_TRUE(SUCCESS(rc));
    btree_pack_req req;
-   rc = btree_pack_req_init(
-      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   rc = btree_pack_req_init(&req, cc, cfg, &source.super, count, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc                 = btree_pack(&req);
    uint64 packed_root = req.root_addr;

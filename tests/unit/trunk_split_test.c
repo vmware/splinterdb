@@ -69,9 +69,8 @@ split_test_pack(trunk_context *context, uint64 count)
                                            context->cfg->btree_cfg,
                                            &itor.super,
                                            count,
-                                           42,
-                                           FALSE,
-                                           context->hid)));
+                                           context->hid,
+                                           .seed = 42)));
    ASSERT_TRUE(SUCCESS(btree_pack(&req)));
    uint64 addr = req.root_addr;
    btree_pack_req_deinit(&req, context->hid);

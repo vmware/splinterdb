@@ -1462,9 +1462,8 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
                             spl->cfg.btree_cfg,
                             itor,
                             rflimit,
-                            rfcfg->seed,
-                            FALSE,
-                            spl->heap_id);
+                            spl->heap_id,
+                            .seed = rfcfg->seed);
    if (!SUCCESS(rc)) {
       goto deinit_iterator;
    }
@@ -2431,16 +2430,15 @@ restart:
                                  greater_than <= start_key_comparison,
                                  &range_itor->merge_itor);
    } else {
-      rc =
-         merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
-                                           spl->cfg.data_cfg,
-                                           range_itor->num_branches,
-                                           range_itor->itor,
-                                           MERGE_FULL,
-                                           greater_than <= start_key_comparison,
-                                           core_range_iterator_key_matches,
-                                           range_itor->filter,
-                                           &range_itor->merge_itor);
+      rc = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+                                 spl->cfg.data_cfg,
+                                 range_itor->num_branches,
+                                 range_itor->itor,
+                                 MERGE_FULL,
+                                 greater_than <= start_key_comparison,
+                                 &range_itor->merge_itor,
+                                 .keep_key = core_range_iterator_key_matches,
+                                 .filter_context = range_itor->filter);
    }
    if (!SUCCESS(rc)) {
       core_range_iterator_span_deinit(range_itor);

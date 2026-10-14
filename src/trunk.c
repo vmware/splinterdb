@@ -4909,9 +4909,9 @@ bundle_compaction_task(task *arg)
                             context->cfg->btree_cfg,
                             &merger.merge_itor->super,
                             bc->input.stats.num_tuples,
-                            state->hash_seed,
-                            TRUE,
-                            context->hid);
+                            context->hid,
+                            .seed                 = state->hash_seed,
+                            .collect_fingerprints = TRUE);
    if (!SUCCESS(rc)) {
       platform_error_log(
          "btree_pack_req_init failed for state: %p bc: %p: %s\n",

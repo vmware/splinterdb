@@ -496,16 +496,34 @@ btree_iterator_init_async_result(btree_iterator_async_state *state);
 void
 btree_iterator_deinit(btree_iterator *itor);
 
+typedef struct btree_pack_req_init_options {
+   unsigned int seed;                 // default: 0
+   bool32       collect_fingerprints; // default: FALSE
+} btree_pack_req_init_options;
+
+// Usage: btree_pack_req_init(req, cc, cfg, itor, max_tuples, hid,
+//                            .seed = seed, .collect_fingerprints = TRUE);
+// The options are optional.
+#define btree_pack_req_init(req, cc, cfg, itor, max_tuples, hid, ...)          \
+   btree_pack_req_init_full((req),                                             \
+                            (cc),                                              \
+                            (cfg),                                             \
+                            (itor),                                            \
+                            (max_tuples),                                      \
+                            (hid),                                             \
+                            &(const btree_pack_req_init_options){__VA_ARGS__})
+
 static inline platform_status
-btree_pack_req_init(btree_pack_req     *req,
-                    cache              *cc,
-                    const btree_config *cfg,
-                    iterator           *itor,
-                    uint64              max_tuples,
-                    unsigned int        seed,
-                    bool32              collect_fingerprints,
-                    platform_heap_id    hid)
+btree_pack_req_init_full(btree_pack_req                    *req,
+                         cache                             *cc,
+                         const btree_config                *cfg,
+                         iterator                          *itor,
+                         uint64                             max_tuples,
+                         platform_heap_id                   hid,
+                         const btree_pack_req_init_options *options)
 {
+   unsigned int seed                 = options->seed;
+   bool32       collect_fingerprints = options->collect_fingerprints;
    memset(req, 0, sizeof(*req));
    req->cc         = cc;
    req->cfg        = cfg;
