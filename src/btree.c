@@ -5237,42 +5237,38 @@ btree_iterator_init_common(cache              *cc,
 }
 
 platform_status
-btree_iterator_init(cache              *cc,
-                    const btree_config *cfg,
-                    btree_iterator     *itor,
-                    uint64              root_addr,
-                    uint16              format_version,
-                    page_type           page_type,
-                    comparison          min_key_comparison,
-                    key                 min_key,
-                    comparison          max_key_comparison,
-                    key                 max_key,
-                    comparison          start_type,
-                    key                 start_key,
-                    bool32              copy_nodes,
-                    uint32              height,
-                    uint32              prefetch_lookahead)
+btree_iterator_init(cache                             *cc,
+                    const btree_config                *cfg,
+                    btree_iterator                    *itor,
+                    uint64                             root_addr,
+                    uint16                             format_version,
+                    page_type                          page_type,
+                    const btree_iterator_init_options *options)
 {
+   resolved_key_range range = resolve_key_range(
+      options->lower_limit, options->upper_limit, options->start_position);
+   key start_key = range.start_key;
+
    platform_status rc = btree_iterator_init_common(cc,
                                                    cfg,
                                                    itor,
                                                    root_addr,
                                                    format_version,
                                                    page_type,
-                                                   min_key_comparison,
-                                                   min_key,
-                                                   max_key_comparison,
-                                                   max_key,
+                                                   range.min_cmp,
+                                                   range.min_key,
+                                                   range.max_cmp,
+                                                   range.max_key,
                                                    start_key,
-                                                   copy_nodes,
-                                                   height,
-                                                   prefetch_lookahead,
+                                                   options->copy_nodes,
+                                                   options->height,
+                                                   options->prefetch_lookahead,
                                                    &start_key);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   rc = find_btree_node_and_get_idx_bounds(itor, start_key, start_type);
+   rc = find_btree_node_and_get_idx_bounds(itor, start_key, range.start_cmp);
    if (!SUCCESS(rc)) {
       btree_iterator_deinit(itor);
       return rc;
@@ -5976,21 +5972,18 @@ btree_count_in_range_by_iterator(cache             *cc,
 {
    btree_iterator  btree_itor;
    iterator       *itor = &btree_itor.super;
-   platform_status rc   = btree_iterator_init(cc,
-                                            cfg,
-                                            &btree_itor,
-                                            root_addr,
-                                            format_version,
-                                            PAGE_TYPE_BRANCH,
-                                            greater_than_or_equal,
-                                            min_key,
-                                            less_than,
-                                            max_key,
-                                            greater_than_or_equal,
-                                            min_key,
-                                            FALSE,
-                                            0,
-                                            1);
+   platform_status rc =
+      btree_iterator_init(cc,
+                          cfg,
+                          &btree_itor,
+                          root_addr,
+                          format_version,
+                          PAGE_TYPE_BRANCH,
+                          &(const btree_iterator_init_options){
+                             .lower_limit = key_greater_than_or_equal(min_key),
+                             .upper_limit = key_less_than(max_key),
+                             .start_position = key_start_at_or_after(min_key),
+                             .prefetch_lookahead = 1});
    if (!SUCCESS(rc)) {
       return rc;
    }

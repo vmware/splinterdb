@@ -1221,39 +1221,30 @@ splinterdb_iterator_init_full(
    merge_accumulator_init(&it->materialized_message, kvs->spl.heap_id);
 
    core_range_iterator *range_itor = &(it->sri);
-   key                  min_key;
-   key                  max_key;
-   key                  start_key;
+   // Internal keys for the user-supplied slices; NULL_SLICE bounds become
+   // NULL_KEY, which the core treats as unbounded.
+   key min_key   = slice_is_null(user_min_key)
+                      ? NULL_KEY
+                      : key_create_from_slice(TRUE, user_min_key);
+   key max_key   = slice_is_null(user_max_key)
+                      ? NULL_KEY
+                      : key_create_from_slice(TRUE, user_max_key);
+   key start_key = slice_is_null(user_start_key)
+                      ? NULL_KEY
+                      : key_create_from_slice(TRUE, user_start_key);
 
-   min_key = slice_is_null(user_min_key)
-                ? NEGATIVE_INFINITY_KEY
-                : key_create_from_slice(TRUE, user_min_key);
-   max_key = slice_is_null(user_max_key)
-                ? POSITIVE_INFINITY_KEY
-                : key_create_from_slice(TRUE, user_max_key);
-
-   if (slice_is_null(user_start_key)) {
-      if (start_key_comparison <= less_than_or_equal) {
-         start_key = POSITIVE_INFINITY_KEY;
-      } else {
-         start_key = NEGATIVE_INFINITY_KEY;
-      }
-   } else {
-      start_key = key_create_from_slice(TRUE, user_start_key);
-   }
-
-   platform_status rc = core_range_iterator_init_with_filter(
+   platform_status rc = core_range_iterator_init(
       &kvs->spl,
       range_itor,
-      min_key_comparison,
-      min_key,
-      max_key_comparison,
-      max_key,
-      start_key_comparison,
-      start_key,
-      predicate,
-      predicate_context,
-      key_create_from_slice(TRUE, routing_filter_key));
+      &(const core_range_iterator_init_options){
+         .lower_limit = make_key_lower_limit(min_key_comparison, min_key),
+         .upper_limit = make_key_upper_limit(max_key_comparison, max_key),
+         .start_position =
+            make_key_start_position(start_key_comparison, start_key),
+         .predicate         = predicate,
+         .predicate_context = predicate_context,
+         .routing_filter_key =
+            key_create_from_slice(TRUE, routing_filter_key)});
    if (!SUCCESS(rc)) {
       merge_accumulator_deinit(&it->materialized_message);
       platform_free(kvs->spl.heap_id, it);

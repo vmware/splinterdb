@@ -432,22 +432,24 @@ btree_lookup_async(btree_lookup_async_state *state);
  * prefetches at most the next extent, and values >= 2 enable deep extent
  * prefetch.
  */
+typedef struct btree_iterator_init_options {
+   // Range and start position. Default: the whole tree, scanned forward.
+   key_lower_limit    lower_limit;
+   key_upper_limit    upper_limit;
+   key_start_position start_position;
+   bool32             copy_nodes;         // default: FALSE
+   uint32             height;             // default: 0
+   uint32             prefetch_lookahead; // default: 0 (disabled)
+} btree_iterator_init_options;
+
 platform_status
-btree_iterator_init(cache              *cc,
-                    const btree_config *cfg,
-                    btree_iterator     *itor,
-                    uint64              root_addr,
-                    uint16              format_version,
-                    page_type           page_type,
-                    comparison          min_key_comparison,
-                    key                 min_key,
-                    comparison          max_key_comparison,
-                    key                 max_key,
-                    comparison          start_type,
-                    key                 start_key,
-                    bool32              copy_nodes,
-                    uint32              height,
-                    uint32              prefetch_lookahead);
+btree_iterator_init(cache                             *cc,
+                    const btree_config                *cfg,
+                    btree_iterator                    *itor,
+                    uint64                             root_addr,
+                    uint16                             format_version,
+                    page_type                          page_type,
+                    const btree_iterator_init_options *options);
 
 // clang-format off
 DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,

@@ -370,28 +370,24 @@ DEFINE_ASYNC_STATE(core_lookup_async_state, 1,
 async_status
 core_lookup_async(core_lookup_async_state *state);
 
-platform_status
-core_range_iterator_init(core_handle         *spl,
-                         core_range_iterator *range_itor,
-                         comparison           min_key_comparison,
-                         key                  min_key,
-                         comparison           max_key_comparison,
-                         key                  max_key,
-                         comparison           start_key_comparison,
-                         key                  start_key);
+typedef struct core_range_iterator_init_options {
+   // Range and start position. Default: the whole tree, scanned forward.
+   key_lower_limit    lower_limit;
+   key_upper_limit    upper_limit;
+   key_start_position start_position;
+
+   // Optional key filter, applied before message merging. A routing filter
+   // key (only valid with a predicate) additionally prunes branches; see
+   // splinterdb_iterator_init_options.
+   splinterdb_key_predicate predicate;
+   void                    *predicate_context;
+   key                      routing_filter_key; // default: NULL_KEY
+} core_range_iterator_init_options;
 
 platform_status
-core_range_iterator_init_with_filter(core_handle         *spl,
-                                     core_range_iterator *range_itor,
-                                     comparison           min_key_comparison,
-                                     key                  min_key,
-                                     comparison           max_key_comparison,
-                                     key                  max_key,
-                                     comparison           start_key_comparison,
-                                     key                  start_key,
-                                     splinterdb_key_predicate predicate,
-                                     void                    *predicate_context,
-                                     key routing_filter_key);
+core_range_iterator_init(core_handle                            *spl,
+                         core_range_iterator                    *range_itor,
+                         const core_range_iterator_init_options *options);
 void
 core_range_iterator_deinit(core_range_iterator *range_itor);
 

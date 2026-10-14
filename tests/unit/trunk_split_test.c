@@ -237,21 +237,14 @@ CTEST2(trunk_split, split_scan_propagates_io_error)
    // Find the second leaf in a valid branch. Bounds/count lookups visit the
    // endpoints; the split scan must fetch this interior page while advancing.
    btree_iterator itor;
-   ASSERT_TRUE(SUCCESS(btree_iterator_init(context->cc,
-                                           data->cfg.btree_cfg,
-                                           &itor,
-                                           branch,
-                                           BTREE_BRANCH_FORMAT_VERSION,
-                                           PAGE_TYPE_BRANCH,
-                                           greater_than_or_equal,
-                                           NEGATIVE_INFINITY_KEY,
-                                           less_than,
-                                           POSITIVE_INFINITY_KEY,
-                                           greater_than_or_equal,
-                                           NEGATIVE_INFINITY_KEY,
-                                           FALSE,
-                                           0,
-                                           0)));
+   ASSERT_TRUE(
+      SUCCESS(btree_iterator_init(context->cc,
+                                  data->cfg.btree_cfg,
+                                  &itor,
+                                  branch,
+                                  BTREE_BRANCH_FORMAT_VERSION,
+                                  PAGE_TYPE_BRANCH,
+                                  &(const btree_iterator_init_options){0})));
    uint64 first_page = itor.curr.addr;
    while (itor.curr.addr == first_page && iterator_can_next(&itor.super)) {
       ASSERT_TRUE(SUCCESS(iterator_next(&itor.super)));

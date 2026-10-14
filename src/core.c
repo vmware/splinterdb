@@ -1235,13 +1235,7 @@ core_memtable_dec_ref(core_handle *spl, uint64 root_addr)
 static platform_status
 core_memtable_iterator_init(core_handle    *spl,
                             btree_iterator *itor,
-                            uint64          root_addr,
-                            comparison      min_key_comparison,
-                            key             min_key,
-                            comparison      max_key_comparison,
-                            key             max_key,
-                            comparison      start_key_comparison,
-                            key             start_key)
+                            uint64          root_addr)
 {
    return btree_iterator_init(spl->cc,
                               spl->cfg.btree_cfg,
@@ -1249,15 +1243,7 @@ core_memtable_iterator_init(core_handle    *spl,
                               root_addr,
                               0,
                               PAGE_TYPE_MEMTABLE,
-                              min_key_comparison,
-                              min_key,
-                              max_key_comparison,
-                              max_key,
-                              start_key_comparison,
-                              start_key,
-                              FALSE,
-                              0,
-                              0);
+                              &(const btree_iterator_init_options){0});
 }
 
 static void
@@ -1463,15 +1449,8 @@ core_memtable_compact(core_handle *spl, uint64 generation, const threadid tid)
    btree_iterator btree_itor;
    iterator      *itor = &btree_itor.super;
 
-   platform_status rc = core_memtable_iterator_init(spl,
-                                                    &btree_itor,
-                                                    memtable_root_addr,
-                                                    greater_than_or_equal,
-                                                    NEGATIVE_INFINITY_KEY,
-                                                    less_than,
-                                                    POSITIVE_INFINITY_KEY,
-                                                    greater_than_or_equal,
-                                                    NEGATIVE_INFINITY_KEY);
+   platform_status rc =
+      core_memtable_iterator_init(spl, &btree_itor, memtable_root_addr);
    if (!SUCCESS(rc)) {
       goto failed;
    }
@@ -2115,41 +2094,22 @@ core_range_iterator_init_span(core_handle         *spl,
                               key                  start_key);
 
 platform_status
-core_range_iterator_init(core_handle         *spl,
-                         core_range_iterator *range_itor,
-                         comparison           min_key_comparison,
-                         key                  min_key,
-                         comparison           max_key_comparison,
-                         key                  max_key,
-                         comparison           start_key_comparison,
-                         key                  start_key)
+core_range_iterator_init(core_handle                            *spl,
+                         core_range_iterator                    *range_itor,
+                         const core_range_iterator_init_options *options)
 {
-   return core_range_iterator_init_with_filter(spl,
-                                               range_itor,
-                                               min_key_comparison,
-                                               min_key,
-                                               max_key_comparison,
-                                               max_key,
-                                               start_key_comparison,
-                                               start_key,
-                                               NULL,
-                                               NULL,
-                                               NULL_KEY);
-}
+   resolved_key_range range = resolve_key_range(
+      options->lower_limit, options->upper_limit, options->start_position);
+   comparison               min_key_comparison   = range.min_cmp;
+   key                      min_key              = range.min_key;
+   comparison               max_key_comparison   = range.max_cmp;
+   key                      max_key              = range.max_key;
+   comparison               start_key_comparison = range.start_cmp;
+   key                      start_key            = range.start_key;
+   splinterdb_key_predicate predicate            = options->predicate;
+   void                    *predicate_context    = options->predicate_context;
+   key                      routing_filter_key   = options->routing_filter_key;
 
-platform_status
-core_range_iterator_init_with_filter(core_handle         *spl,
-                                     core_range_iterator *range_itor,
-                                     comparison           min_key_comparison,
-                                     key                  min_key,
-                                     comparison           max_key_comparison,
-                                     key                  max_key,
-                                     comparison           start_key_comparison,
-                                     key                  start_key,
-                                     splinterdb_key_predicate predicate,
-                                     void                    *predicate_context,
-                                     key routing_filter_key)
-{
    range_itor->filter = NULL;
    platform_status rc = STATUS_OK;
    if (predicate == NULL && !key_is_null(routing_filter_key)) {
@@ -3210,14 +3170,12 @@ core_apply_to_range(core_handle   *spl,
       return STATUS_NO_MEMORY;
    }
 
-   platform_status rc = core_range_iterator_init(spl,
-                                                 range_itor,
-                                                 greater_than_or_equal,
-                                                 start_key,
-                                                 less_than,
-                                                 POSITIVE_INFINITY_KEY,
-                                                 greater_than_or_equal,
-                                                 start_key);
+   platform_status rc = core_range_iterator_init(
+      spl,
+      range_itor,
+      &(const core_range_iterator_init_options){
+         .lower_limit    = key_greater_than_or_equal(start_key),
+         .start_position = key_start_at_or_after(start_key)});
    if (!SUCCESS(rc)) {
       platform_error_log("core_apply_to_range: range iterator init failed: "
                          "%s\n",

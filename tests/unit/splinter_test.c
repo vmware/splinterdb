@@ -1681,14 +1681,8 @@ CTEST2(splinter, test_invalid_branch_reference_rejected)
       lookup_result_deinit(&result);
 
       core_range_iterator itor;
-      range_rc[invalid_field] = core_range_iterator_init(&spl,
-                                                         &itor,
-                                                         greater_than_or_equal,
-                                                         NEGATIVE_INFINITY_KEY,
-                                                         less_than,
-                                                         POSITIVE_INFINITY_KEY,
-                                                         greater_than_or_equal,
-                                                         NEGATIVE_INFINITY_KEY);
+      range_rc[invalid_field] = core_range_iterator_init(
+         &spl, &itor, &(const core_range_iterator_init_options){0});
       if (SUCCESS(range_rc[invalid_field])) {
          core_range_iterator_deinit(&itor);
       }
@@ -2243,14 +2237,8 @@ CTEST2(splinter, test_reopen_with_changed_filter_config)
    }
    lookup_result_deinit(&result);
    core_range_iterator itor;
-   ASSERT_TRUE(SUCCESS(core_range_iterator_init(&spl,
-                                                &itor,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY,
-                                                less_than,
-                                                POSITIVE_INFINITY_KEY,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY)));
+   ASSERT_TRUE(SUCCESS(core_range_iterator_init(
+      &spl, &itor, &(const core_range_iterator_init_options){0})));
    uint64 count = 0;
    while (iterator_can_next(&itor.super)) {
       count++;
@@ -6213,14 +6201,8 @@ CTEST2(splinter, test_cache_read_errors_reach_core_operations)
 
    core_range_iterator itor;
    cc->ops = &core_read_fault_ops;
-   rc      = core_range_iterator_init(&spl,
-                                 &itor,
-                                 greater_than_or_equal,
-                                 NEGATIVE_INFINITY_KEY,
-                                 less_than,
-                                 POSITIVE_INFINITY_KEY,
-                                 greater_than_or_equal,
-                                 NEGATIVE_INFINITY_KEY);
+   rc      = core_range_iterator_init(
+      &spl, &itor, &(const core_range_iterator_init_options){0});
    cc->ops = core_read_saved_ops;
    ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
    core_read_fail_async = FALSE;
