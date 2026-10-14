@@ -296,13 +296,18 @@ typedef struct splinterdb_notification {
    char opaque[SPLINTERDB_NOTIFICATION_BUFSIZE];
 } __attribute__((__aligned__(8))) splinterdb_notification;
 
-// The caller owns notification storage and must keep it alive until completion.
-// After completion, call splinterdb_notification_deinit before reusing or
-// destroying the notification. If completion may happen in another process, the
-// notification object must be allocated in shared memory.
-void
-splinterdb_notification_init_blocking(splinterdb_notification *notification);
+// Operation notification arguments select blocking, fire-and-forget, or tracked
+// asynchronous completion. These sentinels are operation arguments, not
+// objects: never pass them to notification init, deinit, poll, wait, or
+// user_data.
+#define SPLINTERDB_NOTIFICATION_BLOCKING        NULL
+#define SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET ((splinterdb_notification *)1)
 
+// A real notification requests asynchronous completion. The caller owns its
+// storage and must keep it alive until completion. After completion (or
+// rejected submission), call deinit before reusing or destroying it. If
+// completion may happen in another process, allocate the notification in shared
+// memory.
 void
 splinterdb_notification_init_polling(splinterdb_notification *notification,
                                      void                    *user_data);
@@ -314,6 +319,8 @@ _Bool
 splinterdb_notification_poll(const splinterdb_notification *notification,
                              int                           *status);
 
+// Drive queued work until completion. A wait error can leave the operation
+// pending: poll to confirm completion before destroying the notification.
 int
 splinterdb_notification_wait(splinterdb              *kvs,
                              splinterdb_notification *notification);
@@ -445,9 +452,12 @@ splinterdb_update(splinterdb               *kvsb,
 // Optimize already-incorporated trunk data in [min_key, max_key). A null
 // min_key or max_key means the range is unbounded on that side. If
 // full_leaf_compactions is true, enqueue full compactions for leaves in the
-// range after flushing. Passing a NULL notification makes this fire-and-forget.
-// Blocking notifications wait before this function returns; polling
-// notifications complete later.
+// range after flushing. NULL (SPLINTERDB_NOTIFICATION_BLOCKING) waits and
+// returns completion or wait status. On a wait error, accepted work may still
+// finish later; the library retains its internal completion state as needed.
+// SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET returns without waiting and discards
+// completion status. A real notification receives completion asynchronously.
+// For either nonblocking mode, a nonzero return means submission failed.
 int
 splinterdb_optimize(splinterdb              *kvs,
                     slice                    min_key,
@@ -459,24 +469,35 @@ splinterdb_optimize(splinterdb              *kvs,
 // Durability
 /////////////////////////////////
 
-// Establish a durability barrier.
+// Establish a durability barrier covering updates that linearized before this
+// call began, including every successful insert, update, or delete that
+// returned before the call. Updates may proceed concurrently; an overlapping
+// update may or may not be covered.
 //
-// On success, every update to kvs that linearized before this call began is
-// recoverable after a crash or power loss. This includes every successful
-// insert, update, or delete that returned before the call began. Updates may
-// proceed concurrently; an update overlapping the call may or may not be
-// covered.
+// NULL (SPLINTERDB_NOTIFICATION_BLOCKING) waits and returns the durability
+// status directly. Zero establishes the guarantee; a nonzero result means it
+// was not established, although some or all updates may already be durable.
+// This blocking path requires no notification allocation or task submission.
 //
-// This establishes durability only. With the write-ahead log enabled, it does
-// not promise a checkpoint, log reclamation, a clean cache, or recovery without
-// log replay. Without the write-ahead log, SplinterDB obtains the same
-// guarantee by checkpointing the tree, which may be substantially more
-// expensive.
+// A real notification requests asynchronous completion; the guarantee holds
+// when it completes successfully. SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET
+// submits without retaining a completion result. In either nonblocking mode,
+// zero means accepted, not durable; a nonzero return means no work was accepted
+// and any notification remains idle. Keep accepted notification storage alive
+// until completion.
 //
-// Returns 0 on success. A nonzero return means the guarantee was not
-// established; some or all updates may nevertheless already be durable.
+// Nonblocking launch allocates memory and takes internal locks but performs no
+// device I/O. Completion runs in the normal task queue. With no normal workers,
+// use notification_wait() or another operation that performs task work;
+// polling alone does not progress the barrier. Close drains accepted barriers.
+//
+// This establishes durability only. With the WAL enabled, it does not promise
+// a checkpoint, log reclamation, a clean cache, or recovery without log replay.
+// Without the WAL, the guarantee requires checkpointing the tree and may be
+// substantially more expensive.
 int
-splinterdb_durable_barrier(splinterdb *kvs);
+splinterdb_durable_barrier(splinterdb              *kvs,
+                           splinterdb_notification *notification);
 
 /*
 Iterator API (range query)
@@ -577,6 +598,53 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,     // IN
                                      comparison start_type,         // IN
                                      slice      start_key           // IN
 );
+
+// A predicate over stored keys. The key slice is borrowed for this call only.
+// The predicate may run repeatedly, including for keys that were deleted, and
+// before values are merged. It must return the same result for keys that
+// compare equal and remain stable for the iterator's lifetime. The context is
+// borrowed until iterator destruction and must be usable by any thread using
+// the iterator.
+typedef bool (*splinterdb_key_predicate)(void *context, slice key);
+
+// Initialize an iterator that returns only keys accepted by predicate.
+// NULL predicate with NULL_SLICE routing_filter_key is an ordinary scan.
+// A predicate without a routing_filter_key scans all branches in the range.
+//
+// An optional routing_filter_key enables branch pruning. For EVERY seed, the
+// application must guarantee that every key accepted by predicate has the same
+// data_config.key_hash value as routing_filter_key. Violating this contract can
+// omit results or parts of their update histories. The routing key uses the
+// query-key representation accepted by key_hash and is copied by
+// initialization; its original storage need not remain alive. NULL_SLICE
+// disables pruning. A routing_filter_key without a predicate is invalid and
+// returns EINVAL.
+//
+// Filtering runs before message merging; it does not change snapshot isolation.
+// Bounds, starting position, direction and errors follow the ordinary iterator
+// contract. The callback is not a value predicate and must not mutate the DB.
+int
+splinterdb_iterator_init_with_filter(splinterdb              *kvs,
+                                     splinterdb_iterator    **iter,
+                                     comparison               start_type,
+                                     slice                    start_key,
+                                     splinterdb_key_predicate predicate,
+                                     void                    *predicate_context,
+                                     slice routing_filter_key);
+
+int
+splinterdb_iterator_init_with_bounds_and_filter(
+   splinterdb              *kvs,
+   splinterdb_iterator    **iter,
+   comparison               min_key_comparison,
+   slice                    min_key,
+   comparison               max_key_comparison,
+   slice                    max_key,
+   comparison               start_type,
+   slice                    start_key,
+   splinterdb_key_predicate predicate,
+   void                    *predicate_context,
+   slice                    routing_filter_key);
 
 // Deinitialize an iterator
 //

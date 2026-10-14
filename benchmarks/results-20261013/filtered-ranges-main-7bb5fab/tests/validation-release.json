@@ -1,0 +1,86 @@
+[
+  {
+    "name": "merge",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-main-7bb5fab/release/bin/unit/merge_test"
+    ],
+    "started": 1791905221.0812466,
+    "returncode": 0,
+    "finished": 1791905221.082821,
+    "log_sha256": "9ec076efff435986689c91f0792921840fb9f6092b5265c80f084b46790f3d1d",
+    "summaries": [
+      "RESULTS: 9 tests (9 ok, 0 failed, 0 skipped) ran in 0 ms"
+    ]
+  },
+  {
+    "name": "quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-main-7bb5fab/release/bin/unit/splinterdb_quick_test"
+    ],
+    "started": 1791905221.083219,
+    "returncode": 0,
+    "finished": 1791905231.4355934,
+    "log_sha256": "f4d5534b078f313934e6ff4143a6d01df75bf3873361e0b4b698dd6dfcca06ac",
+    "summaries": [
+      "RESULTS: 51 tests (51 ok, 0 failed, 0 skipped) ran in 10351 ms"
+    ]
+  },
+  {
+    "name": "cache-core",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-main-7bb5fab/release/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/filtered-ranges/scratch-release/core.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64",
+      "test_cache_read_errors_"
+    ],
+    "started": 1791905231.4359493,
+    "returncode": 0,
+    "finished": 1791905231.5474944,
+    "log_sha256": "5e89a6e7e1575fc44e86ae3f6b3ab06384e93afe428448f1b568db2552b23e13",
+    "summaries": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 109 ms"
+    ]
+  },
+  {
+    "name": "blob-core",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-main-7bb5fab/release/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/filtered-ranges/scratch-release/core.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64",
+      "test_blob_"
+    ],
+    "started": 1791905231.5478628,
+    "returncode": 0,
+    "finished": 1791905233.0323474,
+    "log_sha256": "34a63e951040e9a31f441cb2534faffa87f0d4269ccabe50228dce1e5ad6e5f8",
+    "summaries": [
+      "RESULTS: 4 tests (4 ok, 0 failed, 0 skipped) ran in 1482 ms"
+    ]
+  },
+  {
+    "name": "filter",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges/build-main-7bb5fab/release/bin/driver_test",
+      "filter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/filtered-ranges/scratch-release/filter.db",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "4"
+    ],
+    "started": 1791905233.0327408,
+    "returncode": 0,
+    "finished": 1791905237.2684815,
+    "log_sha256": "ca8932c38be10994268c8acea7ea29684b08868e4b1e172fef4d5d28f3984baa",
+    "summaries": []
+  }
+]

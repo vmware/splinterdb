@@ -1,0 +1,22 @@
+[
+  {
+    "name": "build",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j4",
+      "BUILD_ROOT=build-filter-predicate",
+      "BUILD_MODE=debug",
+      "BUILD_ASAN=1",
+      "build-filter-predicate/debug-asan/bin/unit/merge_test",
+      "build-filter-predicate/debug-asan/bin/unit/splinterdb_quick_test"
+    ],
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges",
+    "started": 1791921675.8711858,
+    "ASAN_OPTIONS": "detect_leaks=0:abort_on_error=1",
+    "returncode": 0,
+    "finished": 1791921676.6882586,
+    "log_sha256": "02f897aefdd64a7d91e16ce1c18de5144cbcb17e6f70ff5aa66c6ac767d290eb",
+    "summaries": []
+  }
+]

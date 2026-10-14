@@ -95,12 +95,12 @@ CTEST2(splinterdb_optimize, test_blocking_full_range)
 
    load_key_batches(data->kvsb, num_keys, 40);
 
-   splinterdb_notification notification;
-   splinterdb_notification_init_blocking(&notification);
-   int rc = splinterdb_optimize(
-      data->kvsb, NULL_SLICE, NULL_SLICE, TRUE, &notification);
+   int rc = splinterdb_optimize(data->kvsb,
+                                NULL_SLICE,
+                                NULL_SLICE,
+                                TRUE,
+                                SPLINTERDB_NOTIFICATION_BLOCKING);
    ASSERT_EQUAL(0, rc);
-   splinterdb_notification_deinit(&notification);
 
    verify_point_lookups(data->kvsb, num_keys);
    verify_full_scan(data->kvsb, num_keys);
@@ -112,12 +112,9 @@ CTEST2(splinterdb_optimize, test_blocking_without_full_leaf_compactions)
 
    load_key_batches(data->kvsb, num_keys, 40);
 
-   splinterdb_notification notification;
-   splinterdb_notification_init_blocking(&notification);
-   int rc = splinterdb_optimize(
-      data->kvsb, NULL_SLICE, NULL_SLICE, FALSE, &notification);
+   int rc =
+      splinterdb_optimize(data->kvsb, NULL_SLICE, NULL_SLICE, FALSE, NULL);
    ASSERT_EQUAL(0, rc);
-   splinterdb_notification_deinit(&notification);
 
    verify_point_lookups(data->kvsb, num_keys);
    verify_full_scan(data->kvsb, num_keys);
@@ -136,12 +133,12 @@ CTEST2(splinterdb_optimize, test_blocking_with_no_background_threads)
 
    load_key_batches(data->kvsb, num_keys, 40);
 
-   splinterdb_notification notification;
-   splinterdb_notification_init_blocking(&notification);
-   rc = splinterdb_optimize(
-      data->kvsb, NULL_SLICE, NULL_SLICE, TRUE, &notification);
+   rc = splinterdb_optimize(data->kvsb,
+                            NULL_SLICE,
+                            NULL_SLICE,
+                            TRUE,
+                            SPLINTERDB_NOTIFICATION_BLOCKING);
    ASSERT_EQUAL(0, rc);
-   splinterdb_notification_deinit(&notification);
 
    verify_point_lookups(data->kvsb, num_keys);
    verify_full_scan(data->kvsb, num_keys);
@@ -208,12 +205,12 @@ CTEST2(splinterdb_optimize, test_merge_can_grow_and_shrink_values)
                data->kvsb, keys[i], slice_create(1, &lengths[round][i]), NULL));
       }
       force_flush_current_memtable(data->kvsb);
-      splinterdb_notification notification;
-      splinterdb_notification_init_blocking(&notification);
       ASSERT_EQUAL(0,
-                   splinterdb_optimize(
-                      data->kvsb, NULL_SLICE, NULL_SLICE, TRUE, &notification));
-      splinterdb_notification_deinit(&notification);
+                   splinterdb_optimize(data->kvsb,
+                                       NULL_SLICE,
+                                       NULL_SLICE,
+                                       TRUE,
+                                       SPLINTERDB_NOTIFICATION_BLOCKING));
       for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
          verify_resized_value(data->kvsb, keys[i], lengths[round][i]);
       }
@@ -273,6 +270,63 @@ CTEST2(splinterdb_optimize, test_polling_subrange)
 
    splinterdb_notification_deinit(&notification);
 
+   verify_point_lookups(data->kvsb, num_keys);
+   verify_full_scan(data->kvsb, num_keys);
+}
+
+CTEST2(splinterdb_optimize, test_empty_and_rejected_ranges_all_modes)
+{
+   slice low  = slice_create(1, "a");
+   slice high = slice_create(1, "z");
+
+   splinterdb_notification  polling;
+   splinterdb_notification *notifications[] = {
+      SPLINTERDB_NOTIFICATION_BLOCKING,
+      SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET,
+      &polling,
+   };
+   for (uint64 i = 0; i < ARRAY_SIZE(notifications); i++) {
+      splinterdb_notification_init_polling(&polling, NULL);
+      /* Empty ranges complete inline, before the blocking caller waits. */
+      ASSERT_EQUAL(
+         0, splinterdb_optimize(data->kvsb, low, low, TRUE, notifications[i]));
+      if (notifications[i] == &polling) {
+         int status = -1;
+         ASSERT_TRUE(splinterdb_notification_poll(&polling, &status));
+         ASSERT_EQUAL(0, status);
+      }
+      splinterdb_notification_deinit(&polling);
+
+      splinterdb_notification_init_polling(&polling, NULL);
+      /* Rejected submission schedules no completion. The private blocking
+       * notification must release both references on this path. */
+      ASSERT_EQUAL(
+         EINVAL,
+         splinterdb_optimize(data->kvsb, high, low, TRUE, notifications[i]));
+      ASSERT_FALSE(splinterdb_notification_poll(&polling, NULL));
+      splinterdb_notification_deinit(&polling);
+   }
+}
+
+CTEST2(splinterdb_optimize, test_fire_and_forget_without_background_threads)
+{
+   const uint32 num_keys = 320;
+
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->cfg.num_memtable_bg_threads = 0;
+   data->cfg.num_normal_bg_threads   = 0;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   load_key_batches(data->kvsb, num_keys, 40);
+
+   ASSERT_EQUAL(0,
+                splinterdb_optimize(data->kvsb,
+                                    NULL_SLICE,
+                                    NULL_SLICE,
+                                    TRUE,
+                                    SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET));
+   /* There is no notification recipient. Close must drain accepted work. */
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
    verify_point_lookups(data->kvsb, num_keys);
    verify_full_scan(data->kvsb, num_keys);
 }

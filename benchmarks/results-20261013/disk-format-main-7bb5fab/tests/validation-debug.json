@@ -1,0 +1,111 @@
+[
+  {
+    "name": "btree",
+    "command": [
+      "build-main-7bb5fab/debug/bin/unit/btree_test"
+    ],
+    "started": 1791904765.9605756,
+    "returncode": 0,
+    "finished": 1791904765.9727993,
+    "log_sha256": "f8ca9a5b8c682cd418b940a5afef55253c9dc165dced3c780c25b4b141e8d05e",
+    "summaries": [
+      "RESULTS: 11 tests (11 ok, 0 failed, 0 skipped) ran in 11 ms"
+    ]
+  },
+  {
+    "name": "superblock",
+    "command": [
+      "build-main-7bb5fab/debug/bin/unit/superblock_test"
+    ],
+    "started": 1791904765.973101,
+    "returncode": 0,
+    "finished": 1791904766.0031965,
+    "log_sha256": "417133bc50d178e582c1bdcbff4182a07ced3994a81d29eb409f4b713300f7d2",
+    "summaries": [
+      "RESULTS: 16 tests (16 ok, 0 failed, 0 skipped) ran in 28 ms"
+    ]
+  },
+  {
+    "name": "splinter",
+    "command": [
+      "build-main-7bb5fab/debug/bin/unit/splinter_test",
+      "--db-location",
+      ".cache/format-tests/main-7bb5fab/debug-splinter.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64"
+    ],
+    "started": 1791904766.0033975,
+    "returncode": 0,
+    "finished": 1791904855.3279638,
+    "log_sha256": "20208a30e6dcf9076de207d0712849e24113084851af3813c3bdbd9d7e492a7f",
+    "summaries": [
+      "RESULTS: 38 tests (38 ok, 0 failed, 0 skipped) ran in 89322 ms"
+    ]
+  },
+  {
+    "name": "quick",
+    "command": [
+      "build-main-7bb5fab/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "started": 1791904855.328229,
+    "returncode": 0,
+    "finished": 1791904865.8075054,
+    "log_sha256": "2e348ee7750ccc4c95d7c839ff752e2bb23183c605af0d0df0efabcb46033421",
+    "summaries": [
+      "RESULTS: 49 tests (49 ok, 0 failed, 0 skipped) ran in 10478 ms"
+    ]
+  },
+  {
+    "name": "trunk-async",
+    "command": [
+      "build-main-7bb5fab/debug/bin/unit/trunk_async_test"
+    ],
+    "started": 1791904865.8077319,
+    "returncode": 0,
+    "finished": 1791904865.8092134,
+    "log_sha256": "358786a8840bf748a73c6f3d58cb3eb2bac80a7107a6387bfa11a167fe5265ed",
+    "summaries": [
+      "RESULTS: 2 tests (2 ok, 0 failed, 0 skipped) ran in 0 ms"
+    ]
+  },
+  {
+    "name": "filter",
+    "command": [
+      "build-main-7bb5fab/debug/bin/driver_test",
+      "filter_test",
+      "--db-location",
+      ".cache/format-tests/main-7bb5fab/debug-filter.db",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "4"
+    ],
+    "started": 1791904865.8093722,
+    "returncode": 0,
+    "finished": 1791904871.8719559,
+    "log_sha256": "49259f7e14bc368c5ba8d9410dd23b58d270333eaf6b13736bbd038ca9b1d924",
+    "summaries": []
+  },
+  {
+    "name": "log",
+    "command": [
+      "build-main-7bb5fab/debug/bin/driver_test",
+      "log_test",
+      "--db-location",
+      ".cache/format-tests/main-7bb5fab/debug-log.db",
+      "--cache-capacity-mib",
+      "64",
+      "--db-capacity-gib",
+      "4",
+      "--num-inserts",
+      "10000"
+    ],
+    "started": 1791904871.872412,
+    "returncode": 0,
+    "finished": 1791904872.9354644,
+    "log_sha256": "372a0c0e44520c2d299d25bde942a0dfdd13119b77cfa2b5e4cc032e3e4d8095",
+    "summaries": []
+  }
+]

@@ -306,8 +306,74 @@ CTEST2(splinterdb_quick, test_durable_barrier)
    rc = splinterdb_insert(data->kvsb, key, value, NULL);
    ASSERT_EQUAL(0, rc);
 
-   rc = splinterdb_durable_barrier(data->kvsb);
+   rc = splinterdb_durable_barrier(data->kvsb, NULL);
    ASSERT_EQUAL(0, rc);
+}
+
+CTEST2(splinterdb_quick, test_async_durable_barrier_notifications)
+{
+   for (uint64 logging = 0; logging < 2; logging++) {
+      for (uint64 workers = 0; workers < 2; workers++) {
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+         data->cfg.use_log                 = logging;
+         data->cfg.num_normal_bg_threads   = workers;
+         data->cfg.num_memtable_bg_threads = 0;
+         ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+         ASSERT_EQUAL(0, insert_some_keys(512, data->kvsb));
+
+         /* Several checkpoint waits can nest on one task worker. In
+          * particular, the non-WAL path must not wait for its own task to
+          * become quiescent. The zero-worker variant pumps progress in wait. */
+         splinterdb_notification notes[8];
+         for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
+            splinterdb_notification_init_polling(&notes[i], &notes[i]);
+            ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb, &notes[i]));
+            if (workers == 0) {
+               ASSERT_FALSE(splinterdb_notification_poll(&notes[i], NULL));
+            }
+         }
+         for (uint64 i = 0; i < ARRAY_SIZE(notes); i++) {
+            ASSERT_EQUAL(0,
+                         splinterdb_notification_wait(data->kvsb, &notes[i]));
+            int status = -1;
+            ASSERT_TRUE(splinterdb_notification_poll(&notes[i], &status));
+            ASSERT_EQUAL(0, status);
+            ASSERT_TRUE(splinterdb_notification_user_data(&notes[i])
+                        == &notes[i]);
+            splinterdb_notification_deinit(&notes[i]);
+         }
+
+         ASSERT_EQUAL(0,
+                      splinterdb_durable_barrier(
+                         data->kvsb, SPLINTERDB_NOTIFICATION_BLOCKING));
+
+         /* Close drains accepted work even when no thread is waiting on it. */
+         splinterdb_notification closing;
+         splinterdb_notification_init_polling(&closing, NULL);
+         ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb, &closing));
+         ASSERT_EQUAL(0,
+                      splinterdb_durable_barrier(
+                         data->kvsb, SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET));
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+         int status = -1;
+         ASSERT_TRUE(splinterdb_notification_poll(&closing, &status));
+         ASSERT_EQUAL(0, status);
+         splinterdb_notification_deinit(&closing);
+         ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+         splinterdb_iterator *it;
+         ASSERT_EQUAL(0,
+                      splinterdb_iterator_init(
+                         data->kvsb, &it, greater_than_or_equal, NULL_SLICE));
+         for (uint64 i = 0; i < 512; i++) {
+            ASSERT_TRUE(splinterdb_iterator_valid(it));
+            ASSERT_EQUAL(0, check_current_tuple(it, i));
+            splinterdb_iterator_next(it);
+         }
+         ASSERT_FALSE(splinterdb_iterator_valid(it));
+         ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+         splinterdb_iterator_deinit(it);
+      }
+   }
 }
 
 CTEST2(splinterdb_quick, test_logged_large_value_replaces_old_value)
@@ -342,7 +408,7 @@ CTEST2(splinterdb_quick, test_logged_large_value_replaces_old_value)
    splinterdb_lookup_result_deinit(&result);
 
    /* The pointer tree participates in the log durability barrier. */
-   ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb));
+   ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb, NULL));
    slice flat_key   = slice_create(4, "flat");
    slice flat_value = slice_create(32 * IO_DEFAULT_EXTENT_SIZE, value_data);
    ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, flat_key, flat_value, NULL));
@@ -2950,6 +3016,863 @@ custom_key_comparator(const data_config *cfg, user_key key1, user_key key2)
    return r;
 }
 
+static bool32 hash_range_reject_unmatched_merge;
+
+/* Different tenants deliberately collide in the full 32-bit hash, at every
+ * seed. Only the predicate may decide whether a tuple belongs in the result. */
+static uint32
+hash_range_key_hash(const data_config *cfg, user_key k, uint32 seed)
+{
+   const uint8 *bytes  = slice_data(k.key);
+   uint8        tenant = bytes[slice_length(k.key) - 1];
+   return seed ^ (tenant == 'b' ? 'a' : tenant);
+}
+
+static int
+hash_range_add(const data_config *cfg,
+               slice              k,
+               message            older,
+               merge_accumulator *newer)
+{
+   const char *bytes = slice_data(k);
+   if (hash_range_reject_unmatched_merge && bytes[slice_length(k) - 1] != 'a') {
+      return EINVAL;
+   }
+   char       *new_value = merge_accumulator_data(newer);
+   const char *old_value = message_data(older);
+   new_value[0] += old_value[0] - '0';
+   merge_accumulator_set_class(newer, message_class(older));
+   return 0;
+}
+
+static int
+hash_range_finalize(const data_config *cfg, slice k, merge_accumulator *msg)
+{
+   const char *bytes = slice_data(k);
+   if (hash_range_reject_unmatched_merge && bytes[slice_length(k) - 1] != 'a') {
+      return EINVAL;
+   }
+   merge_accumulator_set_class(msg, MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+typedef struct range_tenant_context {
+   char     tenant;
+   uint64   calls;
+   threadid last_tid;
+} range_tenant_context;
+
+static bool
+range_tenant_matches(void *context, slice k)
+{
+   range_tenant_context *tenant = context;
+   tenant->calls++;
+   tenant->last_tid = platform_get_tid();
+   return slice_length(k) != 0
+          && ((const char *)slice_data(k))[slice_length(k) - 1]
+                == tenant->tenant;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_merges_only_matching_keys)
+{
+   data->default_data_cfg.super.key_hash           = hash_range_key_hash;
+   data->default_data_cfg.super.merge_tuples       = hash_range_add;
+   data->default_data_cfg.super.merge_tuples_final = hash_range_finalize;
+   range_tenant_context tenant                     = {.tenant = 'a'};
+   const char          *keys[] = {"0a", "0b", "1a", "1b", "2a", "2b"};
+   for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
+      insert_string_kv(data->kvsb, keys[i], "1");
+   }
+   force_flush_current_memtable(data->kvsb);
+   for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
+      ASSERT_EQUAL(
+         0,
+         splinterdb_update(
+            data->kvsb, slice_create(2, keys[i]), slice_create(1, "2"), NULL));
+   }
+   ASSERT_EQUAL(0, splinterdb_delete(data->kvsb, slice_create(2, "1a"), NULL));
+   insert_string_kv(data->kvsb, "3a", "3");
+   /* A rejected update-only key also must not reach finalization. */
+   ASSERT_EQUAL(
+      0,
+      splinterdb_update(
+         data->kvsb, slice_create(2, "4b"), slice_create(1, "2"), NULL));
+   hash_range_reject_unmatched_merge = TRUE;
+   for (int forwards = 0; forwards < 2; forwards++) {
+      splinterdb_iterator *it = NULL;
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_filter(
+                      data->kvsb,
+                      &it,
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      range_tenant_matches,
+                      &tenant,
+                      slice_create(1, "a")));
+      const char *expected[] = {"0a", "2a", "3a"};
+      for (int i = 0; i < 3; i++) {
+         check_current_string_kv(it, expected[forwards ? i : 2 - i], "3");
+         if (forwards) {
+            splinterdb_iterator_next(it);
+         } else {
+            splinterdb_iterator_prev(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      if (forwards) {
+         splinterdb_iterator_prev(it);
+         check_current_string_kv(it, "3a", "3");
+         splinterdb_iterator_prev(it);
+         check_current_string_kv(it, "2a", "3");
+         splinterdb_iterator_next(it);
+         check_current_string_kv(it, "3a", "3");
+      } else {
+         splinterdb_iterator_next(it);
+         check_current_string_kv(it, "0a", "3");
+         splinterdb_iterator_next(it);
+         check_current_string_kv(it, "2a", "3");
+         splinterdb_iterator_prev(it);
+         check_current_string_kv(it, "0a", "3");
+      }
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+   }
+   hash_range_reject_unmatched_merge = FALSE;
+
+   /* Persist/reopen, then cover exclusive bounds, no match, and opt-out. */
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+   splinterdb_iterator *it = NULL;
+   ASSERT_EQUAL(
+      0,
+      splinterdb_iterator_init_with_bounds_and_filter(data->kvsb,
+                                                      &it,
+                                                      greater_than,
+                                                      slice_create(2, "0a"),
+                                                      less_than,
+                                                      slice_create(2, "3a"),
+                                                      greater_than_or_equal,
+                                                      NULL_SLICE,
+                                                      range_tenant_matches,
+                                                      &tenant,
+                                                      slice_create(1, "a")));
+   check_current_string_kv(it, "2a", "3");
+   splinterdb_iterator_next(it);
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   splinterdb_iterator_prev(it);
+   check_current_string_kv(it, "2a", "3");
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+   tenant.tenant = 'z';
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_tenant_matches,
+                                                     &tenant,
+                                                     slice_create(1, "z")));
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     NULL,
+                                                     NULL,
+                                                     NULL_SLICE));
+   check_current_string_kv(it, "0a", "3");
+   splinterdb_iterator_next(it);
+   check_current_string_kv(it, "0b", "3");
+   splinterdb_iterator_deinit(it);
+}
+
+static uint32
+hash_range_sparse_hash(const data_config *cfg, user_key k, uint32 seed)
+{
+   uint64 encoded;
+   memcpy(&encoded, slice_data(k.key), sizeof(encoded));
+   uint64 id = __builtin_bswap64(encoded);
+   if (id == UINT64_MAX) {
+      return seed ^ 0x80000000;
+   }
+   if (id % 2048 == 0) {
+      return seed;
+   }
+   return seed
+          ^ ((platform_hash32(&encoded, sizeof(encoded), seed) & 0x7fffffff)
+             | 1);
+}
+
+static bool
+range_sparse_matches(void *context, slice k)
+{
+   uint64 encoded;
+   memcpy(&encoded, slice_data(k), sizeof(encoded));
+   uint64 id = __builtin_bswap64(encoded);
+   return *(bool *)context ? id == UINT64_MAX : id % 2048 == 0;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_crosses_empty_trunk_leaves)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->default_data_cfg.super.key_hash = hash_range_sparse_hash;
+   data->cfg.memtable_capacity           = 4 * MiB;
+   data->cfg.fanout                      = 2;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   /* Keep a viable memtable while forcing small trunk leaves for the scan. */
+   ((trunk_config *)core->trunk_context.cfg)->incorporation_size_kv_bytes =
+      64 * KiB;
+   char value[32] = {0};
+   for (uint64 id = 0; id < 32768; id++) {
+      uint64 encoded = __builtin_bswap64(id);
+      ASSERT_EQUAL(0,
+                   splinterdb_insert(data->kvsb,
+                                     slice_create(sizeof(encoded), &encoded),
+                                     slice_create(sizeof(value), value),
+                                     NULL));
+   }
+   force_flush_current_memtable(data->kvsb);
+   uint64 height;
+   ASSERT_TRUE(SUCCESS(trunk_get_height(&core->trunk_context, &height)));
+   ASSERT_TRUE(height > 0);
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+   for (int forwards = 0; forwards < 2; forwards++) {
+      bool                 no_match = false;
+      uint64               hash_key = 0;
+      splinterdb_iterator *it       = NULL;
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_filter(
+                      data->kvsb,
+                      &it,
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      range_sparse_matches,
+                      &no_match,
+                      slice_create(sizeof(hash_key), &hash_key)));
+      /* Later trunk spans must use the copied pruning key. Its original
+       * storage may be reused immediately after initialization. */
+      hash_key = UINT64_MAX;
+      for (int i = 0; i < 16; i++) {
+         ASSERT_TRUE(splinterdb_iterator_valid(it));
+         slice k, v;
+         splinterdb_iterator_get_current(it, &k, &v);
+         uint64 encoded;
+         memcpy(&encoded, slice_data(k), sizeof(encoded));
+         ASSERT_EQUAL((forwards ? i : 15 - i) * 2048,
+                      __builtin_bswap64(encoded));
+         if (forwards) {
+            splinterdb_iterator_next(it);
+         } else {
+            splinterdb_iterator_prev(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+
+      no_match = true;
+      hash_key = UINT64_MAX;
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_filter(
+                      data->kvsb,
+                      &it,
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      range_sparse_matches,
+                      &no_match,
+                      slice_create(sizeof(hash_key), &hash_key)));
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+   }
+}
+
+/* The hash function stays fixed across every reopen. Only construction seeds
+ * change. Tenants a/b collide at seed 11 and differ at every other seed. */
+static bool32 range_mixed_seed_track;
+static bool32 range_mixed_seed_reject_b_merge;
+static uint32 range_mixed_seed_seen;
+
+static uint32
+range_mixed_seed_hash(const data_config *cfg, user_key k, uint32 seed)
+{
+   const uint8 *bytes = slice_data(k.key);
+   uint64       len   = slice_length(k.key);
+   ASSERT_TRUE(len == 1 || len == 9);
+   if (range_mixed_seed_track && k.is_query_key && len == 1) {
+      ASSERT_EQUAL('a', bytes[0]);
+      range_mixed_seed_seen |= seed == 11   ? 1
+                               : seed == 22 ? 2
+                               : seed == 99 ? 4
+                                            : 8;
+   }
+   uint8 tenant = bytes[len - 1];
+   return seed * 2654435761U
+          ^ ((tenant == 'b' && seed != 11) ? 0x80000000U : 0);
+}
+
+typedef struct range_mixed_seed_value {
+   uint64 multiplier;
+   uint64 addend;
+   uint8  padding[80];
+} range_mixed_seed_value;
+
+/* Updates encode x -> multiplier*x + addend. Composition is deliberately
+ * noncommutative: base 1, then append 2, then append 3 must produce 123. */
+static int
+range_mixed_seed_merge(const data_config *cfg,
+                       slice              tuple_key,
+                       message            older,
+                       merge_accumulator *newer)
+{
+   const uint8 *key_bytes = slice_data(tuple_key);
+   if (range_mixed_seed_reject_b_merge
+       && key_bytes[slice_length(tuple_key) - 1] == 'b')
+   {
+      return EINVAL;
+   }
+   range_mixed_seed_value prior = {0};
+   range_mixed_seed_value result;
+   ASSERT_EQUAL_U(sizeof(result), merge_accumulator_length(newer));
+   memcpy(&result, merge_accumulator_data(newer), sizeof(result));
+   if (message_class(older) != MESSAGE_TYPE_DELETE) {
+      ASSERT_EQUAL_U(sizeof(prior), message_length(older));
+      memcpy(&prior, message_data(older), sizeof(prior));
+   }
+   result.addend += result.multiplier * prior.addend;
+   result.multiplier *= prior.multiplier;
+   memcpy(merge_accumulator_data(newer), &result, sizeof(result));
+   merge_accumulator_set_class(newer,
+                               message_class(older) == MESSAGE_TYPE_UPDATE
+                                  ? MESSAGE_TYPE_UPDATE
+                                  : MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+static int
+range_mixed_seed_finalize(const data_config *cfg,
+                          slice              tuple_key,
+                          merge_accumulator *msg)
+{
+   const uint8 *key_bytes = slice_data(tuple_key);
+   if (range_mixed_seed_reject_b_merge
+       && key_bytes[slice_length(tuple_key) - 1] == 'b')
+   {
+      return EINVAL;
+   }
+   range_mixed_seed_value result;
+   ASSERT_EQUAL_U(sizeof(result), merge_accumulator_length(msg));
+   memcpy(&result, merge_accumulator_data(msg), sizeof(result));
+   result.multiplier = 0;
+   memcpy(merge_accumulator_data(msg), &result, sizeof(result));
+   merge_accumulator_set_class(msg, MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+static slice
+range_mixed_seed_key(uint8 *bytes, uint64 id, uint8 tenant)
+{
+   uint64 encoded = __builtin_bswap64(id);
+   memcpy(bytes, &encoded, sizeof(encoded));
+   bytes[8] = tenant;
+   return slice_create(9, bytes);
+}
+
+static void
+range_mixed_seed_construction_config(splinterdb *db, uint32 seed)
+{
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(db);
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(core->ts)));
+   trunk_config *trunk_cfg = (trunk_config *)core->trunk_context.cfg;
+   trunk_cfg->incorporation_size_kv_bytes          = 64 * KiB;
+   ((routing_config *)trunk_cfg->filter_cfg)->seed = seed;
+}
+
+static void
+range_mixed_seed_check_scan(splinterdb *db,
+                            uint64      total,
+                            bool32      bounded,
+                            bool32      forwards,
+                            bool32      pruned)
+{
+   uint8                lower[9], upper[9];
+   uint8                routing_key[] = {'a'};
+   const uint64         low           = bounded ? 1200 : 0;
+   const uint64         high          = bounded ? total - 1200 : total;
+   range_tenant_context tenant        = {.tenant = 'a'};
+   splinterdb_iterator *it            = NULL;
+   range_mixed_seed_seen              = 0;
+   range_mixed_seed_track             = TRUE;
+   ASSERT_EQUAL(
+      0,
+      splinterdb_iterator_init_with_bounds_and_filter(
+         db,
+         &it,
+         greater_than,
+         bounded ? range_mixed_seed_key(lower, low, 'a') : NULL_SLICE,
+         less_than,
+         bounded ? range_mixed_seed_key(upper, high, 'a') : NULL_SLICE,
+         forwards ? greater_than_or_equal : less_than_or_equal,
+         NULL_SLICE,
+         range_tenant_matches,
+         &tenant,
+         pruned ? slice_create(sizeof(routing_key), routing_key) : NULL_SLICE));
+   const uint32 initial_seed_mask = range_mixed_seed_seen;
+   /* The iterator must retain its own routing key for later saved seeds.
+    * a and b collide under seed 11, but differ under seed 22. */
+   routing_key[0] = 'b';
+   int64 expected =
+      forwards ? (bounded ? low + 1 : 0) : (bounded ? high - 1 : total);
+   uint64 count = 0;
+   while (splinterdb_iterator_valid(it)) {
+      while (expected >= 0 && expected < total && expected % 13 == 0) {
+         expected += forwards ? 1 : -1;
+      }
+      ASSERT_TRUE(expected >= (bounded ? low + 1 : 0));
+      ASSERT_TRUE(expected <= (bounded ? high - 1 : total));
+      slice key, value;
+      splinterdb_iterator_get_current(it, &key, &value);
+      uint8 expected_key[9];
+      slice expected_slice = range_mixed_seed_key(expected_key, expected, 'a');
+      ASSERT_EQUAL(0, slice_lex_cmp(key, expected_slice));
+      range_mixed_seed_value result;
+      ASSERT_EQUAL_U(sizeof(result), slice_length(value));
+      memcpy(&result, slice_data(value), sizeof(result));
+      range_mixed_seed_value wanted = {
+         .addend = expected == total   ? 7
+                   : expected % 7 == 0 ? 123
+                                       : 12,
+      };
+      ASSERT_EQUAL(0, memcmp(&wanted, &result, sizeof(result)));
+      count++;
+      expected += forwards ? 1 : -1;
+      if (forwards) {
+         splinterdb_iterator_next(it);
+      } else {
+         splinterdb_iterator_prev(it);
+      }
+   }
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   uint64 wanted_count = 0;
+   for (uint64 id = bounded ? low + 1 : 0; id <= (bounded ? high - 1 : total);
+        id++)
+   {
+      wanted_count += id == total || id % 13 != 0;
+   }
+   ASSERT_EQUAL_U(wanted_count, count);
+   splinterdb_iterator_deinit(it);
+   range_mixed_seed_track = FALSE;
+   if (pruned) {
+      /* This proves actual persisted descriptors with both seeds were read.
+       * Changing cfg->seed alone would not prove a mixed-seed fixture. */
+      CTEST_LOG_INFO("mixed-seed scan bounded=%u forwards=%u: "
+                     "initial seeds=%u final seeds=%u\n",
+                     bounded,
+                     forwards,
+                     initial_seed_mask,
+                     range_mixed_seed_seen);
+      /* A different persisted seed must first be hashed after caller storage
+       * was overwritten. The hash callback also checks the retained tenant. */
+      ASSERT_EQUAL_U(forwards ? 1 : 2, initial_seed_mask);
+      ASSERT_EQUAL_U(3, range_mixed_seed_seen);
+   } else {
+      ASSERT_EQUAL_U(0, range_mixed_seed_seen);
+   }
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_persisted_mixed_seeds)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->default_data_cfg.super.key_hash           = range_mixed_seed_hash;
+   data->default_data_cfg.super.merge_tuples       = range_mixed_seed_merge;
+   data->default_data_cfg.super.merge_tuples_final = range_mixed_seed_finalize;
+   data->cfg.memtable_capacity                     = 4 * MiB;
+   data->cfg.disk_size                             = 512 * MiB;
+   data->cfg.fanout                                = 2;
+   data->cfg.num_normal_bg_threads                 = 0;
+   data->cfg.num_memtable_bg_threads               = 0;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+   const uint64           per_seed = 4096;
+   const uint64           total    = 2 * per_seed;
+   range_mixed_seed_value initial  = {.addend = 1};
+   range_mixed_seed_value second   = {.multiplier = 10, .addend = 2};
+   uint8                  key[9];
+   range_mixed_seed_track          = FALSE;
+   range_mixed_seed_reject_b_merge = FALSE;
+   for (uint64 round = 0; round < 2; round++) {
+      range_mixed_seed_construction_config(data->kvsb, round ? 22 : 11);
+      for (uint64 id = round * per_seed; id < (round + 1) * per_seed; id++) {
+         for (uint8 tenant = 'a'; tenant <= 'b'; tenant++) {
+            ASSERT_EQUAL(
+               0,
+               splinterdb_insert(data->kvsb,
+                                 range_mixed_seed_key(key, id, tenant),
+                                 slice_create(sizeof(initial), &initial),
+                                 NULL));
+         }
+         if (id % 1024 == 1023) {
+            force_flush_current_memtable(data->kvsb);
+         }
+      }
+      for (uint64 id = round * per_seed; id < (round + 1) * per_seed; id++) {
+         for (uint8 tenant = 'a'; tenant <= 'b'; tenant++) {
+            ASSERT_EQUAL(
+               0,
+               splinterdb_update(data->kvsb,
+                                 range_mixed_seed_key(key, id, tenant),
+                                 slice_create(sizeof(second), &second),
+                                 NULL));
+         }
+      }
+      force_flush_current_memtable(data->kvsb);
+      ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+      ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+   }
+   /* Neither persisted construction seed equals the current default. */
+   range_mixed_seed_construction_config(data->kvsb, 99);
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   uint64       height;
+   ASSERT_TRUE(SUCCESS(trunk_get_height(&core->trunk_context, &height)));
+   ASSERT_TRUE(height > 0);
+   range_mixed_seed_value third = {.multiplier = 10, .addend = 3};
+   for (uint64 id = 0; id < total; id++) {
+      if (id % 7 == 0) {
+         for (uint8 tenant = 'a'; tenant <= 'b'; tenant++) {
+            ASSERT_EQUAL(
+               0,
+               splinterdb_update(data->kvsb,
+                                 range_mixed_seed_key(key, id, tenant),
+                                 slice_create(sizeof(third), &third),
+                                 NULL));
+         }
+      }
+      if (id % 13 == 0) {
+         ASSERT_EQUAL(0,
+                      splinterdb_delete(
+                         data->kvsb, range_mixed_seed_key(key, id, 'a'), NULL));
+      }
+   }
+   range_mixed_seed_value live = {.addend = 7};
+   ASSERT_EQUAL(0,
+                splinterdb_insert(data->kvsb,
+                                  range_mixed_seed_key(key, total, 'a'),
+                                  slice_create(sizeof(live), &live),
+                                  NULL));
+   range_mixed_seed_reject_b_merge = TRUE;
+   for (bool32 bounded = FALSE; bounded <= TRUE; bounded++) {
+      for (bool32 forwards = FALSE; forwards <= TRUE; forwards++) {
+         for (bool32 pruned = FALSE; pruned <= TRUE; pruned++) {
+            range_mixed_seed_check_scan(
+               data->kvsb, total, bounded, forwards, pruned);
+         }
+      }
+   }
+   range_mixed_seed_reject_b_merge = FALSE;
+}
+
+typedef struct range_digit_context {
+   uint8  modulus;
+   uint8  remainder;
+   uint64 calls;
+} range_digit_context;
+
+static bool
+range_digit_matches(void *context, slice k)
+{
+   range_digit_context *digits = context;
+   digits->calls++;
+   return slice_length(k) == 1
+          && (*(const uint8 *)slice_data(k) - '0') % digits->modulus
+                == digits->remainder;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_predicate_only_and_bounds)
+{
+   range_digit_context  digits = {.modulus = 2, .remainder = 1};
+   splinterdb_iterator *it     = NULL;
+   /* No callback is needed on an empty database. */
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_digit_matches,
+                                                     &digits,
+                                                     NULL_SLICE));
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   ASSERT_EQUAL_U(0, digits.calls);
+   splinterdb_iterator_deinit(it);
+
+   for (char key = '0'; key <= '9'; key++) {
+      ASSERT_EQUAL(
+         0,
+         splinterdb_insert(
+            data->kvsb, slice_create(1, &key), slice_create(1, "v"), NULL));
+      if (key == '4') {
+         force_flush_current_memtable(data->kvsb);
+      }
+   }
+   /* Odd numbers have unrelated ordinary hashes. Without a pruning key the
+    * predicate must visit every branch, including the current memtable. */
+   for (int forwards = 0; forwards < 2; forwards++) {
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_filter(
+                      data->kvsb,
+                      &it,
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      range_digit_matches,
+                      &digits,
+                      NULL_SLICE));
+      for (int i = 0; i < 5; i++) {
+         char expected[] = {(forwards ? 1 + 2 * i : 9 - 2 * i) + '0', 0};
+         check_current_string_kv(it, expected, "v");
+         if (forwards) {
+            splinterdb_iterator_next(it);
+         } else {
+            splinterdb_iterator_prev(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_bounds_and_filter(
+                      data->kvsb,
+                      &it,
+                      greater_than,
+                      slice_create(1, "1"),
+                      less_than,
+                      slice_create(1, "9"),
+                      forwards ? greater_than_or_equal : less_than_or_equal,
+                      NULL_SLICE,
+                      range_digit_matches,
+                      &digits,
+                      NULL_SLICE));
+      for (int i = 0; i < 3; i++) {
+         char expected[] = {(forwards ? 3 + 2 * i : 7 - 2 * i) + '0', 0};
+         check_current_string_kv(it, expected, "v");
+         if (forwards) {
+            splinterdb_iterator_next(it);
+         } else {
+            splinterdb_iterator_prev(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      if (forwards) {
+         splinterdb_iterator_prev(it);
+         check_current_string_kv(it, "7", "v");
+         splinterdb_iterator_prev(it);
+      } else {
+         splinterdb_iterator_next(it);
+         check_current_string_kv(it, "3", "v");
+         splinterdb_iterator_next(it);
+      }
+      check_current_string_kv(it, "5", "v");
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init_with_filter(data->kvsb,
+                                                        &it,
+                                                        forwards ? greater_than
+                                                                 : less_than,
+                                                        slice_create(1, "5"),
+                                                        range_digit_matches,
+                                                        &digits,
+                                                        NULL_SLICE));
+      check_current_string_kv(it, forwards ? "7" : "3", "v");
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+   }
+   ASSERT_TRUE(digits.calls > 0);
+
+   /* Context remains caller-owned; each iterator borrows its current value. */
+   digits.remainder = 2;
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_digit_matches,
+                                                     &digits,
+                                                     NULL_SLICE));
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+
+   it = NULL;
+   ASSERT_EQUAL(EINVAL,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     NULL,
+                                                     NULL,
+                                                     slice_create(1, "1")));
+   ASSERT_NULL(it);
+   ASSERT_EQUAL(
+      EINVAL,
+      splinterdb_iterator_init_with_bounds_and_filter(data->kvsb,
+                                                      &it,
+                                                      greater_than_or_equal,
+                                                      NULL_SLICE,
+                                                      less_than_or_equal,
+                                                      NULL_SLICE,
+                                                      greater_than_or_equal,
+                                                      NULL_SLICE,
+                                                      NULL,
+                                                      NULL,
+                                                      slice_create(1, "1")));
+   ASSERT_NULL(it);
+}
+
+static int
+range_fail_finalize(const data_config *cfg, slice k, merge_accumulator *msg)
+{
+   return ENOMEM;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_propagates_matching_merge_errors)
+{
+   data->default_data_cfg.super.merge_tuples       = hash_range_add;
+   data->default_data_cfg.super.merge_tuples_final = range_fail_finalize;
+   range_tenant_context tenant                     = {.tenant = 'a'};
+   ASSERT_EQUAL(
+      0,
+      splinterdb_update(
+         data->kvsb, slice_create(2, "0b"), slice_create(1, "v"), NULL));
+   insert_string_kv(data->kvsb, "1a", "v");
+   ASSERT_EQUAL(
+      0,
+      splinterdb_update(
+         data->kvsb, slice_create(2, "2a"), slice_create(1, "v"), NULL));
+   splinterdb_iterator *it = NULL;
+   ASSERT_EQUAL(0,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     greater_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_tenant_matches,
+                                                     &tenant,
+                                                     NULL_SLICE));
+   check_current_string_kv(it, "1a", "v");
+   splinterdb_iterator_next(it);
+   ASSERT_FALSE(splinterdb_iterator_valid(it));
+   ASSERT_EQUAL(ENOMEM, splinterdb_iterator_status(it));
+   splinterdb_iterator_deinit(it);
+
+   it = NULL;
+   ASSERT_EQUAL(ENOMEM,
+                splinterdb_iterator_init_with_filter(data->kvsb,
+                                                     &it,
+                                                     less_than_or_equal,
+                                                     NULL_SLICE,
+                                                     range_tenant_matches,
+                                                     &tenant,
+                                                     NULL_SLICE));
+   ASSERT_NULL(it);
+   /* Restore a successful finalizer before the fixture closes the database. */
+   data->default_data_cfg.super.merge_tuples_final = hash_range_finalize;
+}
+
+typedef struct filtered_iterator_handoff {
+   splinterdb          *db;
+   splinterdb_iterator *itor;
+   range_tenant_context tenant;
+   int                  rc;
+} filtered_iterator_handoff;
+
+static void *
+filtered_iterator_handoff_create(void *context)
+{
+   filtered_iterator_handoff *handoff       = context;
+   char                       pruning_key[] = "a";
+   handoff->rc =
+      splinterdb_iterator_init_with_filter(handoff->db,
+                                           &handoff->itor,
+                                           greater_than_or_equal,
+                                           NULL_SLICE,
+                                           range_tenant_matches,
+                                           &handoff->tenant,
+                                           slice_create(1, pruning_key));
+   return NULL;
+}
+
+static void *
+filtered_iterator_handoff_consume(void *context)
+{
+   filtered_iterator_handoff *handoff = context;
+   uint64                     calls   = handoff->tenant.calls;
+   for (char digit = '0'; digit <= '9'; digit++) {
+      char expected[] = {digit, 'a', 0};
+      check_current_string_kv(handoff->itor, expected, "v");
+      splinterdb_iterator_next(handoff->itor);
+   }
+   ASSERT_FALSE(splinterdb_iterator_valid(handoff->itor));
+   splinterdb_iterator_prev(handoff->itor);
+   check_current_string_kv(handoff->itor, "9a", "v");
+   splinterdb_iterator_prev(handoff->itor);
+   check_current_string_kv(handoff->itor, "8a", "v");
+   ASSERT_TRUE(handoff->tenant.calls > calls);
+   ASSERT_EQUAL_U(platform_get_tid(), handoff->tenant.last_tid);
+   handoff->rc = splinterdb_iterator_status(handoff->itor);
+   splinterdb_iterator_deinit(handoff->itor);
+   handoff->itor = NULL;
+   return NULL;
+}
+
+CTEST2(splinterdb_quick, test_filtered_range_context_survives_thread_handoff)
+{
+   data->default_data_cfg.super.key_hash = hash_range_key_hash;
+   for (char digit = '0'; digit <= '9'; digit++) {
+      char key[] = {digit, 'a', 0};
+      insert_string_kv(data->kvsb, key, "v");
+      key[1] = 'b';
+      insert_string_kv(data->kvsb, key, "v");
+   }
+   for (unsigned persisted = 0; persisted < 2; persisted++) {
+      if (persisted) {
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+         ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+      }
+      filtered_iterator_handoff handoff = {
+         .db     = data->kvsb,
+         .tenant = {.tenant = 'a'},
+      };
+      pthread_t producer;
+      ASSERT_EQUAL(
+         0,
+         pthread_create(
+            &producer, NULL, filtered_iterator_handoff_create, &handoff));
+      ASSERT_EQUAL(0, pthread_join(producer, NULL));
+      ASSERT_EQUAL(0, handoff.rc);
+      ASSERT_TRUE(handoff.tenant.calls > 0);
+      ASSERT_NOT_EQUAL(platform_get_tid(), handoff.tenant.last_tid);
+      filtered_iterator_handoff_consume(&handoff);
+      ASSERT_EQUAL(0, handoff.rc);
+
+      filtered_iterator_handoff_create(&handoff);
+      ASSERT_EQUAL(0, handoff.rc);
+      pthread_t receiver;
+      ASSERT_EQUAL(
+         0,
+         pthread_create(
+            &receiver, NULL, filtered_iterator_handoff_consume, &handoff));
+      ASSERT_EQUAL(0, pthread_join(receiver, NULL));
+      ASSERT_EQUAL(0, handoff.rc);
+      ASSERT_NOT_EQUAL(platform_get_tid(), handoff.tenant.last_tid);
+   }
+}
+
 typedef struct iterator_handoff {
    splinterdb          *db;
    splinterdb_iterator *itor;
@@ -3061,7 +3984,7 @@ CTEST2(splinterdb_quick, test_blob_tree_crash_recovery)
          _exit(10);
       if (splinterdb_insert(db, prefix, small, NULL) != 0)
          _exit(11);
-      if (splinterdb_durable_barrier(db) != 0)
+      if (splinterdb_durable_barrier(db, NULL) != 0)
          _exit(12);
       char *bytes = malloc(length);
       if (bytes == NULL)
@@ -3069,11 +3992,11 @@ CTEST2(splinterdb_quick, test_blob_tree_crash_recovery)
       memset(bytes, 'L', length);
       if (splinterdb_insert(db, large, slice_create(length, bytes), NULL) != 0)
          _exit(14);
-      if (splinterdb_durable_barrier(db) != 0)
+      if (splinterdb_durable_barrier(db, NULL) != 0)
          _exit(15);
       if (splinterdb_insert(db, suffix, small, NULL) != 0)
          _exit(16);
-      if (splinterdb_durable_barrier(db) != 0)
+      if (splinterdb_durable_barrier(db, NULL) != 0)
          _exit(17);
       if (corrupt) {
          const core_handle *core = splinterdb_get_trunk_handle(db);

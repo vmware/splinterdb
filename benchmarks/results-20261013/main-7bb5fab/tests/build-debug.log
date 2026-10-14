@@ -1,9 +1,9 @@
-Starting main-merge-log-group-debug build
+Starting main-merge-async-debug build
 Checking for mismatched config...No mismatched config found
 Saving config to build-main-7bb5fab/debug/build-config.e33dfc688a9c2bf2dad4e17ef758ec3e
 Compiling            src/PackedArray.c                                  [build-main-7bb5fab/debug/obj/src/PackedArray.o]
-Compiling            src/batch_rwlock.c                                 [build-main-7bb5fab/debug/obj/src/batch_rwlock.o]
 Compiling            src/core.c                                         [build-main-7bb5fab/debug/obj/src/core.o]
+Compiling            src/batch_rwlock.c                                 [build-main-7bb5fab/debug/obj/src/batch_rwlock.o]
 Compiling            src/default_data_config.c                          [build-main-7bb5fab/debug/obj/src/default_data_config.o]
 Compiling            src/memtable.c                                     [build-main-7bb5fab/debug/obj/src/memtable.o]
 Compiling            src/merge.c                                        [build-main-7bb5fab/debug/obj/src/merge.o]
@@ -62,16 +62,17 @@ Compiling            tests/unit/limitations_test.c                      [build-m
 Compiling            tests/unit/main.c                                  [build-main-7bb5fab/debug/obj/tests/unit/main.o]
 Compiling            tests/unit/merge_test.c                            [build-main-7bb5fab/debug/obj/tests/unit/merge_test.o]
 Compiling            tests/unit/misc_test.c                             [build-main-7bb5fab/debug/obj/tests/unit/misc_test.o]
-Compiling            tests/unit/platform_apis_test.c                    [build-main-7bb5fab/debug/obj/tests/unit/platform_apis_test.o]
-Compiling            tests/unit/platform_threads_test.c                 [build-main-7bb5fab/debug/obj/tests/unit/platform_threads_test.o]
-Compiling            tests/unit/splinterdb_heap_id_mgmt_test.c          [build-main-7bb5fab/debug/obj/tests/unit/splinterdb_heap_id_mgmt_test.o]
-Compiling            tests/unit/splinterdb_optimize_test.c              [build-main-7bb5fab/debug/obj/tests/unit/splinterdb_optimize_test.o]
 In file included from src/PackedArray.c:296,
                  from src/PackedArray.c:356:
 src/PackedArray.c: In function ‘__PackedArray_unpack_21’:
 src/PackedArray.c:177: note: ‘-Wmisleading-indentation’ is disabled from this point onwards, since column-tracking was disabled due to the size of the code/headers
   177 |         PACKEDARRAY_IMPL_UNPACK_CASE_BREAK
 src/PackedArray.c:177: note: adding ‘-flarge-source-files’ will allow for more column-tracking support, at the expense of compilation time and memory
+Compiling            tests/unit/notification_test.c                     [build-main-7bb5fab/debug/obj/tests/unit/notification_test.o]
+Compiling            tests/unit/platform_apis_test.c                    [build-main-7bb5fab/debug/obj/tests/unit/platform_apis_test.o]
+Compiling            tests/unit/platform_threads_test.c                 [build-main-7bb5fab/debug/obj/tests/unit/platform_threads_test.o]
+Compiling            tests/unit/splinterdb_heap_id_mgmt_test.c          [build-main-7bb5fab/debug/obj/tests/unit/splinterdb_heap_id_mgmt_test.o]
+Compiling            tests/unit/splinterdb_optimize_test.c              [build-main-7bb5fab/debug/obj/tests/unit/splinterdb_optimize_test.o]
 Compiling            tests/unit/splinterdb_quick_test.c                 [build-main-7bb5fab/debug/obj/tests/unit/splinterdb_quick_test.o]
 Compiling            tests/unit/splinterdb_stress_test.c                [build-main-7bb5fab/debug/obj/tests/unit/splinterdb_stress_test.o]
 Compiling            tests/unit/superblock_test.c                       [build-main-7bb5fab/debug/obj/tests/unit/superblock_test.o]
@@ -103,7 +104,7 @@ Linking              build-main-7bb5fab/debug/bin/unit/config_parse_test
 Linking              build-main-7bb5fab/debug/bin/unit/large_inserts_stress_test
 Linking              build-main-7bb5fab/debug/bin/unit/limitations_test
 Linking              build-main-7bb5fab/debug/bin/unit/merge_test
-Linking              build-main-7bb5fab/debug/bin/unit/splinter_test
+Linking              build-main-7bb5fab/debug/bin/unit/notification_test
 Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_forked_child_test
 Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_heap_id_mgmt_test
 Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_optimize_test
@@ -115,3 +116,4 @@ Linking              build-main-7bb5fab/debug/bin/unit/trunk_async_test
 Linking              build-main-7bb5fab/debug/bin/unit/trunk_gc_test
 Linking              build-main-7bb5fab/debug/bin/unit/trunk_split_test
 Linking              build-main-7bb5fab/debug/bin/unit/writable_buffer_test
+Linking              build-main-7bb5fab/debug/bin/unit/splinter_test

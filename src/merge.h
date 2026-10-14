@@ -55,6 +55,8 @@ extern struct merge_behavior   merge_full, merge_intermediate, merge_raw;
 #define MERGE_FULL         (&merge_full)
 
 
+typedef bool32 (*merge_key_filter)(void *context, key tuple_key);
+
 typedef struct merge_iterator {
    iterator           super;     // handle for iterator.h API
    int                num_trees; // number of trees in the forest
@@ -90,6 +92,20 @@ merge_iterator_create(platform_heap_id   hid,
                       merge_behavior     merge_mode,
                       bool32             forwards,
                       merge_iterator   **out_itor);
+
+/* Reject keys before any message merge/finalization. The predicate and its
+ * context must remain valid until destruction and be stable for both scan
+ * directions. NULL retains the ordinary iterator path. */
+platform_status
+merge_iterator_create_with_filter(platform_heap_id   hid,
+                                  const data_config *cfg,
+                                  int                num_trees,
+                                  iterator         **itor_arr,
+                                  merge_behavior     merge_mode,
+                                  bool32             forwards,
+                                  merge_key_filter   keep_key,
+                                  void              *filter_context,
+                                  merge_iterator   **out_itor);
 
 platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor);

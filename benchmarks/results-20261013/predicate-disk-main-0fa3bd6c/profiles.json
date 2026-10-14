@@ -1,0 +1,17 @@
+{
+  "main": {
+    "tree": "/home/rob/projects/splinterdb",
+    "build_root": "build-main-0fa3bd6c",
+    "head": "0fa3bd6c7723690c760294d33ba610e3724bd8d2"
+  },
+  "filtered-ranges": {
+    "tree": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges",
+    "build_root": "build-filter-predicate",
+    "head": "cf7dc4f710aad91dfad9050dca0d326ff0fccac5"
+  },
+  "disk-format": {
+    "tree": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/disk-format",
+    "build_root": "build-pr-0fa3bd6c",
+    "head": "3e302c04c60babb8afecb58d27f808848624f83c"
+  }
+}

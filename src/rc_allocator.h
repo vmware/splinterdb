@@ -15,6 +15,12 @@
 #include "allocator.h"
 #include "util.h"
 
+#define RC_ALLOCATOR_FORMAT_VERSION (1)
+
+/* Validate the allocator version stored in the database superblock. */
+platform_status
+rc_allocator_validate_format_version(uint16 format_version);
+
 /*
  *----------------------------------------------------------------------
  * rc_allocator_stats --

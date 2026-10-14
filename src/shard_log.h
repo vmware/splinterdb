@@ -20,6 +20,10 @@
 #include "platform_mutex.h"
 #include "writeback_set.h"
 
+/* Validate the version persisted in a log head before accessing its stream. */
+platform_status
+shard_log_validate_format_version(uint16 format_version);
+
 /*
  * Configuration structure to set up the sharded log sub-system.
  */
@@ -245,6 +249,7 @@ typedef struct shard_log_iterator {
    platform_heap_id  heap_id;
    cache            *cc;
    shard_log_config *cfg;
+   shard_log_config  read_cfg; // derived from the persisted log head
    char             *contents;
    log_entry       **entries;
    uint64            num_entries;

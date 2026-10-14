@@ -17,6 +17,7 @@ typedef struct merge_test_iterator {
    bool32      updates_at_edges;
    bool32      updates; // every message is an update
    uint64      steps;
+   uint64      fail_at_step; // zero disables a delayed failure
 } merge_test_iterator;
 
 static int
@@ -59,7 +60,7 @@ merge_test_step(iterator *base, int direction)
 {
    merge_test_iterator *itor = (merge_test_iterator *)base;
    itor->steps++;
-   if (itor->fail_step) {
+   if (itor->fail_step || itor->steps == itor->fail_at_step) {
       itor->failed = TRUE;
       return STATUS_IO_ERROR;
    }
@@ -491,6 +492,125 @@ CTEST(merge, random_direction_changes_match_merged_sequence)
       }
       ASSERT_TRUE(
          SUCCESS(merge_iterator_destroy(PROCESS_PRIVATE_HEAP_ID, &merge)));
+   }
+   platform_deregister_thread();
+}
+
+static bool32
+merge_test_keep_one_key(void *context, key tuple_key)
+{
+   return *(const char *)key_data(tuple_key) == *(const char *)context;
+}
+
+CTEST(merge, filtering_does_not_eagerly_drain_nonmatching_sources)
+{
+   platform_register_thread();
+   data_config cfg;
+   default_data_config_init(&cfg);
+   // Every update belongs to a rejected key. No finalizer may see it.
+   cfg.merge_tuples_final = merge_test_fail_finalize;
+   for (bool32 forwards = FALSE; forwards <= TRUE; forwards++) {
+      char                selected   = forwards ? 'b' : 'y';
+      merge_test_iterator children[] = {
+         {.super = {.ops = &merge_test_ops}, .keys = forwards ? "ab" : "yz"},
+         {.super   = {.ops = &merge_test_ops},
+          .keys    = "acdefghijklmnopqrstuvwxz",
+          .updates = TRUE},
+      };
+      iterator *inputs[] = {&children[0].super, &children[1].super};
+      for (uint64 i = 0; i < ARRAY_SIZE(children); i++) {
+         children[i].pos = forwards ? 0 : merge_test_num_keys(&children[i]) - 1;
+      }
+      merge_iterator *merge = NULL;
+      ASSERT_TRUE(
+         SUCCESS(merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
+                                                   &cfg,
+                                                   ARRAY_SIZE(inputs),
+                                                   inputs,
+                                                   MERGE_FULL,
+                                                   forwards,
+                                                   merge_test_keep_one_key,
+                                                   &selected,
+                                                   &merge)));
+      merge_test_check_curr(merge, selected, "v");
+      ASSERT_EQUAL(1, children[1].steps);
+      // Cross each bound and reverse; rejected update histories stay hidden.
+      ASSERT_TRUE(SUCCESS(forwards ? iterator_prev(&merge->super)
+                                   : iterator_next(&merge->super)));
+      merge_test_check_curr(merge, 0, NULL);
+      ASSERT_TRUE(SUCCESS(forwards ? iterator_next(&merge->super)
+                                   : iterator_prev(&merge->super)));
+      merge_test_check_curr(merge, selected, "v");
+      ASSERT_TRUE(SUCCESS(forwards ? iterator_next(&merge->super)
+                                   : iterator_prev(&merge->super)));
+      merge_test_check_curr(merge, 0, NULL);
+      ASSERT_TRUE(SUCCESS(forwards ? iterator_prev(&merge->super)
+                                   : iterator_next(&merge->super)));
+      merge_test_check_curr(merge, selected, "v");
+      ASSERT_TRUE(
+         SUCCESS(merge_iterator_destroy(PROCESS_PRIVATE_HEAP_ID, &merge)));
+   }
+   platform_deregister_thread();
+}
+
+static bool32
+merge_test_keep_edges(void *context, key tuple_key)
+{
+   return *(const char *)key_data(tuple_key) != 'b';
+}
+
+CTEST(merge, filtering_propagates_errors_while_skipping_rejected_keys)
+{
+   platform_register_thread();
+   data_config cfg;
+   default_data_config_init(&cfg);
+   for (bool32 forwards = FALSE; forwards <= TRUE; forwards++) {
+      merge_test_iterator child = {
+         .super        = {.ops = &merge_test_ops},
+         .keys         = "abc",
+         .pos          = forwards ? 0 : 2,
+         .fail_at_step = 2,
+      };
+      iterator       *inputs[] = {&child.super};
+      merge_iterator *merge    = NULL;
+      ASSERT_TRUE(
+         SUCCESS(merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
+                                                   &cfg,
+                                                   1,
+                                                   inputs,
+                                                   MERGE_FULL,
+                                                   forwards,
+                                                   merge_test_keep_edges,
+                                                   NULL,
+                                                   &merge)));
+      merge_test_check_curr(merge, forwards ? 'a' : 'c', "v");
+      platform_status rc =
+         forwards ? iterator_next(&merge->super) : iterator_prev(&merge->super);
+      ASSERT_EQUAL(STATUS_IO_ERROR.r, rc.r);
+      ASSERT_TRUE(child.failed);
+      ASSERT_EQUAL_U(2, child.steps);
+      ASSERT_TRUE(
+         SUCCESS(merge_iterator_destroy(PROCESS_PRIVATE_HEAP_ID, &merge)));
+
+      /* The same error during initialization must leave ownership with the
+       * caller and destroy any filter wrappers already allocated. */
+      child.pos     = forwards ? 0 : 2;
+      child.steps   = 0;
+      child.failed  = FALSE;
+      char selected = forwards ? 'c' : 'a';
+      rc            = merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
+                                             &cfg,
+                                             1,
+                                             inputs,
+                                             MERGE_FULL,
+                                             forwards,
+                                             merge_test_keep_one_key,
+                                             &selected,
+                                             &merge);
+      ASSERT_EQUAL(STATUS_IO_ERROR.r, rc.r);
+      ASSERT_NULL(merge);
+      ASSERT_TRUE(child.failed);
+      ASSERT_EQUAL_U(2, child.steps);
    }
    platform_deregister_thread();
 }

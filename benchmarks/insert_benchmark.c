@@ -371,7 +371,7 @@ run_barrier(void *arg)
 #ifdef KVBENCH_NO_DURABLE_BARRIER
       rc = ENOTSUP;
 #else
-      rc = splinterdb_durable_barrier(b->db);
+      rc = splinterdb_durable_barrier(b->db, SPLINTERDB_NOTIFICATION_BLOCKING);
 #endif
       uint64_t elapsed = now_ns() - start;
       if (rc) {

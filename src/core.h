@@ -289,6 +289,8 @@ struct core_handle {
    core_compacted_memtable compacted_memtable[MAX_MEMTABLES];
 };
 
+typedef struct core_range_filter core_range_filter;
+
 typedef struct core_range_iterator {
    iterator          super;
    core_handle      *spl;
@@ -315,6 +317,9 @@ typedef struct core_range_iterator {
 
    // used for merge iterator construction
    iterator *itor[CORE_RANGE_ITOR_MAX_BRANCHES];
+
+   // Keep the ordinary iterator fields at their original offsets.
+   core_range_filter *filter;
 } core_range_iterator;
 
 /*
@@ -371,6 +376,19 @@ core_range_iterator_init(core_handle         *spl,
                          key                  max_key,
                          comparison           start_key_comparison,
                          key                  start_key);
+
+platform_status
+core_range_iterator_init_with_filter(core_handle         *spl,
+                                     core_range_iterator *range_itor,
+                                     comparison           min_key_comparison,
+                                     key                  min_key,
+                                     comparison           max_key_comparison,
+                                     key                  max_key,
+                                     comparison           start_key_comparison,
+                                     key                  start_key,
+                                     splinterdb_key_predicate predicate,
+                                     void                    *predicate_context,
+                                     key routing_filter_key);
 void
 core_range_iterator_deinit(core_range_iterator *range_itor);
 
@@ -427,6 +445,12 @@ core_checkpoint(core_handle *spl, uint64 rotation_timeout_ns);
  */
 platform_status
 core_durable_barrier(core_handle *spl);
+
+/* Take the durability cut now and enqueue the slow wait. Close drains the
+ * task before releasing the core. A failed launch leaves notification idle. */
+platform_status
+core_durable_barrier_async(core_handle                    *spl,
+                           struct splinterdb_notification *notification);
 
 /*
  * Unmount the database without destroying it; it can be re-opened later with

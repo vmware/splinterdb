@@ -1,0 +1,36 @@
+{
+  "old": {
+    "library_sha256": "cc67d58fccbc85fd3be6dcb7a00ae0513cab835bed8246e57201f5b417c05d86",
+    "objects": {
+      "core.o": {
+        ".comment": "\nString dump of section '.comment':\n  [     1]  GCC: (Debian 14.2.0-19) 14.2.0\n\n",
+        ".gnu.lto_.opts": "\nString dump of section '.gnu.lto_.opts':\n  [     0]  '-fno-openmp' '-fno-openacc' '-fcf-protection=none' '-g' '-mtune=generic' '-march=x86-64' '-O3' '-Wfatal-errors' '-Werror' '-fPIC' '-ffast-math' '-flto' '-fasynchronous-unwind-tables'\n\n"
+      },
+      "splinterdb.o": {
+        ".comment": "\nString dump of section '.comment':\n  [     1]  GCC: (Debian 14.2.0-19) 14.2.0\n\n",
+        ".gnu.lto_.opts": "\nString dump of section '.gnu.lto_.opts':\n  [     0]  '-fno-openmp' '-fno-openacc' '-fcf-protection=none' '-g' '-mtune=generic' '-march=x86-64' '-O3' '-Wfatal-errors' '-Werror' '-fPIC' '-ffast-math' '-flto' '-fasynchronous-unwind-tables'\n\n"
+      },
+      "notification.o": {
+        ".comment": "\nString dump of section '.comment':\n  [     1]  GCC: (Debian 14.2.0-19) 14.2.0\n\n",
+        ".gnu.lto_.opts": "\nString dump of section '.gnu.lto_.opts':\n  [     0]  '-fno-openmp' '-fno-openacc' '-fcf-protection=none' '-g' '-mtune=generic' '-march=x86-64' '-O3' '-Wfatal-errors' '-Werror' '-fPIC' '-ffast-math' '-flto' '-fasynchronous-unwind-tables'\n\n"
+      }
+    }
+  },
+  "new": {
+    "library_sha256": "632f500a628898f0296ea2162cdef07de5ebc84388a62b06022e0ecb0288455f",
+    "objects": {
+      "core.o": {
+        ".comment": "\nString dump of section '.comment':\n  [     1]  GCC: (Debian 14.2.0-19) 14.2.0\n\n",
+        ".gnu.lto_.opts": "\nString dump of section '.gnu.lto_.opts':\n  [     0]  '-fno-openmp' '-fno-openacc' '-fcf-protection=none' '-g' '-mtune=generic' '-march=x86-64' '-O3' '-Wfatal-errors' '-Werror' '-fPIC' '-ffast-math' '-flto' '-fasynchronous-unwind-tables'\n\n"
+      },
+      "splinterdb.o": {
+        ".comment": "\nString dump of section '.comment':\n  [     1]  GCC: (Debian 14.2.0-19) 14.2.0\n\n",
+        ".gnu.lto_.opts": "\nString dump of section '.gnu.lto_.opts':\n  [     0]  '-fno-openmp' '-fno-openacc' '-fcf-protection=none' '-g' '-mtune=generic' '-march=x86-64' '-O3' '-Wfatal-errors' '-Werror' '-fPIC' '-ffast-math' '-flto' '-fasynchronous-unwind-tables'\n\n"
+      },
+      "notification.o": {
+        ".comment": "\nString dump of section '.comment':\n  [     1]  GCC: (Debian 14.2.0-19) 14.2.0\n\n",
+        ".gnu.lto_.opts": "\nString dump of section '.gnu.lto_.opts':\n  [     0]  '-fno-openmp' '-fno-openacc' '-fcf-protection=none' '-g' '-mtune=generic' '-march=x86-64' '-O3' '-Wfatal-errors' '-Werror' '-fPIC' '-ffast-math' '-flto' '-fasynchronous-unwind-tables'\n\n"
+      }
+    }
+  }
+}

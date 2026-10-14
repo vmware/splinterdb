@@ -1,0 +1,47 @@
+[
+  {
+    "name": "btree",
+    "command": [
+      "build-main-7bb5fab/debug/bin/unit/btree_test"
+    ],
+    "started": 1791904624.2629488,
+    "returncode": 0,
+    "finished": 1791904624.2786815,
+    "log_sha256": "cfa2c7b6cb343a72ab59f8bded1acf481a38cc9f921cd5972b82efc6d0273a14",
+    "summaries": [
+      "RESULTS: 11 tests (11 ok, 0 failed, 0 skipped) ran in 14 ms"
+    ]
+  },
+  {
+    "name": "superblock",
+    "command": [
+      "build-main-7bb5fab/debug/bin/unit/superblock_test"
+    ],
+    "started": 1791904624.2789748,
+    "returncode": 0,
+    "finished": 1791904624.3262405,
+    "log_sha256": "b27e0169de564deb7ca1319a55ecca6b5e4a4b17ad41ad1a29df2b18f8394121",
+    "summaries": [
+      "RESULTS: 16 tests (16 ok, 0 failed, 0 skipped) ran in 46 ms"
+    ]
+  },
+  {
+    "name": "splinter",
+    "command": [
+      "build-main-7bb5fab/debug/bin/unit/splinter_test",
+      "--db-location",
+      ".cache/format-tests/main-7bb5fab/debug-splinter.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "4"
+    ],
+    "started": 1791904624.326511,
+    "returncode": 1,
+    "finished": 1791904709.6916904,
+    "log_sha256": "19abfb216913e1d89c0d6ef7f7dc7cd0ff4275f8de44e5e2cd7a3ca094b90f1f",
+    "summaries": [
+      "RESULTS: 38 tests (37 ok, 1 failed, 0 skipped) ran in 85363 ms"
+    ]
+  }
+]

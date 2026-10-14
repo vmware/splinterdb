@@ -1,0 +1,89 @@
+[
+  {
+    "name": "notification-sentinels-baseline-harness",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      "-"
+    ],
+    "started": 1791844546.3636055,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791844571.732374
+  },
+  {
+    "name": "notification-sentinels-candidate-harness",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      "-"
+    ],
+    "started": 1791844704.8184137,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791844732.0076838
+  },
+  {
+    "name": "notification-sentinels-barriers",
+    "mode": "benchmark",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/notification_sentinels_compare.py",
+      "--workload",
+      "barrier"
+    ],
+    "started": 1791844810.0911126,
+    "pid": 2,
+    "db_dir": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/async-durable-barrier/sentinels-20261012",
+    "returncode": 0,
+    "finished": 1791844985.8162987
+  },
+  {
+    "name": "notification-sentinels-optimize",
+    "mode": "benchmark",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/notification_sentinels_compare.py",
+      "--workload",
+      "optimize"
+    ],
+    "started": 1791845001.492941,
+    "pid": 2,
+    "db_dir": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/async-durable-barrier/sentinels-20261012",
+    "returncode": 0,
+    "finished": 1791845254.1863143
+  },
+  {
+    "name": "notification-sentinels-empty-harness",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      "-"
+    ],
+    "started": 1791845284.358222,
+    "pid": 4,
+    "returncode": 0,
+    "finished": 1791845309.845738
+  },
+  {
+    "name": "notification-sentinels-optimize-empty",
+    "mode": "benchmark",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/notification_sentinels_compare.py",
+      "--workload",
+      "optimize-empty"
+    ],
+    "started": 1791845330.8455892,
+    "pid": 2,
+    "db_dir": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/async-durable-barrier/sentinels-20261012",
+    "returncode": 0,
+    "finished": 1791845333.0637054
+  }
+]

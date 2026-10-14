@@ -1,4 +1,4 @@
-Starting main-merge-log-group-release build
+Starting main-merge-async-release build
 Checking for mismatched config...No mismatched config found
 Saving config to build-main-7bb5fab/release/build-config.fb6bc8eeb8390429253883c09491f5bd
 Compiling            src/PackedArray.c                                  [build-main-7bb5fab/release/obj/src/PackedArray.o]
@@ -62,13 +62,14 @@ Compiling            tests/unit/limitations_test.c                      [build-m
 Compiling            tests/unit/main.c                                  [build-main-7bb5fab/release/obj/tests/unit/main.o]
 Compiling            tests/unit/merge_test.c                            [build-main-7bb5fab/release/obj/tests/unit/merge_test.o]
 Compiling            tests/unit/misc_test.c                             [build-main-7bb5fab/release/obj/tests/unit/misc_test.o]
+Compiling            tests/unit/notification_test.c                     [build-main-7bb5fab/release/obj/tests/unit/notification_test.o]
+Compiling            tests/unit/platform_apis_test.c                    [build-main-7bb5fab/release/obj/tests/unit/platform_apis_test.o]
 In file included from src/PackedArray.c:296,
                  from src/PackedArray.c:356:
 src/PackedArray.c: In function ‘__PackedArray_unpack_21’:
 src/PackedArray.c:177: note: ‘-Wmisleading-indentation’ is disabled from this point onwards, since column-tracking was disabled due to the size of the code/headers
   177 |         PACKEDARRAY_IMPL_UNPACK_CASE_BREAK
 src/PackedArray.c:177: note: adding ‘-flarge-source-files’ will allow for more column-tracking support, at the expense of compilation time and memory
-Compiling            tests/unit/platform_apis_test.c                    [build-main-7bb5fab/release/obj/tests/unit/platform_apis_test.o]
 Compiling            tests/unit/platform_threads_test.c                 [build-main-7bb5fab/release/obj/tests/unit/platform_threads_test.o]
 Compiling            tests/unit/splinterdb_heap_id_mgmt_test.c          [build-main-7bb5fab/release/obj/tests/unit/splinterdb_heap_id_mgmt_test.o]
 Compiling            tests/unit/splinterdb_optimize_test.c              [build-main-7bb5fab/release/obj/tests/unit/splinterdb_optimize_test.o]
@@ -92,10 +93,10 @@ Linking              build-main-7bb5fab/release/bin/unit/misc_test
 Linking              build-main-7bb5fab/release/bin/unit/platform_apis_test
 Linking              build-main-7bb5fab/release/bin/unit/platform_threads_test
 Compiling            tests/unit/splinter_test.c                         [build-main-7bb5fab/release/obj/tests/unit/splinter_test.o]
-Linking              build-main-7bb5fab/release/lib/libsplinterdb.so
 Compiling            tests/unit/splinterdb_forked_child_test.c          [build-main-7bb5fab/release/obj/tests/unit/splinterdb_forked_child_test.o]
 Linking              build-main-7bb5fab/release/bin/unit/util_test
 Linking              build-main-7bb5fab/release/bin/unit/vector_test
+Linking              build-main-7bb5fab/release/lib/libsplinterdb.so
 Linking              build-main-7bb5fab/release/bin/unit/writeback_set_test
 Building archive     build-main-7bb5fab/release/lib/libsplinterdb.a
 Compiling            benchmarks/insert_benchmark.c                      [build-main-7bb5fab/release/obj/benchmarks/insert_benchmark.o]
@@ -106,6 +107,7 @@ Linking              build-main-7bb5fab/release/bin/unit/config_parse_test
 Linking              build-main-7bb5fab/release/bin/unit/large_inserts_stress_test
 Linking              build-main-7bb5fab/release/bin/unit/limitations_test
 Linking              build-main-7bb5fab/release/bin/unit/merge_test
+Linking              build-main-7bb5fab/release/bin/unit/notification_test
 Linking              build-main-7bb5fab/release/bin/unit/splinter_test
 Linking              build-main-7bb5fab/release/bin/unit/splinterdb_forked_child_test
 Linking              build-main-7bb5fab/release/bin/unit/splinterdb_heap_id_mgmt_test

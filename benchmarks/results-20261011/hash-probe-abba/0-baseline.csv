@@ -1,0 +1,5 @@
+mode,keys_per_tenant,limit,queries,ns_per_query,visited,checksum
+application-filter,16384,1,2000,17357.1,32872,16564065
+application-filter,16384,2,2000,16234.4,96872,33546648
+application-filter,16384,10,2000,21205.3,608872,165710700
+application-filter,16384,100,2000,152620.9,6368872,1627341000

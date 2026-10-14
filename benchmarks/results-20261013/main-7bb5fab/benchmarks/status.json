@@ -1,12 +1,28 @@
 {
-  "project": "log-group-limit",
+  "project": "async-durable-barrier",
   "scope": "new main versus updated feature; merge cost not isolated",
   "workloads": [
     {
       "workload": "insert",
-      "runs": 9,
-      "feature_runs": 4,
-      "verified": 9,
+      "runs": 7,
+      "feature_runs": 2,
+      "verified": 7,
+      "complete": true,
+      "warmup_runs": 0
+    },
+    {
+      "workload": "repeat-warmup",
+      "runs": 1,
+      "feature_runs": 0,
+      "verified": 1,
+      "complete": true,
+      "warmup_runs": 1
+    },
+    {
+      "workload": "barrier",
+      "runs": 24,
+      "feature_runs": 16,
+      "verified": 24,
       "complete": true,
       "warmup_runs": 0
     },
@@ -15,6 +31,14 @@
       "runs": 5,
       "feature_runs": 2,
       "verified": 5,
+      "complete": true,
+      "warmup_runs": 0
+    },
+    {
+      "workload": "repeat-async-durable-barrier",
+      "runs": 4,
+      "feature_runs": 2,
+      "verified": 4,
       "complete": true,
       "warmup_runs": 0
     },

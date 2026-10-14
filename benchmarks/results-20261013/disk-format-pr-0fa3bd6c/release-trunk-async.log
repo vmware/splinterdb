@@ -1,0 +1,5 @@
+Running 1 CTests, suite name 'trunk_async', test case 'all'.
+TEST 1/2 trunk_async:pivot_read_error_survives_cross_thread_yield trunk_ondisk_node_read_pivot_key_async():1462: ondisk_node_handle_setup_content_page() failed: Connection timed outtrunk_merge_lookup_async: ondisk_node_find_pivot_async failed: 110
+[OK]
+TEST 2/2 trunk_async:pivot_header_survives_cross_thread_yield [OK]
+RESULTS: 2 tests (2 ok, 0 failed, 0 skipped) ran in 0 ms

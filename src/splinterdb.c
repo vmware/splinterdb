@@ -135,7 +135,8 @@ splinterdb_notification_wait(splinterdb              *kvs,
    }
 
    platform_assert(kvs != NULL);
-   platform_assert(notification != NULL);
+   platform_assert(notification != NULL
+                   && notification != SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET);
    splinterdb_stats_read_lock(kvs);
 
    int    status  = 0;
@@ -769,6 +770,7 @@ splinterdb_get_cost_stats(splinterdb *kvs, splinterdb_cost_stats *stats)
       status = btree_get_root_height(mt_ctxt->cc,
                                      mt_ctxt->cfg.btree_cfg,
                                      memtable_root_addr(&mt_ctxt->mt[mt_no]),
+                                     0,
                                      PAGE_TYPE_MEMTABLE,
                                      &height);
       if (!SUCCESS(status)) {
@@ -1074,23 +1076,45 @@ splinterdb_optimize(splinterdb              *kvs,
                     ? POSITIVE_INFINITY_KEY
                     : key_create_from_slice(TRUE, user_max_key);
 
+   bool32 blocking = notification == SPLINTERDB_NOTIFICATION_BLOCKING;
+   splinterdb_notification *completion = notification;
+   if (blocking) {
+      platform_status status =
+         notification_create_blocking(kvs->heap_id, &completion);
+      if (!SUCCESS(status)) {
+         return platform_status_to_int(status);
+      }
+   } else if (notification == SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET) {
+      // Internal NULL means there is no completion recipient.
+      completion = NULL;
+   }
+
    splinterdb_stats_read_lock(kvs);
    platform_status status = core_optimize(
-      &kvs->spl, min_key, max_key, full_leaf_compactions, notification);
+      &kvs->spl, min_key, max_key, full_leaf_compactions, completion);
    splinterdb_stats_read_unlock(kvs);
    if (!SUCCESS(status)) {
+      if (blocking) {
+         // Rejected submission never acquired the completion reference.
+         notification_release_blocking(completion);
+         notification_release_blocking(completion);
+      }
       return platform_status_to_int(status);
    }
 
-   if (splinterdb_notification_is_blocking(notification)) {
-      return splinterdb_notification_wait(kvs, notification);
+   if (blocking) {
+      rc = splinterdb_notification_wait(kvs, completion);
+      // Completion may still be pending after a wait error. Its reference
+      // retains the object even after this caller releases its ownership.
+      notification_release_blocking(completion);
+      return rc;
    }
-
    return 0;
 }
 
 int
-splinterdb_durable_barrier(splinterdb *kvs)
+splinterdb_durable_barrier(splinterdb              *kvs,
+                           splinterdb_notification *notification)
 {
    int rc = splinterdb_ensure_thread_registered();
    if (rc != 0) {
@@ -1099,7 +1123,15 @@ splinterdb_durable_barrier(splinterdb *kvs)
 
    platform_assert(kvs != NULL);
    splinterdb_stats_read_lock(kvs);
-   platform_status status = core_durable_barrier(&kvs->spl);
+   platform_status status;
+   if (notification == SPLINTERDB_NOTIFICATION_BLOCKING) {
+      status = core_durable_barrier(&kvs->spl);
+   } else {
+      splinterdb_notification *completion =
+         notification == SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET ? NULL
+                                                                 : notification;
+      status = core_durable_barrier_async(&kvs->spl, completion);
+   }
    splinterdb_stats_read_unlock(kvs);
    return platform_status_to_int(status);
 }
@@ -1151,7 +1183,57 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
                                      slice      user_start_key        // IN
 )
 {
-   if (!splinterdb_iterator_min_comparison_is_valid(min_key_comparison)
+   return splinterdb_iterator_init_with_bounds_and_filter(kvs,
+                                                          iter,
+                                                          min_key_comparison,
+                                                          user_min_key,
+                                                          max_key_comparison,
+                                                          user_max_key,
+                                                          start_key_comparison,
+                                                          user_start_key,
+                                                          NULL,
+                                                          NULL,
+                                                          NULL_SLICE);
+}
+
+int
+splinterdb_iterator_init_with_filter(splinterdb           *kvs,
+                                     splinterdb_iterator **iter,
+                                     comparison            start_key_comparison,
+                                     slice                 user_start_key,
+                                     splinterdb_key_predicate predicate,
+                                     void                    *predicate_context,
+                                     slice routing_filter_key)
+{
+   return splinterdb_iterator_init_with_bounds_and_filter(kvs,
+                                                          iter,
+                                                          greater_than_or_equal,
+                                                          NULL_SLICE,
+                                                          less_than,
+                                                          NULL_SLICE,
+                                                          start_key_comparison,
+                                                          user_start_key,
+                                                          predicate,
+                                                          predicate_context,
+                                                          routing_filter_key);
+}
+
+int
+splinterdb_iterator_init_with_bounds_and_filter(
+   splinterdb              *kvs,
+   splinterdb_iterator    **iter,
+   comparison               min_key_comparison,
+   slice                    user_min_key,
+   comparison               max_key_comparison,
+   slice                    user_max_key,
+   comparison               start_key_comparison,
+   slice                    user_start_key,
+   splinterdb_key_predicate predicate,
+   void                    *predicate_context,
+   slice                    routing_filter_key)
+{
+   if ((predicate == NULL && !slice_is_null(routing_filter_key))
+       || !splinterdb_iterator_min_comparison_is_valid(min_key_comparison)
        || !splinterdb_iterator_max_comparison_is_valid(max_key_comparison))
    {
       return platform_status_to_int(STATUS_BAD_PARAM);
@@ -1194,14 +1276,18 @@ splinterdb_iterator_init_with_bounds(splinterdb           *kvs,       // IN
       start_key = key_create_from_slice(TRUE, user_start_key);
    }
 
-   platform_status rc = core_range_iterator_init(&kvs->spl,
-                                                 range_itor,
-                                                 min_key_comparison,
-                                                 min_key,
-                                                 max_key_comparison,
-                                                 max_key,
-                                                 start_key_comparison,
-                                                 start_key);
+   platform_status rc = core_range_iterator_init_with_filter(
+      &kvs->spl,
+      range_itor,
+      min_key_comparison,
+      min_key,
+      max_key_comparison,
+      max_key,
+      start_key_comparison,
+      start_key,
+      predicate,
+      predicate_context,
+      key_create_from_slice(TRUE, routing_filter_key));
    if (!SUCCESS(rc)) {
       merge_accumulator_deinit(&it->materialized_message);
       platform_free(kvs->spl.heap_id, it);
