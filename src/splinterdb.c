@@ -1157,11 +1157,9 @@ splinterdb_iterator_max_comparison_is_valid(comparison cmp)
 
 int
 splinterdb_iterator_init_full(
-   splinterdb                             *kvs,                  // IN
-   splinterdb_iterator                   **iter,                 // OUT
-   comparison                              start_key_comparison, // IN
-   slice                                   user_start_key,       // IN
-   const splinterdb_iterator_init_options *options               // IN
+   splinterdb                             *kvs,    // IN
+   splinterdb_iterator                   **iter,   // OUT
+   const splinterdb_iterator_init_options *options // IN
 )
 {
    if (options == NULL
@@ -1169,18 +1167,23 @@ splinterdb_iterator_init_full(
    {
       return platform_status_to_int(STATUS_BAD_PARAM);
    }
-   slice                    user_min_key       = options->min_key;
-   slice                    user_max_key       = options->max_key;
+   slice                    user_min_key         = options->lower_limit.key;
+   slice                    user_max_key         = options->upper_limit.key;
+   slice                    user_start_key       = options->start_position.key;
    splinterdb_key_predicate predicate          = options->predicate;
    void                    *predicate_context  = options->predicate_context;
    slice                    routing_filter_key = options->routing_filter_key;
    comparison               min_key_comparison = greater_than_or_equal;
    comparison               max_key_comparison = less_than;
-   if (!slice_is_null(user_min_key)) {
-      min_key_comparison = options->min_key_comparison;
+   comparison               start_key_comparison = greater_than_or_equal;
+   if (options->lower_limit.present) {
+      min_key_comparison = options->lower_limit.cmp;
    }
-   if (!slice_is_null(user_max_key)) {
-      max_key_comparison = options->max_key_comparison;
+   if (options->upper_limit.present) {
+      max_key_comparison = options->upper_limit.cmp;
+   }
+   if (options->start_position.present) {
+      start_key_comparison = options->start_position.cmp;
    }
 
    if ((predicate == NULL && !slice_is_null(routing_filter_key))

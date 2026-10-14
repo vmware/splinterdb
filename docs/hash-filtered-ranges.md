@@ -9,8 +9,8 @@ update leaves the previously tested implementation unchanged; see the
 `splinterdb_iterator_init()` accepts optional designated-initializer
 parameters (see `splinterdb_iterator_init_options`). The filter parameters are
 `.predicate` (a `splinterdb_key_predicate`), `.predicate_context` (a `void *`),
-and `.routing_filter_key` (a `slice`); they combine freely with the `.min_key`,
-`.min_key_comparison`, `.max_key` and `.max_key_comparison` bounds parameters.
+and `.routing_filter_key` (a `slice`); they combine freely with the `.lower_limit`,
+`.upper_limit` and `.start_position` parameters.
 There is no new `data_config` callback.
 
 | Predicate | Routing-filter key | Behavior |

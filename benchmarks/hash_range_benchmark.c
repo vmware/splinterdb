@@ -108,8 +108,8 @@ run_queries(splinterdb    *db,
       check(splinterdb_iterator_init(
          db,
          &it,
-         greater_than_or_equal,
-         slice_create(sizeof(key), key),
+         .start_position =
+            splinterdb_start_at_or_after(slice_create(sizeof(key), key)),
          .predicate          = tenant_matches,
          .predicate_context  = filter,
          .routing_filter_key = strcmp(mode, "pruned") == 0
@@ -117,7 +117,10 @@ run_queries(splinterdb    *db,
                                   : NULL_SLICE));
 #else
       check(splinterdb_iterator_init(
-         db, &it, greater_than_or_equal, slice_create(sizeof(key), key)));
+         db,
+         &it,
+         .start_position =
+            splinterdb_start_at_or_after(slice_create(sizeof(key), key))));
 #endif
       int count = 0;
       while (splinterdb_iterator_valid(it)) {

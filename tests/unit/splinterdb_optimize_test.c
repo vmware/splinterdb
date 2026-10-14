@@ -490,8 +490,7 @@ static void
 verify_full_scan(splinterdb *kvsb, uint32 num_keys)
 {
    splinterdb_iterator *itor = NULL;
-   int                  rc =
-      splinterdb_iterator_init(kvsb, &itor, greater_than_or_equal, NULL_SLICE);
+   int                  rc   = splinterdb_iterator_init(kvsb, &itor);
    ASSERT_EQUAL(0, rc);
 
    for (uint32 key_no = 0; key_no < num_keys; key_no++) {

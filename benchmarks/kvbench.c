@@ -758,8 +758,11 @@ warm_worker(void *arg)
    make_key(2 * lo, key);
    wait_start();
    splinterdb_iterator *it;
-   int                  rc = splinterdb_iterator_init(
-      kvs, &it, greater_than_or_equal, slice_create(KEY_SIZE, key));
+   int                  rc =
+      splinterdb_iterator_init(kvs,
+                               &it,
+                               .start_position = splinterdb_start_at_or_after(
+                                  slice_create(KEY_SIZE, key)));
    if (rc) {
       w->errors++;
       fprintf(stderr, "ERROR: warm iterator_init rc=%d\n", rc);
@@ -906,7 +909,10 @@ range_worker(void *arg)
       uint64_t             t0 = now_ns(), t1 = 0, tl = 0;
       splinterdb_iterator *it;
       int                  rc = splinterdb_iterator_init(
-         kvs, &it, greater_than_or_equal, slice_create(KEY_SIZE, key));
+         kvs,
+         &it,
+         .start_position =
+            splinterdb_start_at_or_after(slice_create(KEY_SIZE, key)));
       if (rc) {
          w->errors++;
          if (w->errors <= 3) {

@@ -368,9 +368,7 @@ CTEST2(splinterdb_quick, test_async_durable_barrier_notifications)
          splinterdb_notification_deinit(&closing);
          ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
          splinterdb_iterator *it;
-         ASSERT_EQUAL(0,
-                      splinterdb_iterator_init(
-                         data->kvsb, &it, greater_than_or_equal, NULL_SLICE));
+         ASSERT_EQUAL(0, splinterdb_iterator_init(data->kvsb, &it));
          for (uint64 i = 0; i < 512; i++) {
             ASSERT_TRUE(splinterdb_iterator_valid(it));
             ASSERT_EQUAL(0, check_current_tuple(it, i));
@@ -1112,8 +1110,7 @@ CTEST2(splinterdb_quick, test_iterator_survives_memtable_recycle)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_iterator *it = NULL;
-   rc                      = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   rc                      = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_iterator_valid(it));
 
@@ -2262,8 +2259,7 @@ CTEST2(splinterdb_quick, test_basic_iterator)
 
    splinterdb_iterator *it = NULL;
 
-   rc = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   rc = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
 
    for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
@@ -2286,8 +2282,7 @@ CTEST2(splinterdb_quick, test_iterator_delete_current)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_iterator *it = NULL;
-   rc                      = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   rc                      = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
 
    int num_deleted = 0;
@@ -2331,8 +2326,7 @@ CTEST2(splinterdb_quick, test_iterator_delete_current)
 CTEST2(splinterdb_quick, test_empty_iterator)
 {
    splinterdb_iterator *it = NULL;
-   int                  rc = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   int                  rc = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
 
    ASSERT_FALSE(splinterdb_iterator_valid(it));
@@ -2408,14 +2402,11 @@ CTEST2(splinterdb_quick, test_bounded_iterator)
                                         ARRAY_SIZE(singleton));
    ASSERT_EQUAL(0, rc);
 
-   rc = splinterdb_iterator_init(data->kvsb,
-                                 NULL,
-                                 greater_than_or_equal,
-                                 NULL_SLICE,
-                                 .min_key_comparison = less_than,
-                                 .min_key            = min,
-                                 .max_key_comparison = less_than_or_equal,
-                                 .max_key            = max);
+   rc = splinterdb_iterator_init(
+      data->kvsb,
+      NULL,
+      .lower_limit = splinterdb_make_lower_limit(less_than, min),
+      .upper_limit = splinterdb_less_than_or_equal(max));
    ASSERT_EQUAL(EINVAL, rc);
 }
 
@@ -2628,8 +2619,10 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_startkey)
       // Initialize the i'th key
       snprintf(key, sizeof(key), key_fmt, ictr);
       slice start_key = slice_create(strlen(key), key);
-      rc              = splinterdb_iterator_init(
-         data->kvsb, &it, greater_than_or_equal, start_key);
+      rc              = splinterdb_iterator_init(data->kvsb,
+                                    &it,
+                                    .start_position =
+                                       splinterdb_start_at_or_after(start_key));
       ASSERT_EQUAL(0, rc);
 
       bool32 is_valid = splinterdb_iterator_valid(it);
@@ -2663,8 +2656,10 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
    char *keystring = "unknownKey";
 
    slice start_key = slice_create(strlen(keystring), keystring);
-   rc              = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, start_key);
+   rc              = splinterdb_iterator_init(data->kvsb,
+                                 &it,
+                                 .start_position =
+                                    splinterdb_start_at_or_after(start_key));
 
    // Iterator should be invalid, as lookup key is non-existent.
    bool32 is_valid = splinterdb_iterator_valid(it);
@@ -2677,8 +2672,10 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
    // before 'key...', which is what key's format is.)
    keystring = "UnknownKey";
    start_key = slice_create(strlen(keystring), keystring);
-   rc        = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, start_key);
+   rc        = splinterdb_iterator_init(data->kvsb,
+                                 &it,
+                                 .start_position =
+                                    splinterdb_start_at_or_after(start_key));
    ASSERT_EQUAL(0, rc);
 
    int ictr = 0;
@@ -2731,8 +2728,10 @@ CTEST2(splinterdb_quick,
 
    splinterdb_iterator *it        = NULL;
    slice                start_key = slice_create(strlen(key), key);
-   rc                             = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, start_key);
+   rc                             = splinterdb_iterator_init(data->kvsb,
+                                 &it,
+                                 .start_position =
+                                    splinterdb_start_at_or_after(start_key));
    ASSERT_EQUAL(0, rc);
 
    bool32 is_valid = splinterdb_iterator_valid(it);
@@ -2751,8 +2750,10 @@ CTEST2(splinterdb_quick,
 
    snprintf(key, sizeof(key), key_fmt, kctr);
    start_key = slice_create(strlen(key), key);
-   rc        = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, start_key);
+   rc        = splinterdb_iterator_init(data->kvsb,
+                                 &it,
+                                 .start_position =
+                                    splinterdb_start_at_or_after(start_key));
    ASSERT_EQUAL(0, rc);
 
    is_valid = splinterdb_iterator_valid(it);
@@ -2770,8 +2771,10 @@ CTEST2(splinterdb_quick,
    kctr = 5;
    snprintf(key, sizeof(key), key_fmt, kctr);
    start_key = slice_create(strlen(key), key);
-   rc        = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, start_key);
+   rc        = splinterdb_iterator_init(data->kvsb,
+                                 &it,
+                                 .start_position =
+                                    splinterdb_start_at_or_after(start_key));
    ASSERT_EQUAL(0, rc);
 
    is_valid = splinterdb_iterator_valid(it);
@@ -2789,8 +2792,10 @@ CTEST2(splinterdb_quick,
    kctr = minkey + 3 * num_inserts;
    snprintf(key, sizeof(key), key_fmt, kctr);
    start_key = slice_create(strlen(key), key);
-   rc        = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, start_key);
+   rc        = splinterdb_iterator_init(data->kvsb,
+                                 &it,
+                                 .start_position =
+                                    splinterdb_start_at_or_after(start_key));
    ASSERT_EQUAL(0, rc);
 
    is_valid = splinterdb_iterator_valid(it);
@@ -2848,8 +2853,7 @@ CTEST2(splinterdb_quick, test_iterator_reversal_on_key_in_two_branches)
    insert_string_kv(data->kvsb, "c", "c1");
 
    splinterdb_iterator *it = NULL;
-   int                  rc = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   int                  rc = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
 
    check_current_string_kv(it, "a", "a0");
@@ -2890,8 +2894,7 @@ CTEST2(splinterdb_quick, test_iterator_reversal_with_three_branches)
    insert_string_kv(data->kvsb, "d", "d2");
 
    splinterdb_iterator *it = NULL;
-   int                  rc = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   int                  rc = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
 
    check_current_string_kv(it, "a", "a2");
@@ -3685,8 +3688,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_iterator *it = NULL;
-   rc                      = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   rc                      = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
 
    int i = 0;
@@ -3728,8 +3730,7 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
 
    // Iterator init should find nothing when no keys were inserted, yet.
    splinterdb_iterator *it = NULL;
-   rc                      = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   rc                      = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
 
    bool32 iter_valid = splinterdb_iterator_valid(it);
@@ -3743,8 +3744,7 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
    ASSERT_EQUAL(0, rc);
 
    it = NULL;
-   rc = splinterdb_iterator_init(
-      data->kvsb, &it, greater_than_or_equal, NULL_SLICE);
+   rc = splinterdb_iterator_init(data->kvsb, &it);
    ASSERT_EQUAL(0, rc);
 
    iter_valid = splinterdb_iterator_valid(it);
@@ -4070,14 +4070,12 @@ check_bounded_iterator_sequence(splinterdb *kvsb,
                                 uint64      expected_count)
 {
    splinterdb_iterator *it = NULL;
-   int                  rc = splinterdb_iterator_init(kvsb,
-                                     &it,
-                                     start_type,
-                                     NULL_SLICE,
-                                     .min_key_comparison = min_key_comparison,
-                                     .min_key = min_key,
-                                     .max_key_comparison = max_key_comparison,
-                                     .max_key = max_key);
+   int                  rc = splinterdb_iterator_init(
+      kvsb,
+      &it,
+      .lower_limit = splinterdb_make_lower_limit(min_key_comparison, min_key),
+      .upper_limit = splinterdb_make_upper_limit(max_key_comparison, max_key),
+      .start_position = splinterdb_make_start_position(start_type, NULL_SLICE));
    ASSERT_EQUAL(0, rc);
 
    for (uint64 i = 0; i < expected_count; i++) {
@@ -4109,14 +4107,13 @@ check_bounded_iterator_current_from_start(splinterdb *kvsb,
                                           int         expected_i)
 {
    splinterdb_iterator *it = NULL;
-   int                  rc = splinterdb_iterator_init(kvsb,
-                                     &it,
-                                     start_key_comparison,
-                                     start_key,
-                                     .min_key_comparison = min_key_comparison,
-                                     .min_key = min_key,
-                                     .max_key_comparison = max_key_comparison,
-                                     .max_key = max_key);
+   int                  rc = splinterdb_iterator_init(
+      kvsb,
+      &it,
+      .lower_limit = splinterdb_make_lower_limit(min_key_comparison, min_key),
+      .upper_limit = splinterdb_make_upper_limit(max_key_comparison, max_key),
+      .start_position =
+         splinterdb_make_start_position(start_key_comparison, start_key));
    ASSERT_EQUAL(0, rc);
 
    ASSERT_TRUE(splinterdb_iterator_valid(it));
@@ -4141,14 +4138,13 @@ check_bounded_iterator_boundary_from_start(splinterdb *kvsb,
                                            int         expected_i)
 {
    splinterdb_iterator *it = NULL;
-   int                  rc = splinterdb_iterator_init(kvsb,
-                                     &it,
-                                     start_key_comparison,
-                                     start_key,
-                                     .min_key_comparison = min_key_comparison,
-                                     .min_key = min_key,
-                                     .max_key_comparison = max_key_comparison,
-                                     .max_key = max_key);
+   int                  rc = splinterdb_iterator_init(
+      kvsb,
+      &it,
+      .lower_limit = splinterdb_make_lower_limit(min_key_comparison, min_key),
+      .upper_limit = splinterdb_make_upper_limit(max_key_comparison, max_key),
+      .start_position =
+         splinterdb_make_start_position(start_key_comparison, start_key));
    ASSERT_EQUAL(0, rc);
 
    ASSERT_FALSE(splinterdb_iterator_valid(it));
@@ -4186,7 +4182,8 @@ test_two_step_iterator(splinterdb *kvsb,
 {
    int                  rc;
    splinterdb_iterator *it = NULL;
-   rc = splinterdb_iterator_init(kvsb, &it, greater_than_or_equal, start_key);
+   rc                      = splinterdb_iterator_init(
+      kvsb, &it, .start_position = splinterdb_start_at_or_after(start_key));
    ASSERT_EQUAL(0, rc);
 
    for (int i = start_i; i < num_keys; i++) {
@@ -4337,8 +4334,9 @@ CTEST2(splinterdb_quick, test_filtered_range_merges_only_matching_keys)
                    splinterdb_iterator_init(
                       data->kvsb,
                       &it,
-                      forwards ? greater_than_or_equal : less_than_or_equal,
-                      NULL_SLICE,
+                      .start_position = splinterdb_make_start_position(
+                         forwards ? greater_than_or_equal : less_than_or_equal,
+                         NULL_SLICE),
                       .predicate          = range_tenant_matches,
                       .predicate_context  = &tenant,
                       .routing_filter_key = slice_create(1, "a")));
@@ -4379,17 +4377,14 @@ CTEST2(splinterdb_quick, test_filtered_range_merges_only_matching_keys)
    splinterdb_iterator *it = NULL;
    ASSERT_EQUAL(
       0,
-      splinterdb_iterator_init(data->kvsb,
-                               &it,
-                               greater_than_or_equal,
-                               NULL_SLICE,
-                               .min_key_comparison = greater_than,
-                               .min_key            = slice_create(2, "0a"),
-                               .max_key_comparison = less_than,
-                               .max_key            = slice_create(2, "3a"),
-                               .predicate          = range_tenant_matches,
-                               .predicate_context  = &tenant,
-                               .routing_filter_key = slice_create(1, "a")));
+      splinterdb_iterator_init(
+         data->kvsb,
+         &it,
+         .lower_limit        = splinterdb_greater_than(slice_create(2, "0a")),
+         .upper_limit        = splinterdb_less_than(slice_create(2, "3a")),
+         .predicate          = range_tenant_matches,
+         .predicate_context  = &tenant,
+         .routing_filter_key = slice_create(1, "a")));
    check_current_string_kv(it, "2a", "3");
    splinterdb_iterator_next(it);
    ASSERT_FALSE(splinterdb_iterator_valid(it));
@@ -4402,8 +4397,6 @@ CTEST2(splinterdb_quick, test_filtered_range_merges_only_matching_keys)
       0,
       splinterdb_iterator_init(data->kvsb,
                                &it,
-                               greater_than_or_equal,
-                               NULL_SLICE,
                                .predicate          = range_tenant_matches,
                                .predicate_context  = &tenant,
                                .routing_filter_key = slice_create(1, "z")));
@@ -4413,8 +4406,6 @@ CTEST2(splinterdb_quick, test_filtered_range_merges_only_matching_keys)
    ASSERT_EQUAL(0,
                 splinterdb_iterator_init(data->kvsb,
                                          &it,
-                                         greater_than_or_equal,
-                                         NULL_SLICE,
                                          .predicate          = NULL,
                                          .predicate_context  = NULL,
                                          .routing_filter_key = NULL_SLICE));
@@ -4485,8 +4476,9 @@ CTEST2(splinterdb_quick, test_filtered_range_crosses_empty_trunk_leaves)
          splinterdb_iterator_init(
             data->kvsb,
             &it,
-            forwards ? greater_than_or_equal : less_than_or_equal,
-            NULL_SLICE,
+            .start_position = splinterdb_make_start_position(
+               forwards ? greater_than_or_equal : less_than_or_equal,
+               NULL_SLICE),
             .predicate          = range_sparse_matches,
             .predicate_context  = &no_match,
             .routing_filter_key = slice_create(sizeof(hash_key), &hash_key)));
@@ -4518,8 +4510,9 @@ CTEST2(splinterdb_quick, test_filtered_range_crosses_empty_trunk_leaves)
          splinterdb_iterator_init(
             data->kvsb,
             &it,
-            forwards ? greater_than_or_equal : less_than_or_equal,
-            NULL_SLICE,
+            .start_position = splinterdb_make_start_position(
+               forwards ? greater_than_or_equal : less_than_or_equal,
+               NULL_SLICE),
             .predicate          = range_sparse_matches,
             .predicate_context  = &no_match,
             .routing_filter_key = slice_create(sizeof(hash_key), &hash_key)));
@@ -4645,23 +4638,22 @@ range_mixed_seed_check_scan(splinterdb *db,
    splinterdb_iterator *it            = NULL;
    range_mixed_seed_seen              = 0;
    range_mixed_seed_track             = TRUE;
-   ASSERT_EQUAL(0,
-                splinterdb_iterator_init(
-                   db,
-                   &it,
-                   forwards ? greater_than_or_equal : less_than_or_equal,
-                   NULL_SLICE,
-                   .min_key_comparison = greater_than,
-                   .min_key = bounded ? range_mixed_seed_key(lower, low, 'a')
-                                      : NULL_SLICE,
-                   .max_key_comparison = less_than,
-                   .max_key   = bounded ? range_mixed_seed_key(upper, high, 'a')
-                                        : NULL_SLICE,
-                   .predicate = range_tenant_matches,
-                   .predicate_context = &tenant,
-                   .routing_filter_key =
-                      pruned ? slice_create(sizeof(routing_key), routing_key)
-                             : NULL_SLICE));
+   ASSERT_EQUAL(
+      0,
+      splinterdb_iterator_init(
+         db,
+         &it,
+         .lower_limit = splinterdb_greater_than(
+            bounded ? range_mixed_seed_key(lower, low, 'a') : NULL_SLICE),
+         .upper_limit = splinterdb_less_than(
+            bounded ? range_mixed_seed_key(upper, high, 'a') : NULL_SLICE),
+         .start_position = splinterdb_make_start_position(
+            forwards ? greater_than_or_equal : less_than_or_equal, NULL_SLICE),
+         .predicate         = range_tenant_matches,
+         .predicate_context = &tenant,
+         .routing_filter_key =
+            pruned ? slice_create(sizeof(routing_key), routing_key)
+                   : NULL_SLICE));
    const uint32 initial_seed_mask = range_mixed_seed_seen;
    /* The iterator must retain its own routing key for later saved seeds.
     * a and b collide under seed 11, but differ under seed 22. */
@@ -4839,8 +4831,6 @@ CTEST2(splinterdb_quick, test_filtered_range_predicate_only_and_bounds)
    ASSERT_EQUAL(0,
                 splinterdb_iterator_init(data->kvsb,
                                          &it,
-                                         greater_than_or_equal,
-                                         NULL_SLICE,
                                          .predicate = range_digit_matches,
                                          .predicate_context  = &digits,
                                          .routing_filter_key = NULL_SLICE));
@@ -4862,14 +4852,15 @@ CTEST2(splinterdb_quick, test_filtered_range_predicate_only_and_bounds)
     * predicate must visit every branch, including the current memtable. */
    for (int forwards = 0; forwards < 2; forwards++) {
       ASSERT_EQUAL(0,
-                   splinterdb_iterator_init(data->kvsb,
-                                            &it,
-                                            forwards ? greater_than_or_equal
-                                                     : less_than_or_equal,
-                                            NULL_SLICE,
-                                            .predicate = range_digit_matches,
-                                            .predicate_context  = &digits,
-                                            .routing_filter_key = NULL_SLICE));
+                   splinterdb_iterator_init(
+                      data->kvsb,
+                      &it,
+                      .start_position = splinterdb_make_start_position(
+                         forwards ? greater_than_or_equal : less_than_or_equal,
+                         NULL_SLICE),
+                      .predicate          = range_digit_matches,
+                      .predicate_context  = &digits,
+                      .routing_filter_key = NULL_SLICE));
       for (int i = 0; i < 5; i++) {
          char expected[] = {(forwards ? 1 + 2 * i : 9 - 2 * i) + '0', 0};
          check_current_string_kv(it, expected, "v");
@@ -4883,19 +4874,19 @@ CTEST2(splinterdb_quick, test_filtered_range_predicate_only_and_bounds)
       ASSERT_EQUAL(0, splinterdb_iterator_status(it));
       splinterdb_iterator_deinit(it);
 
-      ASSERT_EQUAL(0,
-                   splinterdb_iterator_init(data->kvsb,
-                                            &it,
-                                            forwards ? greater_than_or_equal
-                                                     : less_than_or_equal,
-                                            NULL_SLICE,
-                                            .min_key_comparison = greater_than,
-                                            .min_key = slice_create(1, "1"),
-                                            .max_key_comparison = less_than,
-                                            .max_key   = slice_create(1, "9"),
-                                            .predicate = range_digit_matches,
-                                            .predicate_context  = &digits,
-                                            .routing_filter_key = NULL_SLICE));
+      ASSERT_EQUAL(
+         0,
+         splinterdb_iterator_init(
+            data->kvsb,
+            &it,
+            .lower_limit    = splinterdb_greater_than(slice_create(1, "1")),
+            .upper_limit    = splinterdb_less_than(slice_create(1, "9")),
+            .start_position = splinterdb_make_start_position(
+               forwards ? greater_than_or_equal : less_than_or_equal,
+               NULL_SLICE),
+            .predicate          = range_digit_matches,
+            .predicate_context  = &digits,
+            .routing_filter_key = NULL_SLICE));
       for (int i = 0; i < 3; i++) {
          char expected[] = {(forwards ? 3 + 2 * i : 7 - 2 * i) + '0', 0};
          check_current_string_kv(it, expected, "v");
@@ -4919,14 +4910,16 @@ CTEST2(splinterdb_quick, test_filtered_range_predicate_only_and_bounds)
       ASSERT_EQUAL(0, splinterdb_iterator_status(it));
       splinterdb_iterator_deinit(it);
 
-      ASSERT_EQUAL(0,
-                   splinterdb_iterator_init(data->kvsb,
-                                            &it,
-                                            forwards ? greater_than : less_than,
-                                            slice_create(1, "5"),
-                                            .predicate = range_digit_matches,
-                                            .predicate_context  = &digits,
-                                            .routing_filter_key = NULL_SLICE));
+      ASSERT_EQUAL(
+         0,
+         splinterdb_iterator_init(
+            data->kvsb,
+            &it,
+            .start_position = splinterdb_make_start_position(
+               forwards ? greater_than : less_than, slice_create(1, "5")),
+            .predicate          = range_digit_matches,
+            .predicate_context  = &digits,
+            .routing_filter_key = NULL_SLICE));
       check_current_string_kv(it, forwards ? "7" : "3", "v");
       ASSERT_EQUAL(0, splinterdb_iterator_status(it));
       splinterdb_iterator_deinit(it);
@@ -4938,8 +4931,6 @@ CTEST2(splinterdb_quick, test_filtered_range_predicate_only_and_bounds)
    ASSERT_EQUAL(0,
                 splinterdb_iterator_init(data->kvsb,
                                          &it,
-                                         greater_than_or_equal,
-                                         NULL_SLICE,
                                          .predicate = range_digit_matches,
                                          .predicate_context  = &digits,
                                          .routing_filter_key = NULL_SLICE));
@@ -4952,25 +4943,19 @@ CTEST2(splinterdb_quick, test_filtered_range_predicate_only_and_bounds)
       EINVAL,
       splinterdb_iterator_init(data->kvsb,
                                &it,
-                               greater_than_or_equal,
-                               NULL_SLICE,
                                .predicate          = NULL,
                                .predicate_context  = NULL,
                                .routing_filter_key = slice_create(1, "1")));
    ASSERT_NULL(it);
-   ASSERT_EQUAL(
-      EINVAL,
-      splinterdb_iterator_init(data->kvsb,
-                               &it,
-                               greater_than_or_equal,
-                               NULL_SLICE,
-                               .min_key_comparison = greater_than_or_equal,
-                               .min_key            = NULL_SLICE,
-                               .max_key_comparison = less_than_or_equal,
-                               .max_key            = NULL_SLICE,
-                               .predicate          = NULL,
-                               .predicate_context  = NULL,
-                               .routing_filter_key = slice_create(1, "1")));
+   ASSERT_EQUAL(EINVAL,
+                splinterdb_iterator_init(
+                   data->kvsb,
+                   &it,
+                   .lower_limit = splinterdb_greater_than_or_equal(NULL_SLICE),
+                   .upper_limit = splinterdb_less_than_or_equal(NULL_SLICE),
+                   .predicate   = NULL,
+                   .predicate_context  = NULL,
+                   .routing_filter_key = slice_create(1, "1")));
    ASSERT_NULL(it);
 }
 
@@ -4998,8 +4983,6 @@ CTEST2(splinterdb_quick, test_filtered_range_propagates_matching_merge_errors)
    ASSERT_EQUAL(0,
                 splinterdb_iterator_init(data->kvsb,
                                          &it,
-                                         greater_than_or_equal,
-                                         NULL_SLICE,
                                          .predicate = range_tenant_matches,
                                          .predicate_context  = &tenant,
                                          .routing_filter_key = NULL_SLICE));
@@ -5011,13 +4994,13 @@ CTEST2(splinterdb_quick, test_filtered_range_propagates_matching_merge_errors)
 
    it = NULL;
    ASSERT_EQUAL(ENOMEM,
-                splinterdb_iterator_init(data->kvsb,
-                                         &it,
-                                         less_than_or_equal,
-                                         NULL_SLICE,
-                                         .predicate = range_tenant_matches,
-                                         .predicate_context  = &tenant,
-                                         .routing_filter_key = NULL_SLICE));
+                splinterdb_iterator_init(
+                   data->kvsb,
+                   &it,
+                   .start_position = splinterdb_start_at_or_before(NULL_SLICE),
+                   .predicate      = range_tenant_matches,
+                   .predicate_context  = &tenant,
+                   .routing_filter_key = NULL_SLICE));
    ASSERT_NULL(it);
    /* Restore a successful finalizer before the fixture closes the database. */
    data->default_data_cfg.super.merge_tuples_final = hash_range_finalize;
@@ -5037,8 +5020,6 @@ filtered_iterator_handoff_create(void *context)
    char                       pruning_key[] = "a";
    handoff->rc = splinterdb_iterator_init(handoff->db,
                                           &handoff->itor,
-                                          greater_than_or_equal,
-                                          NULL_SLICE,
                                           .predicate = range_tenant_matches,
                                           .predicate_context = &handoff->tenant,
                                           .routing_filter_key =
@@ -5123,8 +5104,7 @@ static void *
 iterator_handoff_create_and_exit(void *arg)
 {
    iterator_handoff *handoff = arg;
-   handoff->rc               = splinterdb_iterator_init(
-      handoff->db, &handoff->itor, greater_than_or_equal, NULL_SLICE);
+   handoff->rc  = splinterdb_iterator_init(handoff->db, &handoff->itor);
    handoff->tid = platform_get_tid();
    return NULL;
 }
@@ -5169,10 +5149,7 @@ CTEST2(splinterdb_quick, test_iterator_thread_handoff)
          ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
       }
       iterator_handoff handoff = {.db = data->kvsb};
-      ASSERT_EQUAL(
-         0,
-         splinterdb_iterator_init(
-            data->kvsb, &handoff.itor, greater_than_or_equal, NULL_SLICE));
+      ASSERT_EQUAL(0, splinterdb_iterator_init(data->kvsb, &handoff.itor));
       pthread_t receiver;
       ASSERT_EQUAL(
          0,

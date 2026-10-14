@@ -545,7 +545,10 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
    splinterdb_iterator *iter       = NULL;
    timestamp            start_time = platform_get_timestamp();
    rc                              = splinterdb_iterator_init(
-      kvs, &iter, scan_benchmark_start_comparison(backwards_scan), NULL_SLICE);
+      kvs,
+      &iter,
+      .start_position = splinterdb_make_start_position(
+         scan_benchmark_start_comparison(backwards_scan), NULL_SLICE));
    if (rc != 0) {
       splinterdb_close(&kvs, FALSE);
       return rc;
@@ -686,8 +689,8 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
       rc                              = splinterdb_iterator_init(
          kvs,
          &iter,
-         scan_benchmark_start_comparison(backwards_scan),
-         start_key);
+         .start_position = splinterdb_make_start_position(
+            scan_benchmark_start_comparison(backwards_scan), start_key));
       if (rc != 0) {
          splinterdb_close(&kvs, FALSE);
          return rc;

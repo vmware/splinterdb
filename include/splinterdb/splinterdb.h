@@ -532,8 +532,7 @@ Known issue: a live iterator may block inserts and deletes from the same thread.
 Sample application code:
 
    splinterdb_iterator* it;
-   int rc = splinterdb_iterator_init(kvs, &it, greater_than_or_equal,
-                                     NULL_SLICE);
+   int rc = splinterdb_iterator_init(kvs, &it);
    if (rc != 0) { ... handle error ... }
 
    slice key, value;
@@ -572,26 +571,119 @@ typedef enum comparison {
 // the iterator.
 typedef bool (*splinterdb_key_predicate)(void *context, slice key);
 
+// A limit on the range an iterator returns. Build these with the helpers
+// below (splinterdb_greater_than, splinterdb_less_than_or_equal, ...) rather
+// than by hand. The zero value means "no limit". A limit whose key is
+// NULL_SLICE also means "no limit".
+typedef struct splinterdb_lower_limit {
+   bool       present;
+   comparison cmp; // greater_than or greater_than_or_equal
+   slice      key;
+} splinterdb_lower_limit;
+
+typedef struct splinterdb_upper_limit {
+   bool       present;
+   comparison cmp; // less_than or less_than_or_equal
+   slice      key;
+} splinterdb_upper_limit;
+
+// Where an iterator starts, and therefore which way it initially travels. The
+// zero value means "at or after the smallest key", i.e. a forward scan of the
+// whole range.
+typedef struct splinterdb_start_position {
+   bool       present;
+   comparison cmp;
+   slice      key;
+} splinterdb_start_position;
+
+// Lower limits: only return keys > key, or >= key.
+static inline splinterdb_lower_limit
+splinterdb_greater_than(slice key)
+{
+   return (splinterdb_lower_limit){true, greater_than, key};
+}
+static inline splinterdb_lower_limit
+splinterdb_greater_than_or_equal(slice key)
+{
+   return (splinterdb_lower_limit){true, greater_than_or_equal, key};
+}
+// Generic form, for when the comparison is only known at run time. Passing a
+// comparison other than greater_than/greater_than_or_equal makes
+// splinterdb_iterator_init fail with EINVAL.
+static inline splinterdb_lower_limit
+splinterdb_make_lower_limit(comparison cmp, slice key)
+{
+   return (splinterdb_lower_limit){true, cmp, key};
+}
+
+// Upper limits: only return keys < key, or <= key.
+static inline splinterdb_upper_limit
+splinterdb_less_than(slice key)
+{
+   return (splinterdb_upper_limit){true, less_than, key};
+}
+static inline splinterdb_upper_limit
+splinterdb_less_than_or_equal(slice key)
+{
+   return (splinterdb_upper_limit){true, less_than_or_equal, key};
+}
+// Generic form. Passing a comparison other than less_than/less_than_or_equal
+// makes splinterdb_iterator_init fail with EINVAL.
+static inline splinterdb_upper_limit
+splinterdb_make_upper_limit(comparison cmp, slice key)
+{
+   return (splinterdb_upper_limit){true, cmp, key};
+}
+
+// Start positions. The iterator starts at the closest key satisfying the
+// relation, and the relation also sets the initial direction (the first two
+// scan forward, the last two backward). If key is NULL_SLICE, the iterator
+// starts at the first key in the limits for the forward forms, and the last
+// key in the limits for the backward forms.
+static inline splinterdb_start_position
+splinterdb_start_at_or_after(slice key)
+{
+   return (splinterdb_start_position){true, greater_than_or_equal, key};
+}
+static inline splinterdb_start_position
+splinterdb_start_after(slice key)
+{
+   return (splinterdb_start_position){true, greater_than, key};
+}
+static inline splinterdb_start_position
+splinterdb_start_at_or_before(slice key)
+{
+   return (splinterdb_start_position){true, less_than_or_equal, key};
+}
+static inline splinterdb_start_position
+splinterdb_start_before(slice key)
+{
+   return (splinterdb_start_position){true, less_than, key};
+}
+// Generic form, for when the comparison is only known at run time.
+static inline splinterdb_start_position
+splinterdb_make_start_position(comparison cmp, slice key)
+{
+   return (splinterdb_start_position){true, cmp, key};
+}
+
 // Optional parameters for splinterdb_iterator_init. A zero-initialized options
 // struct (apart from struct_size) requests an ordinary unbounded, unfiltered
-// scan. Don't build one by hand; use the splinterdb_iterator_init macro below,
-// which sets struct_size and lets you name just the fields you need.
+// forward scan. Don't build one by hand; use the splinterdb_iterator_init
+// macro below, which sets struct_size and lets you name just the fields you
+// need.
 typedef struct splinterdb_iterator_init_options {
    // Set by the splinterdb_iterator_init macro. Lets future versions add
    // fields without breaking callers built against this one.
    size_t struct_size;
 
-   // Lower bound. If min_key is NULL_SLICE (the default) there is no lower
-   // bound and min_key_comparison is ignored. Otherwise min_key_comparison
-   // must be set to greater_than or greater_than_or_equal.
-   slice      min_key;
-   comparison min_key_comparison;
+   // Range limits. Default: unbounded.
+   splinterdb_lower_limit lower_limit;
+   splinterdb_upper_limit upper_limit;
 
-   // Upper bound. If max_key is NULL_SLICE (the default) there is no upper
-   // bound and max_key_comparison is ignored. Otherwise max_key_comparison
-   // must be set to less_than or less_than_or_equal.
-   slice      max_key;
-   comparison max_key_comparison;
+   // Where to start, and in which direction. Default: at or after the smallest
+   // key in the limits.
+   splinterdb_start_position start_position;
 
    // If non-NULL, the iterator returns only keys accepted by predicate.
    // A predicate without a routing_filter_key scans all branches in the range.
@@ -609,11 +701,7 @@ typedef struct splinterdb_iterator_init_options {
    slice routing_filter_key;
 } splinterdb_iterator_init_options;
 
-// Initialize a new iterator, starting at the given key.
-//
-// If start_key is NULL_SLICE, the iterator will start at:
-// - greater_than_or_equal / greater_than: the first key in bounds
-// - less_than_or_equal / less_than: the last key in bounds
+// Initialize a new iterator.
 //
 // Filtering runs before message merging; it does not change snapshot
 // isolation. Bounds, starting position, direction and errors follow the
@@ -621,37 +709,40 @@ typedef struct splinterdb_iterator_init_options {
 // not mutate the DB.
 int
 splinterdb_iterator_init_full(
-   splinterdb                             *kvs,        // IN
-   splinterdb_iterator                   **iter,       // OUT
-   comparison                              start_type, // IN
-   slice                                   start_key,  // IN
-   const splinterdb_iterator_init_options *options     // IN
+   splinterdb                             *kvs,    // IN
+   splinterdb_iterator                   **iter,   // OUT
+   const splinterdb_iterator_init_options *options // IN
 );
 
 // Convenience wrapper for splinterdb_iterator_init_full. After the required
 // arguments, optionally list any of the fields of
 // splinterdb_iterator_init_options as designated initializers:
 //
-//   splinterdb_iterator_init(kvs, &it, greater_than_or_equal, NULL_SLICE);
+//   // Forward scan of everything
+//   splinterdb_iterator_init(kvs, &it);
 //
-//   splinterdb_iterator_init(kvs, &it, greater_than_or_equal, start,
-//                            .min_key = lo,
-//                            .min_key_comparison = greater_than_or_equal,
-//                            .max_key = hi,
-//                            .max_key_comparison = less_than);
+//   // Forward scan of [lo, hi), starting at the first key >= start
+//   splinterdb_iterator_init(kvs, &it,
+//                            .lower_limit =
+//                            splinterdb_greater_than_or_equal(lo), .upper_limit
+//                            = splinterdb_less_than(hi), .start_position =
+//                            splinterdb_start_at_or_after(start));
 //
-//   splinterdb_iterator_init(kvs, &it, greater_than_or_equal, NULL_SLICE,
+//   // Backward scan from the end
+//   splinterdb_iterator_init(kvs, &it,
+//                            .start_position =
+//                            splinterdb_start_at_or_before(NULL_SLICE));
+//
+//   splinterdb_iterator_init(kvs, &it,
 //                            .predicate = my_pred,
 //                            .predicate_context = &ctx);
 //
 // Note that commas inside field values must be parenthesized as usual for
 // macro arguments.
-#define splinterdb_iterator_init(kvs, iter, start_type, start_key, ...)        \
+#define splinterdb_iterator_init(kvs, iter, ...)                               \
    splinterdb_iterator_init_full(                                              \
       (kvs),                                                                   \
       (iter),                                                                  \
-      (start_type),                                                            \
-      (start_key),                                                             \
       &(const splinterdb_iterator_init_options){                               \
          .struct_size = sizeof(splinterdb_iterator_init_options),              \
          __VA_ARGS__})
