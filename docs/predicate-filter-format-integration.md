@@ -1,8 +1,9 @@
 # Predicate filtering with saved routing-filter configuration
 
-The current `robj/filtered-ranges` PR candidate includes disk-format and the
-predicate API. The earlier companion branch at `36183807` supplied the
-integration code and regression tests now included here.
+The current `robj/filtered-ranges` PR candidate targets main `1d6ea2a3`, where
+disk-format landed as #689. The earlier companion branch at `36183807`
+supplied the predicate integration code and regression tests now included here.
+The update to main preserves the previously tested implementation exactly.
 
 The iterator initializers take three separate additional arguments: a
 `splinterdb_key_predicate`, its borrowed `void *` context, and an optional

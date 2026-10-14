@@ -1,0 +1,37 @@
+{
+  "files": {
+    "README.txt": {
+      "bytes": 3243,
+      "sha256": "164a93d1d6da75484d29705f8c7fc3a165cfa02107a98527f69ecef06f4cddcd"
+    },
+    "before.json": {
+      "bytes": 403,
+      "sha256": "42f2195b289034495932e42c6454c3eacbc37274f3475a6a9279119d740c6315"
+    },
+    "check.py": {
+      "bytes": 3745,
+      "sha256": "520430f8e74303529ed61a30c35e62ab74f6d5ecf907a380922508fd41f77a17"
+    },
+    "checks.json": {
+      "bytes": 2781,
+      "sha256": "6ed15e3046120344edc79ad77f29fd14b187a4656885dfe656e66014c30afe03"
+    },
+    "export.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "format.log": {
+      "bytes": 10,
+      "sha256": "d5fd02ecc18c8084e8bb7d4635f2b2bd59cbf1533ead8a11bf13d5ad4516d83b"
+    },
+    "pr-diff.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "working-diff.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "note": "Result logs, JSON and this inventory were added after the successful staged-source export; no source changes followed."
+}

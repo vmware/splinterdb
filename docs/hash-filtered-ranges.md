@@ -1,8 +1,10 @@
 # Predicate-filtered range queries
 
-The current `robj/filtered-ranges` PR candidate combines the predicate API with
-disk-format's persisted configuration. It includes main `0fa3bd6c`, disk-format
-`7a0c8171`, and the mixed-seed integration from `36183807`.
+The current `robj/filtered-ranges` PR candidate targets main `1d6ea2a3`, which
+includes disk-format (#689). It adds the predicate API and the mixed-seed
+integration from `36183807` on top of main's persisted configuration. The main
+update leaves the previously tested implementation unchanged; see the
+[main-update proof](../benchmarks/results-20261013/filtered-main-1d6ea2a3/README.txt).
 
 `splinterdb_iterator_init_with_filter()` and
 `splinterdb_iterator_init_with_bounds_and_filter()` append three separate
