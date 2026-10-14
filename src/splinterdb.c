@@ -206,7 +206,7 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
       cfg->prefetch_budget = CORE_DEFAULT_PREFETCH_BUDGET;
    }
    if (!cfg->log_group_size_pages) {
-      cfg->log_group_size_pages = MAX_THREADS;
+      cfg->log_group_size_pages = SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES;
    }
    if (!cfg->checkpoint_log_size_bytes) {
       /*

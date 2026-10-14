@@ -1,8 +1,8 @@
 # Automatic log-group durability
 
 `splinterdb_config.log_group_size_pages` sets a best-effort durability threshold
-for the current write-ahead log group. Zero selects `MAX_THREADS` pages (64 in
-this build); `UINT64_MAX` disables automatic barriers. This policy is separate
+for the current write-ahead log group. Zero selects 1024 pages (4 MiB with
+4 KiB pages); `UINT64_MAX` disables automatic barriers. This policy is separate
 from the existing log-size checkpoint policy. It has no effect with logging
 disabled, and it does not change the on-disk format.
 
@@ -71,11 +71,41 @@ These are means of three short samples per candidate on real disk, with
 interleaved main controls. Main provides no size-triggered durability. Control
 drift limits precise small differences: the disabled-policy follow-up reports
 -6.95% in its first ABBA round and -0.05% in its second, steadier round.
-The 64-page default retains a measured eight-writer cost; the 1024-page setting
-is close to controls in this workload. All 50 insertion runs passed API and
-clean-close checks, with correctness/recovery tested separately.
+The former 64-page default retains a measured eight-writer cost; the new
+1024-page default is close to controls in this workload. These measurements
+selected 1024 explicitly, before the default changed. All 50 insertion runs
+passed API and clean-close checks, with correctness/recovery tested separately.
 
 [Results, commands, hashes, and limitations](../benchmarks/results-20261013/log-async-main-fc0bc8f7/performance/README.txt)
+
+## PR validation with the 1024-page default
+
+The default is now 1024 in both public configuration normalization and internal
+log configuration. Debug and release each passed 101 unit cases (44 core,
+56 public API, and one process-exit test covering three data shapes), plus the
+functional log suite with 500,000/500,000 records replayed. The process-exit test
+uses blobs large enough to cross the new default and verifies every recovered
+value. Full source formatting and PR whitespace checks passed.
+
+A fresh 12-run screen compares the new default, explicit 1024, and main
+`fc0bc8f7`. Each policy has two ten-second samples per writer count, with main
+controls bracketing the candidates. The same harness, real-disk `O_DIRECT`
+storage, and serialized execution are used for all runs.
+
+| Writers | Default inserts/s | Change vs main | Change including close |
+| ---: | ---: | ---: | ---: |
+| 1 | 860,522 | -0.32% | -0.08% |
+| 8 | 1,810,417 | -0.81% | -2.02% |
+
+Explicit 1024 changes throughput by -0.24% and -0.01% against main. The default
+and explicit configurations perform similarly. All runs pass API, insert-count,
+and clean-close checks; recovery is validated separately. These short samples
+do not establish exact overhead or tail-latency neutrality. At eight writers,
+close time averages 1.36 seconds for the default and 1.23 seconds for main;
+individual main closes range from 0.71 to 1.74 seconds. Main provides no
+size-triggered durability. The full CI matrix remains separate.
+
+[Default-change evidence and reproduction details](../benchmarks/results-20261014/log-group-limit-pr/README.md)
 
 ## Historical synchronous implementation
 

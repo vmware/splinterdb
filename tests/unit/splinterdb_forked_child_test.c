@@ -108,9 +108,10 @@ CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
          .checkpoint_log_grace_bytes = UINT64_MAX,
       };
       const uint64 count = variant ? 4 : 32;
-      /* The final case exceeds a 128-byte descriptor's direct extent array,
+      /* Both blob cases cross the default 1024-page threshold per insert.
+       * The final case exceeds a 128-byte descriptor's direct extent array,
        * so automatic durability must include blob pointer pages as well. */
-      const uint64 value_sizes[] = {128, 64 * 4096 + 1, 8 * Mega + 1};
+      const uint64 value_sizes[] = {128, 1024 * 4096 + 1, 8 * Mega + 1};
       const uint64 value_size    = value_sizes[variant];
       char        *value         = malloc(value_size);
       ASSERT_NOT_NULL(value);

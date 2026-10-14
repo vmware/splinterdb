@@ -2624,7 +2624,7 @@ shard_log_config_init(shard_log_config *log_cfg,
    log_cfg->cache_cfg        = cache_cfg;
    log_cfg->data_cfg         = data_cfg;
    log_cfg->seed             = HASH_SEED;
-   log_cfg->group_size_pages = MAX_THREADS;
+   log_cfg->group_size_pages = SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES;
    log_cfg->blob_cfg         = (blob_build_config){
               .extent_batch             = 1,
               .page_batch               = 2,

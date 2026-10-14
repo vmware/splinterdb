@@ -422,7 +422,7 @@ usage(const char *name)
       "  --barrier-ms N     call splinterdb_durable_barrier from a "
       "dedicated thread every N ms (default 0 = disabled)\n"
       "  --log-group-size-pages N  automatic durability threshold "
-      "(0 = default, UINT64_MAX = disabled)\n"
+      "(0 = 1024 pages, UINT64_MAX = disabled)\n"
       "  --trace NEW_CSV    trace internal tasks and waits (optional)\n"
       "  --direct          use O_DIRECT (default buffered I/O)\n"
       "  --no-log          disable WAL (default enabled)\n"

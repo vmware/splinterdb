@@ -160,7 +160,7 @@ config_usage()
    platform_error_log("\t--no-stats\n");
    platform_error_log("\t--log\n");
    platform_error_log("\t--no-log\n");
-   platform_error_log("\t--log-group-size-pages (0 => MAX_THREADS)\n");
+   platform_error_log("\t--log-group-size-pages (0 => 1024)\n");
    platform_error_log("\t--checkpoint-log-size-gib\n");
    platform_error_log("\t--checkpoint-log-size-mib\n");
    platform_error_log("\t--checkpoint-log-size-bytes (0 => cache capacity)\n");

@@ -20,6 +20,8 @@
 #include "platform_mutex.h"
 #include "writeback_set.h"
 
+#define SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES UINT64_C(1024)
+
 /* Validate the version persisted in a log head before accessing its stream. */
 platform_status
 shard_log_validate_format_version(uint16 format_version);

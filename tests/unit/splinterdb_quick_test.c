@@ -256,6 +256,7 @@ CTEST2(splinterdb_quick, test_get_config_returns_effective_config)
    ASSERT_EQUAL(24 * Mega, cfg->memtable_capacity);
    ASSERT_EQUAL(8, cfg->fanout);
    ASSERT_EQUAL_U(UINT64_MAX, cfg->reclaim_threshold);
+   ASSERT_EQUAL(1024, cfg->log_group_size_pages);
 }
 
 CTEST2(splinterdb_quick, test_get_cost_stats)

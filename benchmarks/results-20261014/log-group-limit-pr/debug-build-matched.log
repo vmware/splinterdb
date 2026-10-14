@@ -1,0 +1,74 @@
+Starting log-pr-1024-debug-build-matched build
+Checking for mismatched config...No mismatched config found
+Compiling            src/btree.c                                        [build-main-fc0bc8f7/debug/obj/src/btree.o]
+Compiling            src/core.c                                         [build-main-fc0bc8f7/debug/obj/src/core.o]
+Compiling            src/merge.c                                        [build-main-fc0bc8f7/debug/obj/src/merge.o]
+Compiling            src/memtable.c                                     [build-main-fc0bc8f7/debug/obj/src/memtable.o]
+Compiling            src/notification.c                                 [build-main-fc0bc8f7/debug/obj/src/notification.o]
+Compiling            src/routing_filter.c                               [build-main-fc0bc8f7/debug/obj/src/routing_filter.o]
+Compiling            src/shard_log.c                                    [build-main-fc0bc8f7/debug/obj/src/shard_log.o]
+Compiling            src/splinterdb.c                                   [build-main-fc0bc8f7/debug/obj/src/splinterdb.o]
+Compiling            src/superblock.c                                   [build-main-fc0bc8f7/debug/obj/src/superblock.o]
+Compiling            src/trunk.c                                        [build-main-fc0bc8f7/debug/obj/src/trunk.o]
+Compiling            tests/functional/btree_test.c                      [build-main-fc0bc8f7/debug/obj/tests/functional/btree_test.o]
+Compiling            tests/functional/cache_test.c                      [build-main-fc0bc8f7/debug/obj/tests/functional/cache_test.o]
+Compiling            tests/functional/driver_test.c                     [build-main-fc0bc8f7/debug/obj/tests/functional/driver_test.o]
+Compiling            tests/functional/filter_test.c                     [build-main-fc0bc8f7/debug/obj/tests/functional/filter_test.o]
+Compiling            tests/functional/log_test.c                        [build-main-fc0bc8f7/debug/obj/tests/functional/log_test.o]
+Compiling            tests/functional/scan_benchmark.c                  [build-main-fc0bc8f7/debug/obj/tests/functional/scan_benchmark.o]
+Compiling            tests/functional/splinter_test.c                   [build-main-fc0bc8f7/debug/obj/tests/functional/splinter_test.o]
+Compiling            tests/functional/test_async.c                      [build-main-fc0bc8f7/debug/obj/tests/functional/test_async.o]
+Compiling            tests/functional/test_dispatcher.c                 [build-main-fc0bc8f7/debug/obj/tests/functional/test_dispatcher.o]
+Compiling            tests/functional/test_functionality.c              [build-main-fc0bc8f7/debug/obj/tests/functional/test_functionality.o]
+Compiling            tests/functional/ycsb_test.c                       [build-main-fc0bc8f7/debug/obj/tests/functional/ycsb_test.o]
+Compiling            tests/config.c                                     [build-main-fc0bc8f7/debug/obj/tests/config.o]
+Compiling            tests/test_common.c                                [build-main-fc0bc8f7/debug/obj/tests/test_common.o]
+Compiling            tests/unit/btree_stress_test.c                     [build-main-fc0bc8f7/debug/obj/tests/unit/btree_stress_test.o]
+Compiling            tests/unit/btree_test.c                            [build-main-fc0bc8f7/debug/obj/tests/unit/btree_test.o]
+Compiling            tests/unit/btree_test_common.c                     [build-main-fc0bc8f7/debug/obj/tests/unit/btree_test_common.o]
+Compiling            tests/unit/limitations_test.c                      [build-main-fc0bc8f7/debug/obj/tests/unit/limitations_test.o]
+Compiling            tests/unit/merge_test.c                            [build-main-fc0bc8f7/debug/obj/tests/unit/merge_test.o]
+Compiling            tests/unit/notification_test.c                     [build-main-fc0bc8f7/debug/obj/tests/unit/notification_test.o]
+Compiling            tests/unit/splinterdb_optimize_test.c              [build-main-fc0bc8f7/debug/obj/tests/unit/splinterdb_optimize_test.o]
+Compiling            tests/unit/splinterdb_quick_test.c                 [build-main-fc0bc8f7/debug/obj/tests/unit/splinterdb_quick_test.o]
+Compiling            tests/unit/splinterdb_stress_test.c                [build-main-fc0bc8f7/debug/obj/tests/unit/splinterdb_stress_test.o]
+Compiling            tests/unit/superblock_test.c                       [build-main-fc0bc8f7/debug/obj/tests/unit/superblock_test.o]
+Compiling            tests/unit/trunk_async_test.c                      [build-main-fc0bc8f7/debug/obj/tests/unit/trunk_async_test.o]
+Compiling            tests/unit/trunk_gc_test.c                         [build-main-fc0bc8f7/debug/obj/tests/unit/trunk_gc_test.o]
+Compiling            tests/unit/trunk_split_test.c                      [build-main-fc0bc8f7/debug/obj/tests/unit/trunk_split_test.o]
+Compiling            tests/unit/writeback_set_test.c                    [build-main-fc0bc8f7/debug/obj/tests/unit/writeback_set_test.o]
+Linking              build-main-fc0bc8f7/debug/bin/unit/btree_stress_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/btree_test
+Compiling            tests/unit/config_parse_test.c                     [build-main-fc0bc8f7/debug/obj/tests/unit/config_parse_test.o]
+Compiling            tests/unit/large_inserts_stress_test.c             [build-main-fc0bc8f7/debug/obj/tests/unit/large_inserts_stress_test.o]
+Linking              build-main-fc0bc8f7/debug/bin/unit/platform_apis_test
+Compiling            tests/unit/splinter_test.c                         [build-main-fc0bc8f7/debug/obj/tests/unit/splinter_test.o]
+Compiling            tests/unit/splinterdb_forked_child_test.c          [build-main-fc0bc8f7/debug/obj/tests/unit/splinterdb_forked_child_test.o]
+Linking              build-main-fc0bc8f7/debug/bin/unit/writeback_set_test
+Linking              build-main-fc0bc8f7/debug/lib/libsplinterdb.so
+Building archive     build-main-fc0bc8f7/debug/lib/libsplinterdb.a
+Linking              build-main-fc0bc8f7/debug/bin/splinter_inspect
+Linking              build-main-fc0bc8f7/debug/bin/driver_test
+Linking              build-main-fc0bc8f7/debug/bin/unit_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/config_parse_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/large_inserts_stress_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/limitations_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/merge_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/notification_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/splinterdb_forked_child_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/splinterdb_heap_id_mgmt_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/splinterdb_optimize_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/splinterdb_quick_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/splinterdb_stress_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/superblock_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/task_system_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/trunk_async_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/trunk_gc_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/trunk_split_test
+Linking              build-main-fc0bc8f7/debug/bin/unit/writable_buffer_test
+Linking              build-main-fc0bc8f7/debug/bin/examples/splinterdb_custom_ipv4_addr_sortcmp_example
+Linking              build-main-fc0bc8f7/debug/bin/examples/splinterdb_intro_example
+Linking              build-main-fc0bc8f7/debug/bin/examples/splinterdb_iterators_example
+Linking              build-main-fc0bc8f7/debug/bin/examples/splinterdb_optimize_example
+Linking              build-main-fc0bc8f7/debug/bin/examples/splinterdb_wide_values_example
+Linking              build-main-fc0bc8f7/debug/bin/unit/splinter_test

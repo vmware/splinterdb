@@ -111,7 +111,7 @@ typedef struct splinterdb_config {
    _Bool use_log;
 
    // Best-effort automatic durability threshold, in pages. Zero selects
-   // MAX_THREADS pages; UINT64_MAX disables it. Each new staging page and
+   // 1024 pages; UINT64_MAX disables it. Each new staging page and
    // each blob's logical bytes (rounded to pages) count toward the threshold.
    // Crossing it submits a fire-and-forget durable barrier after publishing
    // the update. Concurrent writers and large blobs may overshoot. Failures
