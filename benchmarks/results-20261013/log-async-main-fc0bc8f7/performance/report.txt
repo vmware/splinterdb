@@ -1,0 +1,35 @@
+Main fc0bc8f7 integration and asynchronous log policy
+All database files use verified real ext4 disk and O_DIRECT; jobs are serialized.
+These are short closed-loop samples; sample ranges are not confidence intervals.
+
+Log insertion: 8 seconds/run, 3 rounds, 1/8 writers, one memtable and3 normal workers.
+256MiB cache,16GiB logical disk,8MiB memtable,16-byte keys/values,CPU0-11.
+Threshold0 means default64 pages; UINT64_MAX disables. No explicit periodic barriers.
+Main has no automatic durability, so it supplies a throughput ceiling, not equal durability.
+Sync and async policies are based on the same main. Shutdown drains accepted tasks.
+API return/count/close checked; insertion readback is covered separately by recovery tests.
+
+writers=1 main       n=6 mean=857484/s range=[833230,913176] vsMain=+0.00% drain=839245/s close=0.173s p99=19.37us p999=39.42us fullCPU=1.284us/op
+writers=1 disabled   n=3 mean=854068/s range=[778738,922013] vsMain=-0.40% drain=831573/s close=0.216s p99=19.03us p999=38.74us fullCPU=1.306us/op
+writers=1 sync64     n=3 mean=596021/s range=[504919,769657] vsMain=-30.49% drain=586250/s close=0.139s p99=19.03us p999=59.22us fullCPU=1.294us/op
+writers=1 async64    n=3 mean=833949/s range=[804150,866353] vsMain=-2.74% drain=816629/s close=0.171s p99=19.71us p999=49.66us fullCPU=1.297us/op
+writers=1 sync1024   n=3 mean=833077/s range=[802993,874121] vsMain=-2.85% drain=813959/s close=0.190s p99=19.37us p999=39.77us fullCPU=1.279us/op
+writers=1 async1024  n=3 mean=846712/s range=[809316,875538] vsMain=-1.26% drain=829206/s close=0.171s p99=19.71us p999=40.11us fullCPU=1.286us/op
+  async versus sync at 64 pages: +39.92% throughput
+  async versus sync at 1024 pages: +1.64% throughput
+writers=8 main       n=6 mean=1799079/s range=[1675278,2025599] vsMain=+0.00% drain=1735670/s close=0.342s p99=62.98us p999=216.41us fullCPU=2.664us/op
+writers=8 disabled   n=3 mean=1735876/s range=[1685304,1789368] vsMain=-3.51% drain=1673366/s close=0.360s p99=62.29us p999=216.41us fullCPU=2.648us/op
+writers=8 sync64     n=3 mean=1228616/s range=[1144109,1273105] vsMain=-31.71% drain=1187308/s close=0.285s p99=24.83us p999=105.47us fullCPU=1.836us/op
+writers=8 async64    n=3 mean=1629365/s range=[1573326,1701016] vsMain=-9.43% drain=1575646/s close=0.276s p99=29.61us p999=179.54us fullCPU=2.109us/op
+writers=8 sync1024   n=3 mean=1772074/s range=[1679951,1861403] vsMain=-1.50% drain=1710257/s close=0.343s p99=61.95us p999=219.14us fullCPU=2.709us/op
+writers=8 async1024  n=3 mean=1809935/s range=[1634948,1973521] vsMain=+0.60% drain=1753475/s close=0.302s p99=62.29us p999=215.04us fullCPU=2.726us/op
+  async versus sync at 64 pages: +32.62% throughput
+  async versus sync at 1024 pages: +2.14% throughput
+
+CPU/I/O sampled-window totals end before joins/close; process_* counters include complete process lifetime.
+
+Disabled-policy follow-up: two ABBA rounds,12seconds/run,8writers.
+Main controls drift sharply in the first round; preserve both rounds.
+  round0: disabled versus main -6.95%
+  round1: disabled versus main -0.05%
+This does not establish an exact small overhead; the second, steadier round is effectively tied.

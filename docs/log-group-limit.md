@@ -56,6 +56,27 @@ blobs. It drains only already-enqueued tasks before exiting without close,
 checkpoint, or a new explicit barrier, then reopens and verifies every value.
 An exit before asynchronous completion is permitted to lose the pending suffix.
 
+## Asynchronous performance on current main
+
+Compared on main `fc0bc8f7`, the asynchronous 64-page policy improves insertion
+throughput by **39.9% with one writer and 32.6% with eight writers** over the
+synchronous policy. Including shutdown drain preserves these gains.
+
+| Writers | Synchronous 64 pages vs main | Asynchronous 64 pages vs main | Asynchronous 1024 pages vs main |
+| ---: | ---: | ---: | ---: |
+| 1 | -30.5% | -2.7% | -1.3% |
+| 8 | -31.7% | -9.4% | +0.6% |
+
+These are means of three short samples per candidate on real disk, with
+interleaved main controls. Main provides no size-triggered durability. Control
+drift limits precise small differences: the disabled-policy follow-up reports
+-6.95% in its first ABBA round and -0.05% in its second, steadier round.
+The 64-page default retains a measured eight-writer cost; the 1024-page setting
+is close to controls in this workload. All 50 insertion runs passed API and
+clean-close checks, with correctness/recovery tested separately.
+
+[Results, commands, hashes, and limitations](../benchmarks/results-20261013/log-async-main-fc0bc8f7/performance/README.txt)
+
 ## Historical synchronous implementation
 
 The following measurements and validation describe the superseded synchronous
