@@ -245,7 +245,7 @@ run_worker(void *arg)
            gettid());
    if (w->query) {
       splinterdb_lookup_result_init(
-         b->db, &result, SPLINTERDB_LOOKUP_VALUE, sizeof(value), value);
+         b->db, &result, .buffer = slice_create(sizeof(value), value));
    }
    while (!atomic_load_explicit(&b->start, memory_order_acquire)) {
       struct timespec delay = {.tv_nsec = 1000000};

@@ -866,16 +866,21 @@ splinterdb_close(splinterdb **kvs_in, bool32 force) // IN
 }
 
 void
-splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
-                              splinterdb_lookup_result *result,     // IN/OUT
-                              splinterdb_lookup_flags   flags,      // IN
-                              uint64                    buffer_len, // IN
-                              char                     *buffer      // IN
+splinterdb_lookup_result_init_full(
+   const splinterdb                            *kvs,    // IN
+   splinterdb_lookup_result                    *result, // IN/OUT
+   const splinterdb_lookup_result_init_options *options // IN
 )
 {
+   platform_assert(options != NULL
+                   && options->struct_size
+                         >= sizeof(splinterdb_lookup_result_init_options));
    lookup_result *_result = lookup_result_from_splinterdb(result);
-   lookup_result_init(
-      _result, kvs->spl.cfg.data_cfg, flags, buffer_len, buffer);
+   lookup_result_init(_result,
+                      kvs->spl.cfg.data_cfg,
+                      options->flags,
+                      slice_length(options->buffer),
+                      (char *)slice_data(options->buffer));
    lookup_result_set_owner(_result, kvs);
 }
 
@@ -1056,12 +1061,19 @@ splinterdb_update(splinterdb               *kvsb,
 }
 
 int
-splinterdb_optimize(splinterdb              *kvs,
-                    slice                    user_min_key,
-                    slice                    user_max_key,
-                    _Bool                    full_leaf_compactions,
-                    splinterdb_notification *notification)
+splinterdb_optimize_full(splinterdb                        *kvs,
+                         const splinterdb_optimize_options *options)
 {
+   if (options == NULL
+       || options->struct_size < sizeof(splinterdb_optimize_options))
+   {
+      return platform_status_to_int(STATUS_BAD_PARAM);
+   }
+   slice user_min_key                    = options->min_key;
+   slice user_max_key                    = options->max_key;
+   _Bool full_leaf_compactions           = options->full_leaf_compactions;
+   splinterdb_notification *notification = options->notification;
+
    int rc = splinterdb_ensure_thread_registered();
    if (rc != 0) {
       return rc;

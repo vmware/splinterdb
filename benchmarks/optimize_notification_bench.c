@@ -54,11 +54,19 @@ optimize(splinterdb *db, bool empty_range)
 {
    slice bound = empty_range ? slice_create(1, "k") : NULL_SLICE;
 #ifdef HAVE_SENTINEL_NOTIFICATION
-   checked(splinterdb_optimize(db, bound, bound, true, NULL), "optimize");
+   checked(
+      splinterdb_optimize(
+         db, .min_key = bound, .max_key = bound, .full_leaf_compactions = true),
+      "optimize");
 #else
    splinterdb_notification note;
    splinterdb_notification_init_blocking(&note);
-   checked(splinterdb_optimize(db, bound, bound, true, &note), "optimize");
+   checked(splinterdb_optimize(db,
+                               .min_key               = bound,
+                               .max_key               = bound,
+                               .full_leaf_compactions = true,
+                               .notification          = &note),
+           "optimize");
    splinterdb_notification_deinit(&note);
 #endif
 }

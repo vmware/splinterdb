@@ -348,17 +348,35 @@ typedef struct splinterdb_lookup_result {
    char opaque[SPLINTERDB_LOOKUP_BUFSIZE];
 } __attribute__((__aligned__(8))) splinterdb_lookup_result;
 
+// Optional parameters for splinterdb_lookup_result_init. The zero value
+// requests a value lookup with library-managed memory.
+typedef struct splinterdb_lookup_result_init_options {
+   size_t                  struct_size; // set by the macro
+   splinterdb_lookup_flags flags;
+   slice                   buffer;
+} splinterdb_lookup_result_init_options;
+
 // Initialize a lookup result object.
 //
-// flags may be SPLINTERDB_LOOKUP_VALUE or SPLINTERDB_LOOKUP_MIGHT_EXIST.
+//   splinterdb_lookup_result_init(kvs, &result);
+//   splinterdb_lookup_result_init(kvs, &result,
+//                                 .flags = SPLINTERDB_LOOKUP_MIGHT_EXIST,
+//                                 .buffer = slice_create(sizeof(buf), buf));
+//
+// Use the macro rather than building the options by hand.
+//
+// options.flags may be SPLINTERDB_LOOKUP_VALUE or
+// SPLINTERDB_LOOKUP_MIGHT_EXIST.
 //
 // When SPLINTERDB_LOOKUP_MIGHT_EXIST is set, splinterdb_lookup_found() reports
 // true if the key might exist, and false if the key definitely does not exist.
 // splinterdb_lookup_result_value() will return EINVAL for such results.
 //
-// If buffer is NULL, then the library will allocate and manage memory.
+// If options.buffer is NULL_SLICE (the default), then the library will allocate
+// and manage memory.
 //
-// If the caller provides a buffer, that will be used, unless a lookup
+// If the caller provides a buffer (as a slice describing its address and
+// length), that will be used, unless a lookup
 // requires a larger buffer, at which time the library will allocate.
 // Regardless, the library will never free a buffer supplied by the application.
 //
@@ -372,12 +390,19 @@ typedef struct splinterdb_lookup_result {
 // While the current version of SplinterDB does not rely on Rule 2, future
 // versions may store pointers to Splinter's own memory in the lookup_result.
 void
-splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
-                              splinterdb_lookup_result *result,     // IN/OUT
-                              splinterdb_lookup_flags   flags,      // IN
-                              uint64                    buffer_len, // IN
-                              char                     *buffer      // IN
+splinterdb_lookup_result_init_full(
+   const splinterdb                            *kvs,    // IN
+   splinterdb_lookup_result                    *result, // IN/OUT
+   const splinterdb_lookup_result_init_options *options // IN
 );
+
+#define splinterdb_lookup_result_init(kvs, result, ...)                        \
+   splinterdb_lookup_result_init_full(                                         \
+      (kvs),                                                                   \
+      (result),                                                                \
+      &(const splinterdb_lookup_result_init_options){                          \
+         .struct_size = sizeof(splinterdb_lookup_result_init_options),         \
+         __VA_ARGS__})
 
 // Release any resources used by result
 //
@@ -457,12 +482,30 @@ splinterdb_update(splinterdb               *kvsb,
 // SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET returns without waiting and discards
 // completion status. A real notification receives completion asynchronously.
 // For either nonblocking mode, a nonzero return means submission failed.
+typedef struct splinterdb_optimize_options {
+   size_t struct_size; // set by the macro
+   // Range to optimize. NULL_SLICE (the default) is unbounded on that side.
+   slice min_key;
+   slice max_key;
+   // Default: false.
+   _Bool full_leaf_compactions;
+   // Default: NULL, i.e. SPLINTERDB_NOTIFICATION_BLOCKING.
+   splinterdb_notification *notification;
+} splinterdb_optimize_options;
+
 int
-splinterdb_optimize(splinterdb              *kvs,
-                    slice                    min_key,
-                    slice                    max_key,
-                    _Bool                    full_leaf_compactions,
-                    splinterdb_notification *notification);
+splinterdb_optimize_full(splinterdb                        *kvs,
+                         const splinterdb_optimize_options *options);
+
+// Example:
+//   splinterdb_optimize(kvs);                       // whole DB, blocking
+//   splinterdb_optimize(kvs, .min_key = lo, .max_key = hi,
+//                       .notification = &n);
+#define splinterdb_optimize(kvs, ...)                                          \
+   splinterdb_optimize_full(                                                   \
+      (kvs),                                                                   \
+      &(const splinterdb_optimize_options){                                    \
+         .struct_size = sizeof(splinterdb_optimize_options), __VA_ARGS__})
 
 /////////////////////////////////
 // Durability

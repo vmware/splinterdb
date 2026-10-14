@@ -818,7 +818,7 @@ point_worker(void *arg)
    char                     buf[256];
    splinterdb_lookup_result res;
    splinterdb_lookup_result_init(
-      kvs, &res, SPLINTERDB_LOOKUP_VALUE, sizeof(buf), buf);
+      kvs, &res, .buffer = slice_create(sizeof(buf), buf));
    uint64_t T      = (uint64_t)nworkers;
    uint64_t lo     = opt.n * (uint64_t)w->idx / T,
             hi     = opt.n * (uint64_t)(w->idx + 1) / T;
@@ -1043,7 +1043,7 @@ verify_overwrite_sample(const phase_t *ph, int threads)
    char                     key[KEY_SIZE], buffer[VALUE_SIZE];
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
-      kvs, &result, SPLINTERDB_LOOKUP_VALUE, sizeof(buffer), buffer);
+      kvs, &result, .buffer = slice_create(sizeof(buffer), buffer));
 
    for (int i = 0; i < threads; i++) {
       worker_t *original = &workers[i];

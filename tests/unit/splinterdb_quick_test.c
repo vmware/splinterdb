@@ -405,8 +405,7 @@ CTEST2(splinterdb_quick, test_logged_large_value_replaces_old_value)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
    ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, user_key, &result));
    assert_lookup_result_matches_slice(&result,
                                       slice_create(value_len, value_data));
@@ -420,8 +419,7 @@ CTEST2(splinterdb_quick, test_logged_large_value_replaces_old_value)
    ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
    data->cfg.blob_max_descriptor_size = 128;
    ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
    ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, flat_key, &result));
    assert_lookup_result_matches_slice(&result, flat_value);
    ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, user_key, &result));
@@ -449,8 +447,7 @@ CTEST2(splinterdb_quick, test_basic_flow)
    slice  user_key = slice_create(key_len, key_data);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
 
    int rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
@@ -512,8 +509,7 @@ auto_registered_result_thread(void *arg)
    args->tid_before                    = platform_get_tid();
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      args->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(args->kvsb, &result);
    splinterdb_lookup_result_deinit(&result);
    args->tid_after = platform_get_tid();
    if (args->tid_after >= MAX_THREADS) {
@@ -522,8 +518,7 @@ auto_registered_result_thread(void *arg)
    }
 
    slice key = slice_create(3, "key");
-   splinterdb_lookup_result_init(
-      args->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(args->kvsb, &result);
    args->rc = splinterdb_lookup(args->kvsb, key, &result);
    if (args->rc == 0) {
       // Value materialization also needs to register before taking the lock.
@@ -576,8 +571,7 @@ CTEST2(splinterdb_quick, test_stats_reset_clears_cache_io)
    ASSERT_TRUE(SUCCESS(cache_evict(cc, TRUE)));
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
    ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, key, &result));
    assert_lookup_result_matches_slice(&result, value);
    splinterdb_lookup_result_deinit(&result);
@@ -662,8 +656,7 @@ CTEST2(splinterdb_quick, test_final_merge_error_propagation)
       ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, value, NULL));
 
       splinterdb_lookup_result result;
-      splinterdb_lookup_result_init(
-         data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      splinterdb_lookup_result_init(data->kvsb, &result);
       cfg->fail = TRUE;
       ASSERT_EQUAL(ENOMEM, splinterdb_lookup(data->kvsb, key, &result));
 
@@ -727,8 +720,7 @@ CTEST2(splinterdb_quick, test_fetch_and_update_catches_up_after_rotation)
    ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, skipped, NULL));
 
    splinterdb_lookup_result old_result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &old_result);
    fetch_and_update_thread_args args = {
       .kvsb       = data->kvsb,
       .key        = key,
@@ -794,8 +786,7 @@ CTEST2(splinterdb_quick, test_fetch_and_update_rejects_incorporated_boundary)
    ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, skipped, NULL));
 
    splinterdb_lookup_result old_result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &old_result);
    fetch_and_update_thread_args args = {
       .kvsb       = data->kvsb,
       .key        = key,
@@ -864,8 +855,7 @@ CTEST2(splinterdb_quick, test_range_init_error_cleanup_preserves_branches)
    // branches, so point lookups and a new range scan must remain usable.
    cfg->fail = FALSE;
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
    ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, old_key, &result));
    assert_lookup_result_matches_slice(&result, value);
    ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, new_key, &result));
@@ -945,8 +935,7 @@ CTEST2(splinterdb_quick, test_apis_for_large_key)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
 
    // **** Lookup of max-size key should return correct value
    rc = splinterdb_lookup(data->kvsb, large_key, &result);
@@ -989,8 +978,7 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_inline_key_size)
    ASSERT_EQUAL(EINVAL, rc);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
 
    rc = splinterdb_delete(data->kvsb, too_large_key, NULL);
    ASSERT_EQUAL(EINVAL, rc);
@@ -1016,8 +1004,7 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
 
    rc = splinterdb_lookup(
       data->kvsb, slice_create(sizeof("foo"), "foo"), &result);
@@ -1036,8 +1023,7 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
    rc = splinterdb_lookup(
       data->kvsb, slice_create(sizeof("foo"), "foo"), &result);
    ASSERT_EQUAL(0, rc);
@@ -1066,8 +1052,7 @@ CTEST2(splinterdb_quick, test_large_lookup_survives_memtable_recycle)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
 
    rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
@@ -1189,11 +1174,10 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    slice                    value;
 
    // allocate a result that has full access to the buffer
-   splinterdb_lookup_result_init(data->kvsb,
-                                 &result,
-                                 SPLINTERDB_LOOKUP_VALUE,
-                                 sizeof(big_buffer),
-                                 big_buffer);
+   splinterdb_lookup_result_init(
+      data->kvsb,
+      &result,
+      .buffer = slice_create(sizeof(big_buffer), big_buffer));
 
    // look up a 0-length value
    rc = splinterdb_lookup(data->kvsb, key_empty, &result);
@@ -1242,9 +1226,8 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    uint64 short_buffer_len = TEST_MAX_VALUE_SIZE - 1;
    splinterdb_lookup_result_init(data->kvsb,
                                  &result,
-                                 SPLINTERDB_LOOKUP_VALUE,
-                                 short_buffer_len,
-                                 big_buffer);
+                                 .buffer =
+                                    slice_create(short_buffer_len, big_buffer));
 
    // lookup tuple with max-sized-value, passing it the short buffer
    rc = splinterdb_lookup(data->kvsb, key_max, &result);
@@ -1265,8 +1248,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
 
 
    // init another result, but don't give it a buffer
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
    // lookup, see we get the full result back
    rc = splinterdb_lookup(data->kvsb, key_max, &result);
    ASSERT_EQUAL(0, rc);
@@ -2304,8 +2286,7 @@ CTEST2(splinterdb_quick, test_iterator_delete_current)
    splinterdb_iterator_deinit(it);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
 
    for (int i = 0; i < num_inserts; i++) {
       char key[TEST_INSERT_KEY_LENGTH] = {0};
@@ -2982,8 +2963,7 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    slice value;
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
 
    rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
@@ -3028,8 +3008,7 @@ CTEST2(splinterdb_quick, test_logged_close_and_reopen)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
    rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
@@ -3095,8 +3074,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
 
    // confirm its there
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &result);
    rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
@@ -3150,7 +3128,7 @@ CTEST2(splinterdb_quick, test_existence_only_memtable_lookup)
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
-      data->kvsb, &result, SPLINTERDB_LOOKUP_MIGHT_EXIST, 0, NULL);
+      data->kvsb, &result, .flags = SPLINTERDB_LOOKUP_MIGHT_EXIST);
 
    int rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
@@ -3202,7 +3180,7 @@ CTEST2(splinterdb_quick, test_existence_only_trunk_lookup_skips_branches)
 
    splinterdb_lookup_result existence_result;
    splinterdb_lookup_result_init(
-      data->kvsb, &existence_result, SPLINTERDB_LOOKUP_MIGHT_EXIST, 0, NULL);
+      data->kvsb, &existence_result, .flags = SPLINTERDB_LOOKUP_MIGHT_EXIST);
 
    rc = splinterdb_lookup(data->kvsb, user_key, &existence_result);
    ASSERT_EQUAL(0, rc);
@@ -3217,8 +3195,7 @@ CTEST2(splinterdb_quick, test_existence_only_trunk_lookup_skips_branches)
    core_reset_stats(core);
 
    splinterdb_lookup_result normal_result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &normal_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &normal_result);
 
    rc = splinterdb_lookup(data->kvsb, user_key, &normal_result);
    ASSERT_EQUAL(0, rc);
@@ -3234,8 +3211,7 @@ CTEST2(splinterdb_quick, test_write_api_returns_old_value)
    slice value1   = slice_create(strlen("old-value-1"), "old-value-1");
 
    splinterdb_lookup_result old_result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &old_result);
 
    int rc = splinterdb_insert(data->kvsb, user_key, value0, &old_result);
    ASSERT_EQUAL(0, rc);
@@ -3264,7 +3240,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_existence_only)
 
    splinterdb_lookup_result old_result;
    splinterdb_lookup_result_init(
-      data->kvsb, &old_result, SPLINTERDB_LOOKUP_MIGHT_EXIST, 0, NULL);
+      data->kvsb, &old_result, .flags = SPLINTERDB_LOOKUP_MIGHT_EXIST);
 
    int rc = splinterdb_insert(data->kvsb, user_key, value0, &old_result);
    ASSERT_EQUAL(0, rc);
@@ -3301,8 +3277,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_custom_merge_semantics)
    slice       msg_slice = slice_create(sizeof(msg), &msg);
 
    splinterdb_lookup_result old_result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &old_result);
 
    rc = splinterdb_insert(data->kvsb, user_key, msg_slice, &old_result);
    ASSERT_EQUAL(0, rc);
@@ -3362,8 +3337,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_merges_memtable_and_trunk)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result old_result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &old_result);
 
    merge_accumulator expected;
    merge_accumulator_init(&expected, PROCESS_PRIVATE_HEAP_ID);
@@ -3398,8 +3372,7 @@ CTEST2(splinterdb_quick, test_write_api_old_result_respects_trunk_delete_shadow)
    ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result old_result;
-   splinterdb_lookup_result_init(
-      data->kvsb, &old_result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(data->kvsb, &old_result);
 
    rc = splinterdb_insert(data->kvsb, user_key, value1, &old_result);
    ASSERT_EQUAL(0, rc);
@@ -3895,8 +3868,7 @@ auto_registered_lookup_thread(void *arg)
    slice user_key = slice_create(sizeof(key_data), key_data);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      args->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(args->kvsb, &result);
 
    args->tid_before = platform_get_tid();
    args->rc         = splinterdb_lookup(args->kvsb, user_key, &result);
@@ -3933,8 +3905,7 @@ stats_reset_worker(void *arg)
    slice value     = slice_create(value_len, value_data);
 
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      params->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(params->kvsb, &result);
    __atomic_fetch_add(params->started, 1, __ATOMIC_RELEASE);
 
    while (!__atomic_load_n(params->stop, __ATOMIC_ACQUIRE)) {
@@ -5288,8 +5259,7 @@ CTEST2(splinterdb_quick, test_blob_tree_crash_recovery)
       for (uint64 reopen = 0; reopen < 2; reopen++) {
          ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
          splinterdb_lookup_result result;
-         splinterdb_lookup_result_init(
-            data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+         splinterdb_lookup_result_init(data->kvsb, &result);
          ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, prefix, &result));
          assert_lookup_result_matches_slice(&result, small);
          ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, large, &result));

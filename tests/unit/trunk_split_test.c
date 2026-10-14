@@ -144,8 +144,7 @@ CTEST2(trunk_split, duplicate_keys_produce_valid_leaves)
    for (uint64 pass = 0; pass < 2; pass++) {
       for (char k = '!'; k <= '"'; k++) {
          splinterdb_lookup_result result;
-         splinterdb_lookup_result_init(
-            data->db, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+         splinterdb_lookup_result_init(data->db, &result);
          ASSERT_EQUAL(
             0, splinterdb_lookup(data->db, slice_create(1, &k), &result));
          ASSERT_TRUE(splinterdb_lookup_found(&result));

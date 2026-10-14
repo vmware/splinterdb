@@ -513,8 +513,7 @@ scan_benchmark_run_optimize(const splinterdb_config *cfg)
    platform_default_log(
       "scan_benchmark: running blocking full-leaf optimize\n");
    timestamp start_time = platform_get_timestamp();
-   rc                   = splinterdb_optimize(
-      kvs, NULL_SLICE, NULL_SLICE, TRUE, SPLINTERDB_NOTIFICATION_BLOCKING);
+   rc                = splinterdb_optimize(kvs, .full_leaf_compactions = TRUE);
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
 
    platform_default_log("optimize complete: rc=%d, %.3fs elapsed\n",
