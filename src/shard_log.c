@@ -1815,11 +1815,8 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
    return result;
 }
 
-/* Cut or join at most max_target, returning one pinned durability ticket. */
 static platform_status
-shard_log_make_durable_begin_through(log_handle         *logh,
-                                     log_durable_ticket *ticket_out,
-                                     log_durable_ticket  max_target)
+shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
 {
    platform_assert(ticket_out != NULL);
    *ticket_out    = 0;
@@ -1832,20 +1829,11 @@ shard_log_make_durable_begin_through(log_handle         *logh,
       uint64 install_state =
          __atomic_load_n(&log->install.state, __ATOMIC_SEQ_CST);
       platform_assert(install_state & SHARD_LOG_INSTALL_TERMINAL_BIT);
-      target = MIN(install_state & SHARD_LOG_INSTALL_ID_MASK, max_target);
+      target = install_state & SHARD_LOG_INSTALL_ID_MASK;
       platform_assert(target >= SHARD_LOG_FIRST_GROUP_ID);
       shard_log_handle_ref_acquire(log);
 
       *ticket_out = target;
-      return STATUS_OK;
-   }
-
-   if (target > max_target) {
-      // A competing cutter already installed the requested successor. Join
-      // the original target even if its successor has accepted newer records.
-      shard_log_handle_ref_acquire(log);
-      shard_log_reservation_slot_clear(log, tid);
-      *ticket_out = max_target;
       return STATUS_OK;
    }
 
@@ -1943,80 +1931,6 @@ shard_log_make_durable_begin_through(log_handle         *logh,
    shard_log_put_unused_group(log, candidate);
    *ticket_out = target;
    return STATUS_OK;
-}
-
-static platform_status
-shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
-{
-   return shard_log_make_durable_begin_through(logh, ticket_out, UINT64_MAX);
-}
-
-/* A failed owner relinquishes only its own latest claim. A newer owner has
- * already accepted responsibility for this prefix and must retain its claim. */
-static void
-shard_log_release_failed_automatic_claim(shard_log *log, uint64 target)
-{
-   __atomic_compare_exchange_n(&log->automatic_claimed,
-                               &target,
-                               0,
-                               FALSE,
-                               __ATOMIC_SEQ_CST,
-                               __ATOMIC_RELAXED);
-}
-
-static platform_status
-shard_log_make_durable_if_needed_begin(log_handle         *logh,
-                                       log_durable_ticket *ticket,
-                                       bool32             *started)
-{
-   shard_log *log = (shard_log *)logh;
-   *started       = FALSE;
-   *ticket        = 0;
-   if (log->cfg->group_size_pages == UINT64_MAX) {
-      return STATUS_OK;
-   }
-   uint64 target  = __atomic_load_n(&log->automatic_target, __ATOMIC_SEQ_CST);
-   uint64 claimed = __atomic_load_n(&log->automatic_claimed, __ATOMIC_SEQ_CST);
-   if (target <= claimed || target <= shard_log_durable_ticket_load(log)) {
-      return STATUS_OK;
-   }
-   while (claimed < target) {
-      if (__atomic_compare_exchange_n(&log->automatic_claimed,
-                                      &claimed,
-                                      target,
-                                      FALSE,
-                                      __ATOMIC_SEQ_CST,
-                                      __ATOMIC_RELAXED))
-      {
-         // Exactly this target belongs to this driver. A successor crossing
-         // can acquire its own claim while our fixed-ticket wait is pending.
-         platform_status rc =
-            shard_log_make_durable_begin_through(logh, ticket, target);
-         if (SUCCESS(rc)) {
-            platform_assert(*ticket == target);
-            *started = TRUE;
-         } else {
-            shard_log_release_failed_automatic_claim(log, target);
-         }
-         return rc;
-      }
-   }
-   return STATUS_OK;
-}
-
-static platform_status
-shard_log_make_durable_if_needed_wait(log_handle        *logh,
-                                      log_durable_ticket ticket)
-{
-   shard_log      *log = (shard_log *)logh;
-   platform_status rc  = shard_log_wait_for_ticket_to_be_durable(log, ticket);
-   if (!SUCCESS(rc)) {
-      // Keep the handle pin until failure bookkeeping is complete; the log
-      // owner may have retired while this wait was pending.
-      shard_log_release_failed_automatic_claim(log, ticket);
-   }
-   shard_log_handle_ref_release(log);
-   return rc;
 }
 
 static platform_status
@@ -2457,22 +2371,32 @@ shard_log_is_empty(log_handle *logh)
    return !shard_log_atomic_bool_load(&log->has_records);
 }
 
+/* Compare IDs instead of dereferencing the accepting group: durability may
+ * reclaim a group concurrently. Delayed writers can publish an older target,
+ * which must not trigger an unnecessary cut of the successor. */
+static bool32
+shard_log_group_size_reached(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   uint64 target  = __atomic_load_n(&log->automatic_target, __ATOMIC_RELAXED);
+   return target >= __atomic_load_n(&log->accepting.id, __ATOMIC_RELAXED);
+}
+
 static log_ops shard_log_ops = {
-   .write_prepare                = shard_log_write_prepare,
-   .write_prepared_message       = shard_log_write_prepared_message,
-   .write_abort                  = shard_log_write_abort,
-   .write_reserve                = shard_log_write_reserve,
-   .write_finish                 = shard_log_write_finish,
-   .make_durable_begin           = shard_log_make_durable_begin,
-   .make_durable_if_needed_begin = shard_log_make_durable_if_needed_begin,
-   .make_durable_wait            = shard_log_make_durable_wait,
-   .make_durable_if_needed_wait  = shard_log_make_durable_if_needed_wait,
-   .make_durable_release = shard_log_make_durable_release,
-   .seal                         = shard_log_seal,
-   .deinit                       = shard_log_deinit,
-   .head                         = shard_log_get_head,
-   .is_empty                     = shard_log_is_empty,
-   .size                         = shard_log_get_size,
+   .write_prepare          = shard_log_write_prepare,
+   .write_prepared_message = shard_log_write_prepared_message,
+   .write_abort            = shard_log_write_abort,
+   .write_reserve          = shard_log_write_reserve,
+   .write_finish           = shard_log_write_finish,
+   .make_durable_begin     = shard_log_make_durable_begin,
+   .make_durable_wait      = shard_log_make_durable_wait,
+   .make_durable_release   = shard_log_make_durable_release,
+   .seal                   = shard_log_seal,
+   .deinit                 = shard_log_deinit,
+   .head                   = shard_log_get_head,
+   .is_empty               = shard_log_is_empty,
+   .group_size_reached     = shard_log_group_size_reached,
+   .size                   = shard_log_get_size,
 };
 
 static void
@@ -2702,11 +2626,11 @@ shard_log_config_init(shard_log_config *log_cfg,
    log_cfg->seed             = HASH_SEED;
    log_cfg->group_size_pages = MAX_THREADS;
    log_cfg->blob_cfg         = (blob_build_config){
-       .extent_batch             = 1,
-       .page_batch               = 2,
-       .subpage_batch            = 3,
-       .alignment                = cache_config_page_size(cache_cfg),
-       .blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE,
+              .extent_batch             = 1,
+              .page_batch               = 2,
+              .subpage_batch            = 3,
+              .alignment                = cache_config_page_size(cache_cfg),
+              .blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE,
    };
 }
 

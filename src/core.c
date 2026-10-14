@@ -1295,13 +1295,15 @@ core_begin_memtable_insert(core_handle *spl, uint64 *generation, memtable **mt)
    return STATUS_OK;
 }
 
+static void
+core_maybe_make_log_durable(core_handle *spl);
+
 typedef struct core_log_write_context {
    log_handle                 *log;
    key                         tuple_key;
    const btree_insert_results *insert_results;
    log_write_prepared          prepared;
-   log_durable_ticket          automatic_ticket;
-   bool32                      automatic_started;
+   bool32                      automatic_needed;
    log_write_token             token;
    bool32                      reserved;
 } core_log_write_context;
@@ -1434,9 +1436,8 @@ core_log_insert(core_handle            *spl,
       __atomic_store_n(&spl->log_reached_threshold, TRUE, __ATOMIC_RELAXED);
    }
 
-   return log_make_durable_if_needed_begin(write_ctxt->log,
-                                           &write_ctxt->automatic_ticket,
-                                           &write_ctxt->automatic_started);
+   write_ctxt->automatic_needed = log_group_size_reached(write_ctxt->log);
+   return STATUS_OK;
 }
 
 /*
@@ -3018,9 +3019,8 @@ core_insert(core_handle   *spl,
 
    memtable_end_insert(&spl->mt_ctxt);
 
-   if (write_ctxt.automatic_started) {
-      rc = log_make_durable_if_needed_wait(write_ctxt.log,
-                                           write_ctxt.automatic_ticket);
+   if (write_ctxt.automatic_needed) {
+      core_maybe_make_log_durable(spl);
    }
 
    btree_insert_results_deinit(&insert_results);
@@ -4329,6 +4329,7 @@ typedef struct core_durable_barrier_state {
    log_durable_ticket       log_ticket;
    uint64                   publication_target;
    uint64                   checkpoint_target;
+   bool32                   automatic;
 } core_durable_barrier_state;
 
 /* Capture the cut while the caller still owns the core's operation lifetime.
@@ -4356,6 +4357,13 @@ core_durable_barrier_begin(core_durable_barrier_state *state,
    if (spl->log == NULL) {
       rc = STATUS_INVALID_STATE;
       goto end_insert_epoch;
+   }
+   /* Recheck under the insert epoch so rotation cannot invalidate the log.
+    * The submission guard excludes other automatic cuts; manual barriers may
+    * still race this hint and make a redundant cut, which is harmless. */
+   if (state->automatic && !log_group_size_reached(spl->log)) {
+      memtable_end_insert(&spl->mt_ctxt);
+      return STATUS_OK;
    }
    state->live = spl->log;
 
@@ -4433,13 +4441,20 @@ core_durable_barrier_task(task *work)
       rc = core_durable_barrier_finish(state);
       task_end_blocking_wait(state->spl->ts);
    }
+   if (!SUCCESS(rc) && state->notification == NULL) {
+      platform_error_log("WARNING: fire-and-forget durable barrier failed: %s; "
+                         "recent writes may not be durable. A later barrier "
+                         "can retry.\n",
+                         platform_status_to_string(rc));
+   }
    splinterdb_notification_complete(state->notification, rc);
    platform_free(state->spl->heap_id, state);
 }
 
-platform_status
-core_durable_barrier_async(core_handle             *spl,
-                           splinterdb_notification *notification)
+static platform_status
+core_durable_barrier_async_internal(core_handle             *spl,
+                                    splinterdb_notification *notification,
+                                    bool32                   automatic)
 {
    core_durable_barrier_state *state = TYPED_ZALLOC(spl->heap_id, state);
    if (state == NULL) {
@@ -4447,11 +4462,12 @@ core_durable_barrier_async(core_handle             *spl,
    }
    state->spl          = spl;
    state->notification = notification;
+   state->automatic    = automatic;
    /* Retain the insert epoch until publication. On enqueue failure, the
     * live log still owns a reference, so dropping our pin cannot destroy a
     * retired log (which could need to read allocation metadata). */
    platform_status rc = core_durable_barrier_begin(state, TRUE);
-   if (!SUCCESS(rc)) {
+   if (!SUCCESS(rc) || (automatic && state->live == NULL)) {
       platform_free(spl->heap_id, state);
       return rc;
    }
@@ -4470,6 +4486,39 @@ core_durable_barrier_async(core_handle             *spl,
       memtable_end_insert(&spl->mt_ctxt);
    }
    return rc;
+}
+
+platform_status
+core_durable_barrier_async(core_handle             *spl,
+                           splinterdb_notification *notification)
+{
+   return core_durable_barrier_async_internal(spl, notification, FALSE);
+}
+
+static void
+core_maybe_make_log_durable(core_handle *spl)
+{
+   bool32 expected = FALSE;
+   if (!__atomic_compare_exchange_n(&spl->automatic_barrier_submitting,
+                                    &expected,
+                                    TRUE,
+                                    FALSE,
+                                    __ATOMIC_ACQUIRE,
+                                    __ATOMIC_RELAXED))
+   {
+      return;
+   }
+   platform_status rc = core_durable_barrier_async_internal(spl, NULL, TRUE);
+   __atomic_store_n(
+      &spl->automatic_barrier_submitting, FALSE, __ATOMIC_RELEASE);
+   if (!SUCCESS(rc)) {
+      /* The insert is already visible. This best-effort policy cannot turn
+       * that successful update into a failed operation. A later threshold or
+       * explicit barrier retries the pending durable prefix. */
+      platform_error_log("WARNING: automatic durable barrier submission "
+                         "failed: %s; recent writes may not be durable.\n",
+                         platform_status_to_string(rc));
+   }
 }
 
 /*

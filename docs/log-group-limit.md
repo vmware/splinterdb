@@ -12,47 +12,56 @@ metadata is not included. Shared blob references are counted for each record,
 so the threshold is an estimate rather than a measurement of unique allocation.
 Concurrent prepared writes and individual large blobs can overshoot arbitrarily.
 
-Crossing the threshold records the group that needs durability. One inserting
-thread claims that target, cuts the group while its log is protected by the
-insertion epoch, then waits after releasing the memtable insertion lock. Other
-writers continue; a later group crossing selects its own driver. Each driver
-waits only for its fixed target and cannot chase an indefinitely growing stream
-of later writes. A highest-claimed-ticket atomic ensures that a crossing either
-acquires a responsible driver or observes one covering that prefix. Every
-successful begin pins the log until its corresponding wait completes, including
-if a checkpoint retires the owner meanwhile.
+After each logged update, the insertion path checks a cheap threshold hint.
+One thread claims a short submission guard, rechecks the current log under its
+insert epoch, and submits the existing fire-and-forget durable barrier. The
+guard is released after submission, without waiting for durability. The task
+uses the existing log-ticket pin, ordered-prefix wait, checkpoint-publication
+wait, and cleanup. There is no new background scheduler or retry engine.
 
-A competing manual barrier may already have cut the requested group. Automatic
-durability joins that group rather than cutting a partially filled successor.
-An I/O failure is returned to the driving insert even though the update is
-already visible. A failed latest owner clears its claim to permit a later retry;
-if a newer driver has claimed a later target, it retains responsibility for the
-prefix. The threshold target itself is retained.
-This is not a promise that every successful insert is individually durable;
-applications that require that guarantee must still use an explicit barrier.
+The recheck prevents concurrent automatic observers from repeatedly cutting
+mostly empty successors. An explicit barrier can still race the hint and cause
+a redundant cut. A successor that fills while submission holds the guard is
+reconsidered on a later insert. This is deliberately a best-effort threshold,
+not a hard bound on outstanding bytes, crash loss, or elapsed durability time.
+Raw internal `log_write()` only appends; the database core owns this policy.
 
-## Validation
+Submission and fire-and-forget completion failures emit warnings. A visible
+update remains a successful insert. A later size-triggered or explicit barrier
+retries the incomplete prefix; failed completion does not schedule a retry by
+itself. If submission failed before cutting, the current oversized group remains
+eligible on the next insert. If cutting succeeded, retry waits for the next
+threshold crossing or an explicit barrier.
 
-The functional log suite covers page and blob thresholds, disabled accounting,
-concurrent manual and automatic cuts, and recovery of the automatically durable
-prefix without a manual log barrier. Deterministic interleavings cover competing
-manual cuts, distinct automatic owners for successive groups, a blocked later
-group, and retirement while durability tickets remain live. A group's driver
-must be able to return while the successor is still blocked.
+Normal background workers execute the queued work. Existing queue-pressure
+assistance can also run it on an inserting thread; with no normal workers,
+foreground assistance is required. Accordingly, asynchronous submission removes
+the mandatory durability wait from each crossing but does not guarantee bounded
+insert latency. Close drains accepted tasks through the existing mechanism.
+Applications requiring a definite durable frontier must still explicitly wait
+for a barrier.
 
-The internal Splinter suite includes an injected device-barrier failure: the
-insert returns the error, its value is visible, and the next insert retries
-durability successfully. A test that inspects two large values in mutable log
-staging explicitly disables automatic rotation.
+## Validation of the asynchronous policy
 
-Final validation passed the 500,000-record functional log suite, all 32
-internal Splinter tests, and a process-exit recovery test. That test exits the
-writer without calling close, checkpoint, or an explicit barrier, then reopens
-and verifies every value. It covers a one-page threshold with small records and
-the default 64-page threshold with blobs larger than 64 pages. Debug and release
-builds passed. The bounded-wait regression was also run against the preceding
-coalescing implementation (`ca179b2`), where it failed because the first driver
-chased a peer's blocked successor. It passes with fixed-ticket ownership.
+The functional log suite checks page/blob threshold accounting, the disabled
+option, and recovery after acting on the hint. Core tests cover rejected
+submission and retry, a device-barrier failure and subsequent retry, and two
+successive automatic cuts while the first device barrier is blocked. The last
+test also overlaps an explicit asynchronous barrier with automatic cuts.
+Existing async-barrier tests cover queue rejection, ticket lifetime, checkpoint
+publication, and notification completion during close.
+
+The process-exit regression covers small records, flat blobs, and multilevel
+blobs. It drains only already-enqueued tasks before exiting without close,
+checkpoint, or a new explicit barrier, then reopens and verifies every value.
+An exit before asynchronous completion is permitted to lose the pending suffix.
+
+## Historical synchronous implementation
+
+The following measurements and validation describe the superseded synchronous
+policy. They are retained for provenance and do not measure the asynchronous
+implementation. Its fixed-target driver waited for durability on the inserting
+thread and returned automatic barrier errors after the update was visible.
 
 ## Performance
 
@@ -122,10 +131,18 @@ measure this integration or establish that the 64-page default is neutral.
 
 ## Fresh benchmarks after main integration (2026-10-13)
 
-The default 64-page threshold reduced short-run WAL insertion throughput by 42.70% versus main without automatic barriers. This is the cost of added durability. With the threshold disabled, throughput changed -1.34% and sample ranges overlapped main. The merge also validates automatic durability of multilevel-blob pointer pages.
+The default 64-page threshold reduced short-run WAL insertion throughput by 42.70% versus main without automatic barriers. This combines added durability with mandatory foreground waits; it does not isolate unavoidable storage cost. With the threshold disabled, throughput changed -1.34% and sample ranges overlapped main. The merge also validates automatic durability of multilevel-blob pointer pages.
 
 These are updated-feature comparisons against main `7bb5fab`, not an isolated
 measurement of merge cost. Main controls drifted; observed range overlap is
 descriptive, not a statistical confidence interval. Exact samples, build/source
 hashes, commands, verification scope and fresh correctness evidence are in
-[the integration archive](../benchmarks/results-20261013/main-7bb5fab/README.md).
+[the integration archive](../benchmarks/results-20261013/main-7bb5fab-log-group-limit/README.md).
+
+## Integration with main after filtered ranges
+
+Merged main `fc0bc8f7` before replacing the synchronous policy. The merge commit
+`9bc5ebf4` retains the old policy on the same current-main source for controlled
+synchronous/asynchronous comparisons. Historical log evidence that collided
+with archives already on main was preserved byte-for-byte under
+`benchmarks/results-20261013/main-7bb5fab-log-group-limit`.

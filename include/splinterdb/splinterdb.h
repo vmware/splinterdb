@@ -113,11 +113,10 @@ typedef struct splinterdb_config {
    // Best-effort automatic durability threshold, in pages. Zero selects
    // MAX_THREADS pages; UINT64_MAX disables it. Each new staging page and
    // each blob's logical bytes (rounded to pages) count toward the threshold.
-   // Crossing it selects one writer to drive durability for that group after
-   // publishing its update. Other writers continue; a later group crossing
-   // selects its own driver. Concurrent writers and large blobs may overshoot.
-   // A barrier failure is returned by the driving writer even though its update
-   // is already visible.
+   // Crossing it submits a fire-and-forget durable barrier after publishing
+   // the update. Concurrent writers and large blobs may overshoot. Failures
+   // are logged; they do not turn a visible update into a failed insert.
+   // Background task scheduling may enlist foreground threads to do the work.
    uint64 log_group_size_pages;
 
    // Automatic checkpoints: once the write-ahead log has grown by this many

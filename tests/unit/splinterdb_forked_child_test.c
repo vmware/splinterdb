@@ -100,6 +100,8 @@ CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
          .disk_size                  = 4 * Giga,
          .data_cfg                   = &dcfg,
          .use_log                    = TRUE,
+         .num_normal_bg_threads      = 1,
+         .queue_scale_percent        = UINT64_MAX,
          .log_group_size_pages       = variant ? 0 : 1,
          .blob_max_descriptor_size   = variant == 2 ? 128 : 0,
          .checkpoint_log_size_bytes  = UINT64_MAX,
@@ -130,6 +132,14 @@ CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
             {
                _exit(2);
             }
+         }
+         /* Wait only for already-enqueued work, without cutting a new group
+          * or performing a checkpoint. An arbitrary crash before completion
+          * is deliberately permitted to lose the queued suffix. */
+         if (!SUCCESS(task_perform_until_quiescent(
+                (task_system *)splinterdb_get_task_system_handle(db))))
+         {
+            _exit(3);
          }
          _exit(0);
       }
