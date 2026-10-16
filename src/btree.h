@@ -218,9 +218,8 @@ typedef struct btree_iterator {
    // Entry checked by the last successful positioning operation. Branch-tree
    // curr() reuses it so it does not decode the offset table again.
    const void *validated_entry;
-   key_buffer  decoded_key;
-   key_buffer  bound_key;
-   uint64      prefix_page_addr;
+   // Owned scratch space, allocated only after encountering a compressed leaf.
+   struct btree_iterator_prefix_state *prefix_state;
 
    btree_prefetch_cursor prefetch;
    btree_pivot_data      pivot_data;
@@ -483,7 +482,6 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
    local, uint64,                       next_addr,
    local, uint64,                       prev_addr,
    local, uint64,                       expected_page_no,
-   local, key,                          first_key,
    local, key,                          last_key)
 // clang-format on
 

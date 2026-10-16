@@ -49,6 +49,17 @@ layout and allocation changes are candidates for the nonlexical overhead;
 key reconstruction cannot explain a comparator with compression disabled.
 No causal attribution or performance repair was established in this update.
 
+The subsequent [nonlexical diagnosis](../prefix-nonlexical-diagnosis/README.md)
+confirmed the uncompressed key path already skips reconstruction and measured
+avoidable iterator setup/state costs. Its lazy-state prototype reduced a later
+batch's throughput gap from 1.96% to 0.46%, with compressed-path validation still
+outstanding. The original results above remain unchanged.
+
+The lazy-state fix has since been applied and tested, including compressed
+pages, allocation failures and leak detection. See the
+[fix validation archive](../prefix-lazy-6105c49f/README.md) for its measurements
+and updated merge assessment. This archive describes the pre-fix implementation.
+
 ## Validation and measurement scope
 
 Debug and release each passed 141 unit cases: B-tree 12, superblock 17, merge
