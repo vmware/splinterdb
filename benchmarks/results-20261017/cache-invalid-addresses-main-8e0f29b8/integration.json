@@ -1,0 +1,46 @@
+{
+  "starting_head": "c15f1452b752dd57a505f766b0d2a029348b94e9",
+  "merged_main": "8e0f29b89598db1d52aa7090404b475001dbf2eb",
+  "conflicts": [],
+  "passed_unit_executions": 303,
+  "skipped_unit_executions": 6,
+  "skip_reason": "Two preexisting memory-fault injection tests in platform_api, skipped in each build because fault injection is disabled.",
+  "passed_functional_runs": 1,
+  "all_checks_passed": true,
+  "extension_source_files_identical_to_start": {
+    "src/cache.h": true,
+    "src/clockcache.c": true,
+    "tests/unit/writeback_set_test.c": true
+  },
+  "runtime_test_diff_vs_main": [
+    "src/cache.h",
+    "src/clockcache.c",
+    "tests/unit/writeback_set_test.c"
+  ],
+  "compiler_versions": {
+    "cc": "cc (Debian 14.2.0-19) 14.2.0",
+    "clang-19": "Debian clang version 19.1.7 (3+b1)"
+  },
+  "builds": {
+    "debug": {
+      "config": "build-config-debug.txt",
+      "library_sha256": "38b9f80e799dd392a30a077a84c6d2dc15139845f94c61e379794eaa5a725a6a",
+      "passed": 106,
+      "skipped": 2
+    },
+    "release": {
+      "config": "build-config-release.txt",
+      "library_sha256": "62f17d475ea48372f2e2cb456a14e4913c68b4751694824465292ac63e546f31",
+      "passed": 106,
+      "skipped": 2
+    },
+    "release-msan": {
+      "config": "build-config-release-msan.txt",
+      "library_sha256": "70ca5bc774ea16666365e6edb48935a6e6f7d668201c6aaa36a1bdf1526262b5",
+      "passed": 91,
+      "skipped": 2
+    }
+  },
+  "benchmarks_rerun": false,
+  "source_hashes": "validation.json"
+}

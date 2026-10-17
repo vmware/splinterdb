@@ -1,0 +1,90 @@
+{
+  "main": {
+    "clockcache_get_async": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_get_async.asm",
+      "sha256": "d4e46b314f8a9ad0abf30f17f63ff91c148e2d2b4d19b993ec1d3b245dedfc27"
+    },
+    "clockcache_get_in_cache_async.constprop.0": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_get_in_cache_async.constprop.0.asm",
+      "sha256": "ff23dc5d043a5f3af1665b52599bde5121b800424ebdbf4ed2a592674c4b1c98"
+    },
+    "clockcache_get_from_disk_async.constprop.0": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_get_from_disk_async.constprop.0.asm",
+      "sha256": "a1d475168ca9003e34933beacf61482607b099655ca1f5547a40f1bfd7861d78"
+    },
+    "clockcache_get_async_virtual": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_get_async_virtual.asm",
+      "sha256": "139140e1c9cd41416e6f0e8115446febf0fe97b75e5b2850455ce248a45f4833"
+    },
+    "clockcache_get_async_state_result_virtual": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_get_async_state_result_virtual.asm",
+      "sha256": "ef83360cc7191e6182632018c022138cd9f8e82de3ce73660c3ca6852b19d9cf"
+    }
+  },
+  "original": {
+    "clockcache_get_async": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_get_async.asm",
+      "sha256": "93ebc446dd19b2bb526afb19e8f77bbcf700a58b880477ab9dc588b2c1d1d6c9"
+    },
+    "clockcache_get_in_cache_async.constprop.0": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_get_in_cache_async.constprop.0.asm",
+      "sha256": "e825ca9efdf6edd6ee1f5488c2e377743bfca16dca7dafd97cecc2351e29bffa"
+    },
+    "clockcache_get_from_disk_async.constprop.0": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_get_from_disk_async.constprop.0.asm",
+      "sha256": "e49a72c6a58cd287f1db06e03b73429a45aea1dc63e64a11d773ae5226cd3047"
+    },
+    "clockcache_get_async_virtual": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_get_async_virtual.asm",
+      "sha256": "b0086d88d9314e247fe8ffaca9212cdfa3e6546e5987a289b4bb4845a0a72e4b"
+    },
+    "clockcache_get_async_state_result_virtual": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_get_async_state_result_virtual.asm",
+      "sha256": "aaa42d7ac07f184f063c0c5795f640f7bfc98124c6391223894c6877572b94f3"
+    }
+  },
+  "async-load": {
+    "clockcache_get_async": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_get_async.asm",
+      "sha256": "c21cdd64ee3bf18fd1a56629437553838194f2b8b6d1c92fadb698806334c206"
+    },
+    "clockcache_get_in_cache_async.constprop.0": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_get_in_cache_async.constprop.0.asm",
+      "sha256": "c9f90dbf3594c8021f2d80d6c12e745fbf64f8094b018f956a691fba48b9944d"
+    },
+    "clockcache_get_from_disk_async.constprop.0": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_get_from_disk_async.constprop.0.asm",
+      "sha256": "be89e66b126a0a283b817499e7069967482dbac003f855126f87f8483124d465"
+    },
+    "clockcache_get_async_virtual": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_get_async_virtual.asm",
+      "sha256": "d6e1205a8a6e03ee31d2212a656777420a060fc2da8aa3cd07e2f02e355e2f01"
+    },
+    "clockcache_get_async_state_result_virtual": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_get_async_state_result_virtual.asm",
+      "sha256": "219aa690266b85910c1eccdcd951a61fcd6987a4400b1fb37cf388e82a3e67f6"
+    }
+  },
+  "async-mask": {
+    "clockcache_get_async": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_get_async.asm",
+      "sha256": "621c752bfc053a47a4818bc261d6e25a71d78f540032a04e7103f557c25c9fff"
+    },
+    "clockcache_get_in_cache_async.constprop.0": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_get_in_cache_async.constprop.0.asm",
+      "sha256": "89b8b6baedbc68e7c050f1e970f31048f0695df7e0b7f12fac238466bbf2f7bb"
+    },
+    "clockcache_get_from_disk_async.constprop.0": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_get_from_disk_async.constprop.0.asm",
+      "sha256": "55143f7dbbac643b53c4297c8fd394dbf7b9319bd9c7b27e3566ffc144f1e4ce"
+    },
+    "clockcache_get_async_virtual": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_get_async_virtual.asm",
+      "sha256": "c06d34dc5b341ca137fc107830231e3866bbd8bc097c92780b46f4f88b3429a7"
+    },
+    "clockcache_get_async_state_result_virtual": {
+      "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_get_async_state_result_virtual.asm",
+      "sha256": "352907837b880ff62624d29712370f28895a8e55f40ccb236ece7a578820846b"
+    }
+  }
+}

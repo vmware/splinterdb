@@ -1,0 +1,14 @@
+version=splinterdb_build_version 2907e97e records=20000000 key=16 value=16 cache_mib=256 disk_gib=16 inserters=8 readers=0 memtable_bg=1 normal_bg=3 memtable_mib=8 queue_scale=100 log=1 checkpoints=disabled direct=1 query_range=inserted seed=42 report_ms=20 barrier_ms=0 target_insert_ops_s=0 id_base=0 mode=create
+Splinter task system created 1 background thread of type 'TASK_TYPE_MEMTABLE'.
+Splinter task system created 3 background threads of type 'TASK_TYPE_NORMAL'.
+worker=5 kind=insert tid=5 os_tid=102
+worker=4 kind=insert tid=6 os_tid=101
+worker=0 kind=insert tid=7 os_tid=97
+worker=6 kind=insert tid=8 os_tid=103
+worker=1 kind=insert tid=9 os_tid=98
+worker=7 kind=insert tid=12 os_tid=104
+worker=3 kind=insert tid=10 os_tid=100
+worker=2 kind=insert tid=11 os_tid=99
+start_monotonic_ns=1788777426333986 main_address=0x55dcdea80a80
+load_end reason=complete inserted=20000000 elapsed_s=12.117 error=0 barrier_count=0 barrier_avg_ms=0.000 barrier_max_ms=0.000
+close_s=0.177 close_rc=0

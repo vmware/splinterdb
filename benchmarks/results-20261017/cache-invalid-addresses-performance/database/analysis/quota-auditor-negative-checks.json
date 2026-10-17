@@ -1,0 +1,13 @@
+{
+  "checks_passed": [
+    "extra shared reservation",
+    "zero-work worker with last operation timestamp",
+    "nonmonotonic phase clock",
+    "count mismatch",
+    "one block has no confidence interval"
+  ],
+  "source_log": ".cache/invalid-address-perf-20261017/database/results/insert-quota-smoke-shared3/wal0-00-async-load.log",
+  "source_log_sha256": "3be391e14df8cf70cbf5efc87ea38b96f9d099ee044bef449ee3fadbe4e2ccd9",
+  "auditor_sha256": "ee84fcba713d458f3d589ff4a89c01765dac4eb83c48cfff465623c4586fad4e",
+  "workloads_launched": false
+}

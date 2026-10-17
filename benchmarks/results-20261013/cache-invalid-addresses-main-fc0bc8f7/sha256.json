@@ -1,0 +1,16 @@
+{
+  "direct-release-core-initial-wrong-option.log": "e4e2399f2260c5ca6837415f57db9f0931105e511d83d395e1b2ab6bb39a6df8",
+  "source-and-validation.json": "49a5ed5334dc140be91a27daec8ef15a16375f185afe681407a0528c3a955df7",
+  "direct-debug-core.log": "724a6b5ef904ad7856ae1039b345afa05f901ada3fd273257afdddef0fcc20d2",
+  "format.log": "b88646bd5be34b877283e6359977d914aa27f6d64b0ae008b95451054777766e",
+  "direct-release-quick.log": "655ec1027b70ed6ae5d997d0fc64654ac1f99364c6fd11465f3535e9a2960412",
+  "direct-release-build.log": "196eabc94473099fda77153f3fedfe40011da443a19471ed3d8614c078e347c5",
+  "direct-release-writeback.log": "00cfed27709d166e5708c326e30c3d30b675eb9881e45b1d562c3f08d35868b6",
+  "direct-debug-admission.log": "24c1ad596d8a1ce0d74dc58c3e8d904272b38d90c95d97a9d8a89f7489482a80",
+  "validate.py": "934c094322cc7f1c37e03d80db0252d05caad0041e18f22d9113c0acbcd51221",
+  "results.json": "6741bad8512ad850d6926961d08450365e6cd3fb95c8530a960df7dcd3c41af4",
+  "direct-release-core.log": "67d4e1e89b721dfe52f39bdd0544d962fa63b6b65ecc365066b9e86808ea9b88",
+  "direct-debug-build.log": "22fc76c04b63074bca33670a1c22ceb43872d3f3aeff6cddfaba1ea09fd9ed18",
+  "direct-debug-writeback.log": "b72d968945e187780223faf7f2b20eb0fb22a7dee0fdacc95044cc71d93ff1a7",
+  "direct-debug-quick.log": "af7621fddde96c5804945ef0c896f2494a49be0da5c4cb7a6a14b87acfd4fbce"
+}

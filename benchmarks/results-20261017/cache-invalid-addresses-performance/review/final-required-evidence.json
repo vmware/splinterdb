@@ -1,0 +1,23 @@
+{
+  "selected_profile": "async-mask",
+  "required_completed_analysis": [
+    "mask-final-hits-audited.json",
+    "mask-final-hot32-audited.json",
+    "mask-final-misses-audited.json",
+    "mask-final-quota-audited.json",
+    "mask-final-resident-audited.json",
+    "mask-final-writes-hot32-audited.json"
+  ],
+  "validation": "validation-async-mask/validation.json",
+  "churn": "review/mask-churn-audited.json",
+  "production_source": "delivery-source-check.json",
+  "local_commit_only": true,
+  "remaining_limitations": [
+    "No-WAL database insertion wall-time uncertainty",
+    "Point-query confidence interval allows more than 3% loss",
+    "Valid nonblocking miss retains allocator-membership work",
+    "Inherited asynchronous admission-progress limitation remains unresolved"
+  ],
+  "completed": true,
+  "write_scope": "72 measured resident dirty-page write/claim cases plus 4 excluded preconditions; no database insertion-neutrality inference"
+}

@@ -1,0 +1,4 @@
+# Preserve blank context lines in archived unified patches.
+*.patch -whitespace
+# Keep the raw CSV writer CRLF bytes and check other whitespace.
+*.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

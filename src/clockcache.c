@@ -391,37 +391,76 @@ clockcache_divide_by_page_size(const clockcache *cc, uint64 addr)
  * structures, and lookup_no indexes cc->lookup directly. Keep these checks in
  * production and centralize them here so every lookup-table user is covered.
  */
+/* Keep diagnostic formatting out of the normal cache lookup path. */
+static void __attribute__((cold, noinline))
+clockcache_report_invalid_address(const clockcache *cc, uint64 addr)
+{
+   uint64 page_size = clockcache_config_page_size(cc->cfg);
+   if (addr % page_size != 0) {
+      platform_error_log(
+         "Unaligned cache page address %lu (page size %lu)\n", addr, page_size);
+   } else {
+      uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
+      platform_error_log("Cache page address %lu is outside lookup capacity "
+                         "%lu\n",
+                         addr,
+                         lookup_capacity * page_size);
+   }
+}
+
+static inline bool32
+clockcache_try_lookup_number(const clockcache *cc,
+                             uint64            addr,
+                             uint64           *lookup_no)
+{
+   uint64 page_size = clockcache_config_page_size(cc->cfg);
+   if (UNLIKELY((addr & (page_size - 1)) != 0)) {
+      clockcache_report_invalid_address(cc, addr);
+      return FALSE;
+   }
+   *lookup_no             = clockcache_divide_by_page_size(cc, addr);
+   uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
+   if (UNLIKELY(*lookup_no >= lookup_capacity)) {
+      clockcache_report_invalid_address(cc, addr);
+      return FALSE;
+   }
+   return TRUE;
+}
+
+/* Internal operations on existing mappings must still satisfy this invariant.
+ * Demand reads use the fallible helpers to reject addresses from disk. */
 static inline uint64
 clockcache_lookup_number(const clockcache *cc, uint64 addr)
 {
-   uint64 page_size = clockcache_config_page_size(cc->cfg);
-   platform_assert(addr % page_size == 0,
-                   "Unaligned cache page address %lu (page size %lu)",
-                   addr,
-                   page_size);
-
-   uint64 lookup_no       = clockcache_divide_by_page_size(cc, addr);
-   uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
-   platform_assert(lookup_no < lookup_capacity,
-                   "Cache page address %lu is outside lookup capacity %lu",
-                   addr,
-                   lookup_capacity * page_size);
+   uint64 lookup_no;
+   platform_assert(clockcache_try_lookup_number(cc, addr, &lookup_no));
    return lookup_no;
+}
+
+static inline bool32
+clockcache_try_lookup(const clockcache *cc, uint64 addr, uint32 *entry_number)
+{
+   uint64 lookup_no;
+   if (!clockcache_try_lookup_number(cc, addr, &lookup_no)) {
+      return FALSE;
+   }
+   *entry_number = cc->lookup[lookup_no];
+
+   debug_assert(((*entry_number < cc->cfg->page_capacity)
+                 || (*entry_number == CC_UNMAPPED_ENTRY)),
+                "entry_number=%u is out-of-bounds. "
+                " Should be either CC_UNMAPPED_ENTRY,"
+                " or should be < %d.",
+                *entry_number,
+                cc->cfg->page_capacity);
+   return TRUE;
 }
 
 static inline uint32
 clockcache_lookup(const clockcache *cc, uint64 addr)
 {
-   uint64 lookup_no    = clockcache_lookup_number(cc, addr);
-   uint32 entry_number = cc->lookup[lookup_no];
-
-   debug_assert(((entry_number < cc->cfg->page_capacity)
-                 || (entry_number == CC_UNMAPPED_ENTRY)),
-                "entry_number=%u is out-of-bounds. "
-                " Should be either CC_UNMAPPED_ENTRY,"
-                " or should be < %d.",
-                entry_number,
-                cc->cfg->page_capacity);
+   uint32 entry_number;
+   platform_assert(clockcache_try_lookup(cc, addr, &entry_number));
    return entry_number;
 }
 
@@ -2262,13 +2301,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
                                   uint64      addr,
                                   page_type   type) // OUT
 {
-   /*
-    * Validate allocation membership only when admitting a new mapping. A
-    * cache hit inherits this property from the mapping, which is removed by
-    * cache_extent_discard() before the allocator can make the extent free.
-    */
-   clockcache_assert_page_access_valid(cc, addr, type);
-
+   /* The demand-read caller has already validated allocation membership. */
    threadid          tid          = platform_get_tid();
    uint64            lookup_no    = clockcache_lookup_number(cc, addr);
    uint32            entry_number = clockcache_get_free_page(cc,
@@ -2405,9 +2438,11 @@ clockcache_get_internal(clockcache      *cc,       // IN
 {
    clockcache_assert_page_type_valid(addr, type);
 
-   // We expect entry_number to be valid, but it's still validated below
-   // in case some arithmetic goes wrong.
-   uint32 entry_number = clockcache_lookup(cc, addr);
+   uint32 entry_number;
+   if (!clockcache_try_lookup(cc, addr, &entry_number)) {
+      *rc = STATUS_BAD_PARAM;
+      return FALSE;
+   }
 
    if (entry_number != CC_UNMAPPED_ENTRY) {
 #if SPLINTER_DEBUG
@@ -2418,7 +2453,16 @@ clockcache_get_internal(clockcache      *cc,       // IN
 #endif
       return clockcache_get_in_cache(
          cc, addr, blocking, type, entry_number, page, rc);
-   } else if (blocking) {
+   }
+
+   /* A hit inherits allocation validity from its mapping, which is removed by
+    * cache_extent_discard() before the allocator can free the extent. Check
+    * misses even for a nonblocking get, before returning STATUS_BUSY. */
+   if (!allocator_page_valid(cc->al, addr)) {
+      *rc = STATUS_BAD_PARAM;
+      return FALSE;
+   }
+   if (blocking) {
       return clockcache_get_from_disk(cc, addr, type, page, rc);
    } else {
       *rc = STATUS_BUSY;
@@ -2599,6 +2643,15 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
 {
    async_begin(state, depth);
 
+   /* A miss must be allocated before it can reserve a cache entry or issue I/O.
+    * Resident hits inherit allocation validity from their existing mapping.
+    */
+   if (!allocator_page_valid(state->cc->al, state->addr)) {
+      state->result_status = STATUS_BAD_PARAM;
+      state->succeeded     = TRUE;
+      async_return(state);
+   }
+
    state->entry_number =
       clockcache_acquire_entry_for_load(state->cc, state->addr, state->type);
    if (state->entry_number == CC_UNMAPPED_ENTRY) {
@@ -2686,9 +2739,13 @@ clockcache_get_internal_async(clockcache_get_async_state *state, uint64 depth)
    state->tid = platform_get_tid();
    clockcache_assert_page_type_valid(state->addr, state->type);
 
-   // We expect entry_number to be valid, but it's still validated below
-   // in case some arithmetic goes wrong.
-   state->entry_number = clockcache_lookup(state->cc, state->addr);
+   uint32 entry_number;
+   if (!clockcache_try_lookup(state->cc, state->addr, &entry_number)) {
+      state->result_status = STATUS_BAD_PARAM;
+      state->succeeded     = TRUE;
+      async_return(state);
+   }
+   state->entry_number = entry_number;
 
    if (state->entry_number != CC_UNMAPPED_ENTRY) {
       async_await_subroutine(state, clockcache_get_in_cache_async);
@@ -3412,18 +3469,33 @@ clockcache_prefetch_pages(clockcache *cc,
    platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
    platform_assert(num_pages > 0);
    platform_assert(num_pages <= cc->cfg->pages_per_extent);
-   clockcache_assert_page_access_valid(cc, first_addr, type);
+   /* Prefetch is a hint: reject malformed pointers without publishing a
+    * mapping. A later demand read will return the address error to its caller.
+    */
+   uint64 lookup_no;
+   if (!clockcache_try_lookup_number(cc, first_addr, &lookup_no)
+       || !allocator_page_valid(cc->al, first_addr))
+   {
+      return;
+   }
 
    uint64 last_page_offset =
       clockcache_multiply_by_page_size(cc, num_pages - 1);
-   platform_assert(first_addr <= UINT64_MAX - last_page_offset);
+   if (first_addr > UINT64_MAX - last_page_offset) {
+      platform_error_log("Cache prefetch range overflows at address %lu\n",
+                         first_addr);
+      return;
+   }
    uint64 last_addr = first_addr + last_page_offset;
    if (last_addr != first_addr) {
       /* A legal-sized prefetch can straddle an extent boundary. Validate the
        * allocation state at both ends before publishing any cache entries. */
-      clockcache_assert_page_access_valid(cc, last_addr, type);
+      if (!clockcache_try_lookup_number(cc, last_addr, &lookup_no)
+          || !allocator_page_valid(cc->al, last_addr))
+      {
+         return;
+      }
    }
-   (void)clockcache_lookup_number(cc, last_addr);
 
    for (uint64 page_off = 0; page_off < num_pages; page_off++) {
       uint64 addr = first_addr + clockcache_multiply_by_page_size(cc, page_off);
@@ -3596,7 +3668,11 @@ void
 clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 {
    platform_assert(cc != NULL);
-   platform_assert(base_addr % clockcache_extent_size(cc) == 0);
+   if (base_addr % clockcache_extent_size(cc) != 0) {
+      platform_error_log("Unaligned cache prefetch extent address %lu\n",
+                         base_addr);
+      return;
+   }
 
    clockcache_prefetch_pages(cc, base_addr, cc->cfg->pages_per_extent, type);
 }
@@ -4284,6 +4360,7 @@ clockcache_config_init(clockcache_config *cache_cfg,
                        uint64             use_stats)
 {
    int rc;
+   platform_assert(IS_POWER_OF_2(io_cfg->page_size));
    ZERO_CONTENTS(cache_cfg);
 
    cache_cfg->super.ops     = &clockcache_config_ops;

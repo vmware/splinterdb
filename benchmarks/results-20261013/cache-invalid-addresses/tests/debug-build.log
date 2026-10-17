@@ -1,0 +1,28 @@
+Starting cache-invalid-addresses-debug-build build
+Checking for mismatched config...No mismatched config found
+Saving config to build/debug/build-config.e33dfc688a9c2bf2dad4e17ef758ec3e
+Compiling            tests/unit/main.c                                  [build/debug/obj/tests/unit/main.o]
+Compiling            tests/unit/writeback_set_test.c                    [build/debug/obj/tests/unit/writeback_set_test.o]
+Compiling            tests/unit/btree_test_common.c                     [build/debug/obj/tests/unit/btree_test_common.o]
+Compiling            tests/config.c                                     [build/debug/obj/tests/config.o]
+Compiling            tests/test_data.c                                  [build/debug/obj/tests/test_data.o]
+Compiling            tests/unit/unit_tests_common.c                     [build/debug/obj/tests/unit/unit_tests_common.o]
+Compiling            src/btree.c                                        [build/debug/obj/src/btree.o]
+Compiling            src/blob.c                                         [build/debug/obj/src/blob.o]
+Compiling            src/blob_build.c                                   [build/debug/obj/src/blob_build.o]
+Compiling            src/data_blob_build.c                              [build/debug/obj/src/data_blob_build.o]
+Compiling            src/data_internal.c                                [build/debug/obj/src/data_internal.o]
+Compiling            src/mini_allocator.c                               [build/debug/obj/src/mini_allocator.o]
+Compiling            src/ondisk_ref.c                                   [build/debug/obj/src/ondisk_ref.o]
+Compiling            src/clockcache.c                                   [build/debug/obj/src/clockcache.o]
+Compiling            src/allocator.c                                    [build/debug/obj/src/allocator.o]
+Compiling            src/rc_allocator.c                                 [build/debug/obj/src/rc_allocator.o]
+src/clockcache.c: In function ‘clockcache_get_internal_async’:
+src/clockcache.c:2726:55: error: passing argument 3 of ‘clockcache_try_lookup’ from incompatible pointer type [-Wincompatible-pointer-types]
+ 2726 |    if (!clockcache_try_lookup(state->cc, state->addr, &state->entry_number)) {
+      |                                                       ^~~~~~~~~~~~~~~~~~~~
+      |                                                       |
+      |                                                       uint64 * {aka long unsigned int *}
+compilation terminated due to -Wfatal-errors.
+make: *** [Makefile:365: build/debug/obj/src/clockcache.o] Error 1
+make: *** Waiting for unfinished jobs....

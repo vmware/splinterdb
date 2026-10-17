@@ -1,0 +1,10 @@
+Reduce hot-path overhead in cache address validation
+
+Keep invalid-address diagnostics cold, validate async allocation only in
+the existing disk-load coroutine, and use a checked power-of-two alignment
+mask. Preserve invalid-miss rejection before reservation or I/O and the
+existing retry, resume, and callback ownership contracts.
+
+Record controlled cache and database comparisons against main and the
+unoptimized branch, including unresolved insertion wall-time variation.
+Validate the exact source in release, debug and MemorySanitizer builds.

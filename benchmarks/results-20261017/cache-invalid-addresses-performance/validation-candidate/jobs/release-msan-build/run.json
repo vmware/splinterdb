@@ -1,0 +1,23 @@
+{
+  "name": "release-msan-build",
+  "command": [
+    "make",
+    "-j6",
+    "BUILD_ROOT=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/candidate",
+    "BUILD_MODE=release",
+    "GIT_VERSION=invalid-address-perf-candidate",
+    "CC=clang-19",
+    "LD=clang-19",
+    "BUILD_MSAN=1",
+    "libs",
+    "unit/writeback_set_test"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/candidate",
+  "environment_overrides": null,
+  "queued": 1792224200.2724514,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792224200.2724607,
+  "returncode": 0,
+  "finished": 1792224221.3974628,
+  "log_sha256": "222fba2b38fd496699998023bb4b9c4e92e434591f067edd3beb91ddbf2ba609"
+}

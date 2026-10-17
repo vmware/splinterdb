@@ -374,8 +374,11 @@ cache_extent_discard(cache *cc, uint64 addr, page_type type)
  * page whose read is already in flight may still wait for that read.
  * On any failure, page is cleared and the caller owns no reference.
  *
- * addr is a byte offset from the beginning of the disk. It should be aligned
- * to cache_page_size().
+ * addr is a byte offset from the beginning of the disk. Misaligned addresses,
+ * addresses outside the cache/allocator capacity, and addresses in unallocated
+ * extents return STATUS_BAD_PARAM, including for nonblocking gets. Callers must
+ * keep the extent allocated throughout the get and the returned handle's life.
+ * The asynchronous get API below reports the same address errors.
  *----------------------------------------------------------------------
  */
 static inline platform_status
@@ -528,7 +531,8 @@ cache_unlock(cache *cc, page_handle *page)
  *
  * Asynchronously load the extent with given base address. No notification is
  * provided to the calling thread; it may call cache_get when it's ready
- * to block on the arrival of the page.
+ * to block on the arrival of the page. Invalid addresses are ignored; demand
+ * reads report address errors. addr must be extent-aligned for this hint.
  *
  *----------------------------------------------------------------------
  */

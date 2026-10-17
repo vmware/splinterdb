@@ -1,0 +1,86 @@
+{
+  "main": {
+    "library_sha256": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6",
+    "symbols": {
+      "clockcache_get": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_get.asm",
+        "sha256": "433f3072dcad2afd7c35407c074130461eddca0d6429a0e938bc4a670a8f7173"
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_get_internal_async.constprop.0.asm",
+        "sha256": "d0489125a561c1b2fff80d55eddb5bc7dfdcf42a2c4462761a8a88384de20dfc"
+      },
+      "clockcache_try_get_read.constprop.0": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_try_get_read.constprop.0.asm",
+        "sha256": "63a160b6c206dea70e848e95268e14a6b1fc80fa7e9fe6d4ec95ce407483eba9"
+      },
+      "clockcache_unget": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-main-clockcache_unget.asm",
+        "sha256": "f4392d3fca3338c2e1295c2df8e7a2b9d8b7c8f1c9ccbcb8085d28ce1e9b2591"
+      }
+    }
+  },
+  "original": {
+    "library_sha256": "e0c680239539a36a9a9f927888963508c39992c7366250a3a2c7c8b8224ad3e2",
+    "symbols": {
+      "clockcache_get": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_get.asm",
+        "sha256": "8a6bf051d34704307bf413b5c7557ea3d825351f2b43075e7b1efa3e28349592"
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_get_internal_async.constprop.0.asm",
+        "sha256": "b66068174551b525749428480f0cad5a688dbb34eb871473d54db6ac2969e723"
+      },
+      "clockcache_try_get_read.constprop.0": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_try_get_read.constprop.0.asm",
+        "sha256": "a61cbf6b6e01e8daa36a9a7bd73ba8a331470c235608a781bce3412a1e95982b"
+      },
+      "clockcache_unget": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-original-clockcache_unget.asm",
+        "sha256": "7160c5bace2f504eeea45e0fe855ee771daa758c1cb0492dac411f3f81dddae0"
+      }
+    }
+  },
+  "async-load": {
+    "library_sha256": "a3cde96521c0fdd52e21e528877daac3166dd83bf5b8de462437e1c5f7f9e152",
+    "symbols": {
+      "clockcache_get": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_get.asm",
+        "sha256": "fee89e0a655f57ee2002ecbaeb97c37fea873b588313dabe2267fa82f1560803"
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_get_internal_async.constprop.0.asm",
+        "sha256": "f880853b2f8270caa71cf98d584658c34f34521d8728d18b63c7fd6f7b56743e"
+      },
+      "clockcache_try_get_read.constprop.0": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_try_get_read.constprop.0.asm",
+        "sha256": "5ad7fd13d7dc1fff67361f289e6a59f1665f7cc0b6af1f42313a694208a4da53"
+      },
+      "clockcache_unget": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-load-clockcache_unget.asm",
+        "sha256": "ed667cb226f02758d698d6d990eeaf91940674a8eebe11feb39575dbd213b8af"
+      }
+    }
+  },
+  "async-mask": {
+    "library_sha256": "c7b04dabd8a600500ead9095a04e0a572baf904e256f077043c7191abdd8d228",
+    "symbols": {
+      "clockcache_get": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_get.asm",
+        "sha256": "08636a208c2278e44ec64d69c520a29060768d1c8fbd05184b433edd4aa3d54f"
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_get_internal_async.constprop.0.asm",
+        "sha256": "be4c25bb5f40f96c3a0dbf40fbf97777aa6de62806e223a3a56aff7aeb12ff55"
+      },
+      "clockcache_try_get_read.constprop.0": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_try_get_read.constprop.0.asm",
+        "sha256": "96448acf1a30121da10b16f73b384575983c76242a5f2d7feeeedfb4a16be93e"
+      },
+      "clockcache_unget": {
+        "file": ".cache/invalid-address-perf-20261017/review/async-mask-static-async-mask-clockcache_unget.asm",
+        "sha256": "af2ffe7e457a71ccc8e2c065430f540e0bfa8c0b5a48094819929eba9ad8ed77"
+      }
+    }
+  }
+}

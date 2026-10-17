@@ -1,0 +1,25 @@
+{
+  "name": "initial-blocking-8-00-main",
+  "command": [
+    "taskset",
+    "-c",
+    "0-11",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/harness/cache_api_probe",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/initial-blocking-8-00-main/cache.db",
+    "64",
+    "8",
+    "3",
+    "both",
+    "blocking"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/initial-blocking-8-00-main",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/main/release/lib"
+  },
+  "queued": 1792222175.0344646,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792222175.0344815,
+  "returncode": 0,
+  "finished": 1792222183.4109988,
+  "log_sha256": "c9eb6d780de390c551ee63219c0afc9aad3597f70774af46d3d7f4354d84d08b"
+}

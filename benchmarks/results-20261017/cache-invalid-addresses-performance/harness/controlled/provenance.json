@@ -1,0 +1,8 @@
+{
+  "source_version": "v3 controlled affinity and warmup",
+  "parent_source": "../counters/cache_api_probe.c",
+  "parent_sha256": "b6858d2bc4c6291c0ed3ade198885527cac35995081382faae9cb3d47dc1f309",
+  "source_sha256": "92f50d2ca40c470027294dbd08bef9b6f8dc9b6845fdd044cff3f5e90e0b4c24",
+  "prepared_only": true,
+  "runner_sha256": "8c4af7a1fdfddcc864032fae73d1225d271dec8588f06a00e2caf37c17866063"
+}

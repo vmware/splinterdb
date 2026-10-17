@@ -1,0 +1,716 @@
+{
+  "status": "Completed exact-source bounded database confirmation; no further DB workloads recommended for this cache-focused investigation.",
+  "candidate_profile": "async-mask",
+  "candidate_library_sha256": "c7b04dabd8a600500ead9095a04e0a572baf904e256f077043c7191abdd8d228",
+  "evidence": {
+    "mask-final-quota-audited.json": "ff59c88a9d6a14c203f1b59be99d11c493ca5deaff8c6aa7a9180334e2f863be",
+    "mask-final-resident-audited.json": "a0665765463cf5a5bc09734d89f9f6c73d72773d517b633e69d899daf91d1ec7"
+  },
+  "no_cohort_pooling": true,
+  "identical_compared_libraries": true,
+  "recorded_lock_intervals_nonoverlapping": true,
+  "insertion": {
+    "measured_runs": 36,
+    "measured_inserts": 720000000,
+    "excluded_preconditions": 2,
+    "settings": "Fixed per-worker quotas,20M records,8 writers,16/16B tuples,256MiB cache,8MiB memtable,1+3 background workers,15s fixed-quota precondition capped at100M; WAL0 and1 separately.",
+    "comparisons": [
+      {
+        "wal": 0,
+        "quota_mode": "fixed",
+        "profile": "async-mask",
+        "baseline": "main",
+        "complete_block_numbers": [
+          0,
+          1,
+          2
+        ],
+        "estimates": {
+          "exact_body_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -4.0666858743527134,
+            "ci95_low_pct": -23.894292183802822,
+            "ci95_high_pct": 20.926551019757397,
+            "block_delta_pct": [
+              -5.21638195538211,
+              -12.023250915846972,
+              5.878346784888389
+            ]
+          },
+          "exact_drain_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -4.094387996983658,
+            "ci95_low_pct": -24.505238950654956,
+            "ci95_high_pct": 21.83476423829159,
+            "block_delta_pct": [
+              -5.120455561372783,
+              -12.392182494655458,
+              6.124733115913283
+            ]
+          },
+          "productive_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -3.8371517287816364,
+            "ci95_low_pct": -24.073795899534947,
+            "ci95_high_pct": 21.79317400613636,
+            "block_delta_pct": [
+              -5.134600000311984,
+              -11.901353771041634,
+              6.4007962118444395
+            ]
+          },
+          "body_cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": -0.36196428603247555,
+            "ci95_low_pct": -2.9708478624440064,
+            "ci95_high_pct": 2.3170659768678825,
+            "block_delta_pct": [
+              -0.006224752758676733,
+              -1.5510829794591618,
+              0.4827617448509125
+            ]
+          },
+          "drain_cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": -0.3510290232377357,
+            "ci95_low_pct": -2.8213698178779034,
+            "ci95_high_pct": 2.1821093600309873,
+            "block_delta_pct": [
+              -0.03175415632082901,
+              -1.4723708499333243,
+              0.46119754474704955
+            ]
+          },
+          "worker_completion_spread_s": {
+            "blocks": 3,
+            "geometric_delta_pct": 12.132636231449117,
+            "ci95_low_pct": -35.92973559230341,
+            "ci95_high_pct": 96.24904352203745,
+            "block_delta_pct": [
+              3.823240632475877,
+              44.514218143452,
+              -6.029629415637983
+            ]
+          }
+        },
+        "absolute_differences": {
+          "worker_completion_spread_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.3496221801666666,
+            "ci95_low_s": -1.372487996754782,
+            "ci95_high_s": 2.0717323570881154,
+            "block_difference_s": [
+              0.11659380000000041,
+              1.1292963179999997,
+              -0.19702357750000044
+            ]
+          },
+          "productive_end_to_stop_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.019785462,
+            "ci95_low_s": -0.02041376575266399,
+            "ci95_high_s": 0.059984689752663994,
+            "block_difference_s": [
+              0.006645533500000002,
+              0.014851798999999999,
+              0.0378590535
+            ]
+          },
+          "diagnostic_join_wall_s": {
+            "blocks": 3,
+            "mean_difference_s": 1.4582333333333333e-05,
+            "ci95_low_s": 9.573286099927737e-06,
+            "ci95_high_s": 1.959138056673893e-05,
+            "block_difference_s": [
+              1.4581500000000003e-05,
+              1.2566499999999996e-05,
+              1.6599e-05
+            ]
+          },
+          "diagnostic_close_wall_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.007112625499999997,
+            "ci95_low_s": -0.10307839469998945,
+            "ci95_high_s": 0.11730364569998944,
+            "block_difference_s": [
+              -0.002489693500000001,
+              0.055481529,
+              -0.03165395900000001
+            ]
+          }
+        }
+      },
+      {
+        "wal": 0,
+        "quota_mode": "fixed",
+        "profile": "async-mask",
+        "baseline": "original",
+        "complete_block_numbers": [
+          0,
+          1,
+          2
+        ],
+        "estimates": {
+          "exact_body_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -2.6289231184309356,
+            "ci95_low_pct": -24.989404246563453,
+            "ci95_high_pct": 26.39716453181301,
+            "block_delta_pct": [
+              2.201825408792768,
+              -13.682151980410918,
+              4.6479348389661945
+            ]
+          },
+          "exact_drain_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -2.5040606772636096,
+            "ci95_low_pct": -25.07981836129778,
+            "ci95_high_pct": 26.874467953937426,
+            "block_delta_pct": [
+              2.587236630501488,
+              -13.69049503832247,
+              4.6664818189691815
+            ]
+          },
+          "productive_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -2.780105954354344,
+            "ci95_low_pct": -25.855844450946382,
+            "ci95_high_pct": 27.477448873139267,
+            "block_delta_pct": [
+              2.248198475520735,
+              -14.217293763730531,
+              4.763505598590334
+            ]
+          },
+          "body_cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": -0.4393031345085922,
+            "ci95_low_pct": -3.499123155393063,
+            "ci95_high_pct": 2.717536715276311,
+            "block_delta_pct": [
+              0.6966337250596366,
+              -1.7748134931110715,
+              -0.22402766643643268
+            ]
+          },
+          "drain_cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": -0.4168761667697366,
+            "ci95_low_pct": -3.334401576130388,
+            "ci95_high_pct": 2.588704917547179,
+            "block_delta_pct": [
+              0.66548712896084,
+              -1.6895533554598718,
+              -0.2123102555314227
+            ]
+          },
+          "worker_completion_spread_s": {
+            "blocks": 3,
+            "geometric_delta_pct": 7.620655592357331,
+            "ci95_low_pct": -46.587342621261556,
+            "ci95_high_pct": 116.84383587211731,
+            "block_delta_pct": [
+              -8.394236932309484,
+              49.0413387565449,
+              -8.702820610061135
+            ]
+          }
+        },
+        "absolute_differences": {
+          "worker_completion_spread_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.20784124916666658,
+            "ci95_low_s": -1.9404645607842328,
+            "ci95_high_s": 2.356147059117566,
+            "block_difference_s": [
+              -0.2901328009999995,
+              1.2063555159999995,
+              -0.29269896750000024
+            ]
+          },
+          "productive_end_to_stop_s": {
+            "blocks": 3,
+            "mean_difference_s": -0.012802860166666664,
+            "ci95_low_s": -0.08077501516078904,
+            "ci95_high_s": 0.05516929482745571,
+            "block_difference_s": [
+              0.0018453545000000002,
+              -0.044368595499999997,
+              0.004114660500000006
+            ]
+          },
+          "diagnostic_join_wall_s": {
+            "blocks": 3,
+            "mean_difference_s": -8.986666666666653e-07,
+            "ci95_low_s": -2.563667633082843e-05,
+            "ci95_high_s": 2.3839342997495098e-05,
+            "block_difference_s": [
+              8.282000000000006e-06,
+              5.059999999999982e-07,
+              -1.1484e-05
+            ]
+          },
+          "diagnostic_close_wall_s": {
+            "blocks": 3,
+            "mean_difference_s": -0.007132057666666673,
+            "ci95_low_s": -0.0865685425877068,
+            "ci95_high_s": 0.07230442725437344,
+            "block_difference_s": [
+              -0.0379919635,
+              0.02585193699999999,
+              -0.009256146500000006
+            ]
+          }
+        }
+      },
+      {
+        "wal": 1,
+        "quota_mode": "fixed",
+        "profile": "async-mask",
+        "baseline": "main",
+        "complete_block_numbers": [
+          0,
+          1,
+          2
+        ],
+        "estimates": {
+          "exact_body_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -1.2210986619043784,
+            "ci95_low_pct": -6.162892288297529,
+            "ci95_high_pct": 3.9809472766219436,
+            "block_delta_pct": [
+              -3.4777120899026737,
+              0.4400289501349519,
+              -0.5835760180981753
+            ]
+          },
+          "exact_drain_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -1.2760149854699487,
+            "ci95_low_pct": -5.650229134044467,
+            "ci95_high_pct": 3.3009950919338324,
+            "block_delta_pct": [
+              -3.2420519678252435,
+              0.2631312207838299,
+              -0.8163425317394113
+            ]
+          },
+          "productive_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -1.1948069850172034,
+            "ci95_low_pct": -6.328274714103451,
+            "ci95_high_pct": 4.219988869980458,
+            "block_delta_pct": [
+              -3.5104074614421776,
+              0.6134722009472293,
+              -0.642031475072824
+            ]
+          },
+          "body_cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": -0.5211886645606701,
+            "ci95_low_pct": -0.898995935033635,
+            "ci95_high_pct": -0.1419410622266006,
+            "block_delta_pct": [
+              -0.4140548373858133,
+              -0.45380666223425736,
+              -0.6954711899586186
+            ]
+          },
+          "drain_cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": -0.5101516656474251,
+            "ci95_low_pct": -0.8822842084634006,
+            "ci95_high_pct": -0.13662196967556034,
+            "block_delta_pct": [
+              -0.44785895768841844,
+              -0.40118144058358673,
+              -0.6811882856067375
+            ]
+          },
+          "worker_completion_spread_s": {
+            "blocks": 3,
+            "geometric_delta_pct": 109.2056684841499,
+            "ci95_low_pct": -45.06949177344048,
+            "ci95_high_pct": 696.7705586371796,
+            "block_delta_pct": [
+              216.68558481525827,
+              13.863018817942496,
+              153.92727604262544
+            ]
+          }
+        },
+        "absolute_differences": {
+          "worker_completion_spread_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.7656315508333335,
+            "ci95_low_s": -0.7942249722805944,
+            "ci95_high_s": 2.325488073947261,
+            "block_difference_s": [
+              1.2782197675,
+              0.06530100750000006,
+              0.9533738775
+            ]
+          },
+          "productive_end_to_stop_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.004093671999999995,
+            "ci95_low_s": -0.04241335318776037,
+            "ci95_high_s": 0.050600697187760356,
+            "block_difference_s": [
+              -0.0024106500000000072,
+              0.025198338999999986,
+              -0.010506672999999994
+            ]
+          },
+          "diagnostic_join_wall_s": {
+            "blocks": 3,
+            "mean_difference_s": -2.996166666666668e-06,
+            "ci95_low_s": -1.1436522951589124e-05,
+            "ci95_high_s": 5.444189618255787e-06,
+            "block_difference_s": [
+              -2.6965000000000105e-06,
+              2.41500000000001e-07,
+              -6.533499999999994e-06
+            ]
+          },
+          "diagnostic_close_wall_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.01116001766666667,
+            "ci95_low_s": -0.0666607366960085,
+            "ci95_high_s": 0.08898077202934185,
+            "block_difference_s": [
+              -0.024977675000000032,
+              0.027895727500000023,
+              0.03056200050000002
+            ]
+          }
+        }
+      },
+      {
+        "wal": 1,
+        "quota_mode": "fixed",
+        "profile": "async-mask",
+        "baseline": "original",
+        "complete_block_numbers": [
+          0,
+          1,
+          2
+        ],
+        "estimates": {
+          "exact_body_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": 0.23252303218397602,
+            "ci95_low_pct": -6.3721142950780285,
+            "ci95_high_pct": 7.303060383741514,
+            "block_delta_pct": [
+              -2.7991526475236728,
+              1.1005332423051462,
+              2.4713576504642454
+            ]
+          },
+          "exact_drain_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": 0.1929889094429335,
+            "ci95_low_pct": -5.937368769003562,
+            "ci95_high_pct": 6.722881289118411,
+            "block_delta_pct": [
+              -2.5615894442653886,
+              0.7960914961281373,
+              2.408997389128875
+            ]
+          },
+          "productive_ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": 0.22547452449341743,
+            "ci95_low_pct": -6.608673625726451,
+            "ci95_high_pct": 7.559728870356949,
+            "block_delta_pct": [
+              -2.9287207578284735,
+              1.1888698071766735,
+              2.496931800358615
+            ]
+          },
+          "body_cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": 0.014340074770176256,
+            "ci95_low_pct": -1.5799490697171137,
+            "ci95_high_pct": 1.634454829508679,
+            "block_delta_pct": [
+              -0.7292331261754881,
+              0.4149079193847438,
+              0.3615245477550877
+            ]
+          },
+          "drain_cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": 0.00784275812822104,
+            "ci95_low_pct": -1.747050167360602,
+            "ci95_high_pct": 1.794079772371392,
+            "block_delta_pct": [
+              -0.8077888104349618,
+              0.4880074724941119,
+              0.3483813192748375
+            ]
+          },
+          "worker_completion_spread_s": {
+            "blocks": 3,
+            "geometric_delta_pct": 95.30784103210846,
+            "ci95_low_pct": -72.90149315068165,
+            "ci95_high_pct": 1307.6477711753655,
+            "block_delta_pct": [
+              233.8456854629242,
+              -21.6523634191905,
+              184.83107552749127
+            ]
+          }
+        },
+        "absolute_differences": {
+          "worker_completion_spread_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.7269631968333335,
+            "ci95_low_s": -1.1896811552828646,
+            "ci95_high_s": 2.643607548949532,
+            "block_difference_s": [
+              1.3085411900000001,
+              -0.1482259254999999,
+              1.0205743260000002
+            ]
+          },
+          "productive_end_to_stop_s": {
+            "blocks": 3,
+            "mean_difference_s": -0.001932365666666674,
+            "ci95_low_s": -0.0371111096681748,
+            "ci95_high_s": 0.03324637833484146,
+            "block_difference_s": [
+              -0.01650792050000001,
+              0.011772293499999989,
+              -0.0010614700000000019
+            ]
+          },
+          "diagnostic_join_wall_s": {
+            "blocks": 3,
+            "mean_difference_s": 5.438333333333334e-06,
+            "ci95_low_s": -1.0508020431389435e-05,
+            "ci95_high_s": 2.1384687098056105e-05,
+            "block_difference_s": [
+              6.8779999999999975e-06,
+              -1.5779999999999974e-06,
+              1.1015000000000002e-05
+            ]
+          },
+          "diagnostic_close_wall_s": {
+            "blocks": 3,
+            "mean_difference_s": 0.008859498166666674,
+            "ci95_low_s": -0.08145520831237549,
+            "ci95_high_s": 0.09917420464570884,
+            "block_difference_s": [
+              -0.02604297250000001,
+              0.04650849100000004,
+              0.006112975999999992
+            ]
+          }
+        }
+      }
+    ],
+    "interpretation": "WAL0 exact-drain wall throughput has a -4.09% candidate/main point estimate, but sign-changing blocks (-5.12,-12.39,+6.12%) and a very broad interval. WAL1 estimate is -1.28%. Full drain CPU/op estimates are -0.35%/-0.51%. Neither confirms a stable >3% source penalty, and neither establishes a universal 3% bound. CPU time is not an instruction-count or frequency control.",
+    "historical_scope": "Do not pool older async-load/diagnostic-driver cohorts. Earlier adverse loss had failed to reproduce in the new fixed mode before shared quotas were used. Shared quotas reduced completion spread but did not establish the cause of historical or current wall variation."
+  },
+  "resident": {
+    "measured_processes": 18,
+    "measured_phases": 36,
+    "excluded_precondition_phases": 2,
+    "settings": "200k 24/100B tuples,128MiB cache,4MiB memtable,0 background workers,WAL0,CPU2,1worker,point+range10000,full warm scan,3s warmup,8s timed phases,excluded30s perphase precondition.",
+    "comparisons": [
+      {
+        "phase": "point:uniform@1",
+        "profile": "async-mask",
+        "baseline": "main",
+        "complete_block_numbers": [
+          0,
+          1,
+          2
+        ],
+        "estimates": {
+          "ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -1.507707187686293,
+            "ci95_low_pct": -3.607393365270032,
+            "ci95_high_pct": 0.6377157138875181,
+            "block_delta_pct": [
+              -1.4737981402081934,
+              -0.6672900781329205,
+              -2.3746244248357584
+            ]
+          },
+          "cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": 1.5295091323449654,
+            "ci95_low_pct": -0.6315080972414097,
+            "ci95_high_pct": 3.7375231048339015,
+            "block_delta_pct": [
+              1.4889468477857326,
+              0.6748669055561596,
+              2.4323295021200897
+            ]
+          },
+          "p99_us": {
+            "blocks": 3,
+            "geometric_delta_pct": 11.707233731169717,
+            "ci95_low_pct": -7.19415675631324,
+            "ci95_high_pct": 34.45819392109287,
+            "block_delta_pct": [
+              15.189873417721511,
+              2.5974025974025983,
+              17.948717948717952
+            ]
+          }
+        }
+      },
+      {
+        "phase": "point:uniform@1",
+        "profile": "async-mask",
+        "baseline": "original",
+        "complete_block_numbers": [
+          0,
+          1,
+          2
+        ],
+        "estimates": {
+          "ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -0.3014694011010661,
+            "ci95_low_pct": -4.08216212915972,
+            "ci95_high_pct": 3.6282429235340126,
+            "block_delta_pct": [
+              -0.5454910713908911,
+              1.3714920746749515,
+              -1.706238171173502
+            ]
+          },
+          "cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": 0.3018394778844293,
+            "ci95_low_pct": -3.4965051421883877,
+            "ci95_high_pct": 4.249685645793347,
+            "block_delta_pct": [
+              0.543738358079926,
+              -1.3497250703249364,
+              1.7356969500291086
+            ]
+          },
+          "p99_us": {
+            "blocks": 3,
+            "geometric_delta_pct": 6.397073594530328,
+            "ci95_low_pct": -26.382522294922207,
+            "ci95_high_pct": 53.772414138267564,
+            "block_delta_pct": [
+              13.749999999999996,
+              -10.227272727272718,
+              17.948717948717952
+            ]
+          }
+        }
+      },
+      {
+        "phase": "range:uniform:10000@1",
+        "profile": "async-mask",
+        "baseline": "main",
+        "complete_block_numbers": [
+          0,
+          1,
+          2
+        ],
+        "estimates": {
+          "ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": -0.03455626610818191,
+            "ci95_low_pct": -0.5165033108599716,
+            "ci95_high_pct": 0.4497255674445159,
+            "block_delta_pct": [
+              -0.2482555018786914,
+              0.01332533813043213,
+              0.13163957085500222
+            ]
+          },
+          "cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": 0.02451878502162215,
+            "ci95_low_pct": -0.46519822361849544,
+            "ci95_high_pct": 0.5166452298013746,
+            "block_delta_pct": [
+              0.24034142161162286,
+              -0.018546513265504938,
+              -0.147848088100766
+            ]
+          },
+          "p99_us": {
+            "blocks": 3,
+            "geometric_delta_pct": 1.2151767606962727,
+            "ci95_low_pct": -22.643812336410885,
+            "ci95_high_pct": 32.43300007558405,
+            "block_delta_pct": [
+              1.9417475728155331,
+              12.35955056179776,
+              -9.473684210526322
+            ]
+          }
+        }
+      },
+      {
+        "phase": "range:uniform:10000@1",
+        "profile": "async-mask",
+        "baseline": "original",
+        "complete_block_numbers": [
+          0,
+          1,
+          2
+        ],
+        "estimates": {
+          "ops_s": {
+            "blocks": 3,
+            "geometric_delta_pct": 1.68727577282553,
+            "ci95_low_pct": -0.15496803771624712,
+            "ci95_high_pct": 3.5635108815899526,
+            "block_delta_pct": [
+              0.8547588358998714,
+              2.296578983235653,
+              1.915991156963881
+            ]
+          },
+          "cpu_us_op": {
+            "blocks": 3,
+            "geometric_delta_pct": -1.6633203797219807,
+            "ci95_low_pct": -3.4360626300128323,
+            "ci95_high_pct": 0.14196626728216247,
+            "block_delta_pct": [
+              -0.8569468797809954,
+              -2.249660861296887,
+              -1.878075306060889
+            ]
+          },
+          "p99_us": {
+            "blocks": 3,
+            "geometric_delta_pct": -4.09439139627387,
+            "ci95_low_pct": -31.248593852570707,
+            "ci95_high_pct": 33.784692954894986,
+            "block_delta_pct": [
+              11.70212765957448,
+              -9.090909090909083,
+              -13.131313131313139
+            ]
+          }
+        }
+      }
+    ],
+    "interpretation": "No >3% throughput point estimate: point -1.51% vs main/-0.30% vs original; range -0.03% vs main/+1.69% vs original. Point-query intervals still include >3% losses; long-range candidate/main interval is -0.52% to+0.45%. Timed reads and correctness/fault/swap counters are zero. Some process writes include watchdog output, so no all-I/O-zero claim."
+  },
+  "recommendation": {
+    "further_broad_database_runs": false,
+    "reason": "No reproducible added CPU cost or stable >3% source regression to target is identified by these bounded integration checks. Isolated cache measurements and compiled-path evidence provide the requested attribution. Repeating the same variable fixed-quota setup is unlikely to settle a 3% threshold efficiently.",
+    "remaining_uncertainty": "A formal <=3% insertion or point-query non-inferiority requirement is not met. Such a requirement would need a separately controlled machine/worker-placement design and adequate independent blocks; it must not be inferred from nonsignificant results or selective reruns."
+  }
+}

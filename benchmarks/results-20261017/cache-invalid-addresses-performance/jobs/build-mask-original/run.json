@@ -1,0 +1,21 @@
+{
+  "name": "build-mask-original",
+  "command": [
+    "make",
+    "-j6",
+    "CC=cc",
+    "LD=cc",
+    "BUILD_MODE=release",
+    "BUILD_ROOT=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/mask-original",
+    "GIT_VERSION=invalid-address-perf-mask-original",
+    "libs"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/mask-original",
+  "environment_overrides": null,
+  "queued": 1792222204.7521923,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792222208.5814347,
+  "returncode": 0,
+  "finished": 1792222213.9104366,
+  "log_sha256": "30de6fb45113f537f1a0e641017fe00b2ed151566794d8b957f8324278c0eeae"
+}

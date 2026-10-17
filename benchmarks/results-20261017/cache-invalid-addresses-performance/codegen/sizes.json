@@ -1,0 +1,87 @@
+{
+  "main": {
+    "library_sha256": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6",
+    "symbols": {
+      "clockcache_get": {
+        "address": "0000000000053fd0",
+        "bytes": 1311
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "address": "000000000009cc20",
+        "bytes": 342
+      }
+    }
+  },
+  "original": {
+    "library_sha256": "e0c680239539a36a9a9f927888963508c39992c7366250a3a2c7c8b8224ad3e2",
+    "symbols": {
+      "clockcache_get": {
+        "address": "0000000000053c70",
+        "bytes": 1706
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "address": "00000000000aada0",
+        "bytes": 725
+      }
+    }
+  },
+  "hints": {
+    "library_sha256": "c57fb386d47e9161afa2cca56066b6cdf75733d7fcaf0d26ee2f175f55fd34d1",
+    "symbols": {
+      "clockcache_get": {
+        "address": "0000000000053c70",
+        "bytes": 1706
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "address": "00000000000aada0",
+        "bytes": 733
+      }
+    }
+  },
+  "cold": {
+    "library_sha256": "befe07ba0820c36d901b7ba43b816e1a32f4d1a09dfc81821a9bf8b8d73ed017",
+    "symbols": {
+      "clockcache_get": {
+        "address": "0000000000053ad0",
+        "bytes": 1699
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "address": "00000000000aaaa0",
+        "bytes": 629
+      },
+      "clockcache_get_internal_async.constprop.0.cold": {
+        "address": "000000000001057b",
+        "bytes": 32
+      },
+      "clockcache_report_invalid_address.lto_priv.0": {
+        "address": "000000000000ff5b",
+        "bytes": 92
+      }
+    }
+  },
+  "outlined": {
+    "library_sha256": "dd53c678258b687b2df8a7a973a80c600092c683bb1851fb6c10bb853975cef8",
+    "symbols": {
+      "clockcache_get": {
+        "address": "0000000000053c10",
+        "bytes": 1459
+      },
+      "clockcache_get_internal_async.constprop.0": {
+        "address": "000000000009cca0",
+        "bytes": 335
+      },
+      "clockcache_get_internal_async.constprop.0.cold": {
+        "address": "000000000001057b",
+        "bytes": 29
+      },
+      "clockcache_page_valid_for_load.lto_priv.0": {
+        "address": "0000000000050100",
+        "bytes": 313
+      },
+      "clockcache_report_invalid_address.lto_priv.0": {
+        "address": "000000000000ff5b",
+        "bytes": 92
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "profile": "async-load",
+  "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+  "original_clockcache_sha256": "14bfdbb00476f9070b21a4fe0cdb7918e3021e4240201cc516e0a6b671844026",
+  "reviewed_clockcache_sha256": "a26ce40399a60f76f8559eb82703f688bf0bd71662ce93d9ad4232f7451c107e",
+  "changed_paths_verified": [
+    "src/clockcache.c"
+  ],
+  "conclusion": "No correctness objection found in independent static review of the exact final async-load source. The moved check preserves validation, retry/resumption and ownership behavior. Performance acceptance is separate.",
+  "async_validation_and_resumption": [
+    "The outer internal coroutine still checks address alignment and lookup bounds before indexing, records the original thread ID, and calls the disk child only for an unmapped result (clockcache.c:2735-2755).",
+    "The disk child now checks allocator_page_valid immediately after async_begin, before cache-entry reservation, mapping publication, I/O-state initialization or callback registration (clockcache.c:2642-2656). There is no yield or callback between the old validation site and the new one: async_await_subroutine initializes the child slot and calls it synchronously.",
+    "Invalid membership sets result_status=BAD_PARAM and succeeded=TRUE. async_return marks depth 2 DONE; depth 1 and then depth 0 complete normally. __async_result remains NULL from top-level initialization. No reference was acquired, no waiter was enqueued, no I/O state exists to destroy, and no callback is required. The public cache_get_async_state_result wrapper clears the caller's handle on error (cache.h:418-428).",
+    "An entry-acquisition race still returns succeeded=FALSE after releasing the unpublished entry. The top-level loop repeats full lookup; async_await_subroutine resets each child slot for the new attempt, so another miss repeats allocation validation. A retry that finds a resident mapping takes the existing identity/refcount/readiness path.",
+    "On suspended I/O resumption, async_begin jumps directly to the saved io_async_run await label, skipping the initial allocation check and reservation. Previously the saved parent await label also skipped the original outer validation. There is therefore no new revalidation after ownership has been acquired, and no double reservation.",
+    "The state-stack height remains three. No shared state field, callback argument, wait queue operation, reference counter, async yield position or success/error result representation changes. The macros in platform_linux/async.h:186-261 were inspected directly."
+  ],
+  "callbacks_and_error_ownership": [
+    "clockcache_get_from_disk_async_callback is unchanged: it resumes the I/O state, publishes success/failure via clockcache_finish_load, clears CC_LOADING and releases waiters before notifying the caller.",
+    "After a successful reservation, initialization failure, append failure, synchronous submission failure and callback-driven completion retain their original deinit/finish_load/dec_ref behavior. The moved invalid-membership exit precedes all these owned resources.",
+    "The existing CC_LOADING waiter path still drops its acquired reference and retries the full lookup after wakeup, preserving address/readiness checks. Allocation validation occurs again only if that retry becomes a miss.",
+    "The external extent-lifetime contract is unchanged: resident mappings are discarded before the allocator can mark an extent free. This optimization introduces no new lifetime guarantee and does not change unrelated batch-reservation progress behavior."
+  ],
+  "other_changed_code": [
+    "The cold noinline diagnostic helper preserves alignment-before-bounds rejection and warning content. Geometry checks still execute before lookup indexing; only error formatting moves out of line. Re-reading immutable cache geometry on the error path adds no new configuration-lifetime requirement.",
+    "Synchronous miss membership validation remains inline, including nonblocking misses before STATUS_BUSY. The synchronous admission path and public failure semantics are unchanged.",
+    "Prefetch range and endpoint membership checks remain intact and otherwise unchanged; no prefetch validation moved into the disk child."
+  ],
+  "existing_validation_relevance": {
+    "source_reviewed_tests": [
+      "test_cache_invalid_address_shapes and test_cache_unallocated_and_freed_addresses assert immediate async BAD_PARAM, null handle, no callback, no I/O attempts and no leaked cache references",
+      "test_cache_async_read_setup_failures covers init/append/synchronous read failures",
+      "test_cache_failed_load_wakes_waiters covers owner error plus resumed waiter retries",
+      "test_failed_load_releases_synchronous_waiter covers callback publication to a synchronous reader"
+    ],
+    "verified_manifest": "validation-async-load/validation.json",
+    "manifest_passed": true,
+    "manifest_passed_unit_executions": 118,
+    "manifest_sources_unchanged": true,
+    "manifest_source_hash_matches_reviewed_source": true,
+    "note": "Existing validation manifest was inspected; this independent review ran no tests, builds or benchmarks."
+  },
+  "performed": "Read-only source comparison and state/ownership audit; only this separate review file was added."
+}

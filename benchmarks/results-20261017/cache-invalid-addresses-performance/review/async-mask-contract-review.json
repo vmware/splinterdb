@@ -1,0 +1,49 @@
+{
+  "reviewer": "invalid_codegen",
+  "scope": "Read-only configuration-contract audit; no source/test edits, builds or workloads.",
+  "async_load_clockcache_sha256": "a26ce40399a60f76f8559eb82703f688bf0bd71662ce93d9ad4232f7451c107e",
+  "mask_original_clockcache_sha256": "a025a6beb1df2d28cbc0a1a046c1e8a2cfc91ad0c544718b32969f5c36eaa562",
+  "conclusion": "Modulo-to-mask alignment check is equivalent for all supported configurations. Keep production power-of-two assertion before clz/division in clockcache_config_init. No supported non-power-of-two configuration found.",
+  "source_evidence": [
+    {
+      "path": "src/platform_linux/platform_io.h:31-36,314-334",
+      "finding": "Default page size4096; io_config_init only stores inputs and does not validate. IO_MAX_PAGE_SIZE8192 is a header bound, not evidence backend supports8192."
+    },
+    {
+      "path": "src/platform_linux/platform_io.c:29-31; src/platform_linux/laio.c:1077-1109",
+      "finding": "io_config_valid delegates to laio_config_valid, which permits exactly4096 and rejects other sizes before geometry division. laio_handle_create also validates at931."
+    },
+    {
+      "path": "src/splinterdb.c:165-166,310-330,398",
+      "finding": "Public page_size0 selects default4096; resolved config passes io_config_valid before cache initialization."
+    },
+    {
+      "path": "tests/config.c:317-335; tests/config.h:23",
+      "finding": "Functional/test parser defaults to4096 and rejects every other supplied page size; also documents the power-of-two requirement."
+    },
+    {
+      "path": "tests/functional/test.h:270-289; tests/unit/btree_test_common.c:17-48; tests/unit/limitations_test.c:319-326",
+      "finding": "Other initializer callers use parsed master geometry or explicit4096. Small functional cache fixtures copy an existing valid config and only change capacity."
+    },
+    {
+      "path": "src/clockcache.c:378-386,4353-4354",
+      "finding": "Cache already uses a stored log_page_size for shifts and divides capacity by page_size. Non-power-of-two config is already unsupported; zero formerly reaches undefined clz/division."
+    },
+    {
+      "path": "src/platform_linux/platform_util.h:13; src/platform_linux/platform_assert.h:48-52",
+      "finding": "IS_POWER_OF_2 rejects zero; platform_assert remains active in release. The mask-original assert precedes clz/division."
+    }
+  ],
+  "edge_cases": [
+    "For nonzero uint64 power2 p, addr&(p-1) equals addr%p for all uint64 addresses. p-1 is defined, including p1 and largest representable power2 2^63; only4096 is currently accepted by production I/O.",
+    "Zero/reserved addresses remain aligned and are rejected by allocator membership where appropriate; the mask must not replace those checks. UINT64_MAX and the largest aligned address retain their original shape/bounds outcomes.",
+    "Runtime mutation of io_cfg geometry was already unsupported because stored log_page_size, capacities and allocations become inconsistent. No production runtime page-size mutation was found; the limitations test mutates config only for I/O-create rejection, with no live cache.",
+    "Async-load cold diagnostic modulo may remain: under the same invariant it classifies rejected addresses identically and introduces division only on the diagnostic path. Preserve UNLIKELY, alignment-before-bounds order and the bounds shift."
+  ],
+  "validation_coverage": [
+    "Existing writeback invalid-address tests cover misalignment, zero/reserved, unallocated/freed, capacity, largest aligned uint64 and UINT64_MAX across synchronous/asynchronous/prefetch APIs.",
+    "Existing limitations tests cover invalid2048 and8192 configurations, both powers of two. They do not specifically cover a non-power-of-two public input.",
+    "If mask is selected, rerun writeback and limitations. A small extension of existing public rejection coverage for4095/4097/UINT64_MAX would protect error-return ordering before the internal assertion. Do not expect public page_size0 to fail; zero requests defaults.",
+    "No arithmetic test mirroring the mask is needed. A direct malformed internal config can assert; this was never a supported geometry and previously could invoke undefined behavior."
+  ]
+}

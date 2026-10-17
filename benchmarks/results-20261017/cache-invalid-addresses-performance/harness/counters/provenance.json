@@ -1,0 +1,7 @@
+{
+  "source_version": "v2 phase hardware counters",
+  "parent_source": "../cache_api_probe.c",
+  "parent_sha256": "7e0c4d2f29e71a00600af0b18bd154227256056a93d5bbaa2d5d2f8f3ca0f680",
+  "source_sha256": "b6858d2bc4c6291c0ed3ade198885527cac35995081382faae9cb3d47dc1f309",
+  "prepared_only": true
+}

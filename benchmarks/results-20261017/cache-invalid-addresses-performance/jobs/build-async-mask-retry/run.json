@@ -1,0 +1,21 @@
+{
+  "name": "build-async-mask-retry",
+  "command": [
+    "make",
+    "-j6",
+    "CC=cc",
+    "LD=cc",
+    "BUILD_MODE=release",
+    "BUILD_ROOT=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask",
+    "GIT_VERSION=invalid-address-perf-async-mask",
+    "libs"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/async-mask",
+  "environment_overrides": null,
+  "queued": 1792227662.0402064,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792227821.3781488,
+  "returncode": 0,
+  "finished": 1792227827.1094913,
+  "log_sha256": "8b9af0792d70259536d380bc38b60972dd35b9884c68625cce3ff713d5c5cf56"
+}

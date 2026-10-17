@@ -1,0 +1,834 @@
+{
+  "scope": "Read-only audit of completed hot32-blocking five-profile screen; no workloads launched by reviewer.",
+  "audited_report": "database/analysis/hot32-blocking-audited.json",
+  "audited_report_sha256": "bf35847e53430fdbeca261c2e4a116b98e43b6c147ae7202b91a1cc082257e3a",
+  "complete": true,
+  "measured_rows": 60,
+  "excluded_preconditions": 2,
+  "sample_exclusions": 0,
+  "working_pages": 32,
+  "cache_mib": 64,
+  "all_working_set_env_row_setup_values_match": true,
+  "all_library_driver_object_source_runner_raw_log_job_hashes_verified": true,
+  "all_timed_errors_disk_io_and_major_faults_zero": true,
+  "worker_cpu": 2,
+  "control_cpu": 12,
+  "deterministic_worker_tid": 1,
+  "all_counter_groups_pinned_without_multiplex": true,
+  "thermal_flagged_measured_processes": 60,
+  "thermal_flagged_precondition_processes": 2,
+  "absolute_counter_means": [
+    {
+      "mode": "independent",
+      "profile": "main",
+      "instructions_op": 276.40333370623745,
+      "instructions_delta_vs_main": 0.0,
+      "cycles_op": 84.98215631910206,
+      "worker_cpu_ns_op": 23.90687343609578
+    },
+    {
+      "mode": "independent",
+      "profile": "original",
+      "instructions_op": 280.4033335044467,
+      "instructions_delta_vs_main": 3.9999997982092736,
+      "cycles_op": 85.14968247933639,
+      "worker_cpu_ns_op": 24.02376063892306
+    },
+    {
+      "mode": "independent",
+      "profile": "async-load",
+      "instructions_op": 280.4033334004908,
+      "instructions_delta_vs_main": 3.999999694253347,
+      "cycles_op": 85.2214505365463,
+      "worker_cpu_ns_op": 24.01886593119731
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-original",
+      "instructions_op": 280.4033330101458,
+      "instructions_delta_vs_main": 3.9999993039083392,
+      "cycles_op": 79.49791682690709,
+      "worker_cpu_ns_op": 22.790936245828167
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-main",
+      "instructions_op": 274.4033327198044,
+      "instructions_delta_vs_main": -2.000000986433065,
+      "cycles_op": 78.54680768785813,
+      "worker_cpu_ns_op": 22.49282325256998
+    },
+    {
+      "mode": "dependent",
+      "profile": "main",
+      "instructions_op": 251.52833194965498,
+      "instructions_delta_vs_main": 0.0,
+      "cycles_op": 75.52464441914073,
+      "worker_cpu_ns_op": 21.539417503162852
+    },
+    {
+      "mode": "dependent",
+      "profile": "original",
+      "instructions_op": 255.52833179039874,
+      "instructions_delta_vs_main": 3.9999998407437545,
+      "cycles_op": 74.93922648195091,
+      "worker_cpu_ns_op": 21.366891143369283
+    },
+    {
+      "mode": "dependent",
+      "profile": "async-load",
+      "instructions_op": 255.52833223912168,
+      "instructions_delta_vs_main": 4.000000289466698,
+      "cycles_op": 75.25176116689403,
+      "worker_cpu_ns_op": 21.496328241925642
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-original",
+      "instructions_op": 255.5283319545683,
+      "instructions_delta_vs_main": 4.000000004913318,
+      "cycles_op": 73.98704637957587,
+      "worker_cpu_ns_op": 21.079477722697863
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-main",
+      "instructions_op": 249.5283319059206,
+      "instructions_delta_vs_main": -2.0000000437343886,
+      "cycles_op": 73.18447958796958,
+      "worker_cpu_ns_op": 20.86045143300035
+    }
+  ],
+  "block_throughput_means": [
+    {
+      "mode": "independent",
+      "profile": "main",
+      "block": 0,
+      "ops_s": 41964839.400000006,
+      "samples_ops_s": [
+        41897861.6,
+        42031817.2
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "main",
+      "block": 1,
+      "ops_s": 41859087.0,
+      "samples_ops_s": [
+        41949690.7,
+        41768483.3
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "main",
+      "block": 2,
+      "ops_s": 41646194.849999994,
+      "samples_ops_s": [
+        41318642.3,
+        41973747.4
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "original",
+      "block": 0,
+      "ops_s": 41213301.2,
+      "samples_ops_s": [
+        40669642.9,
+        41756959.5
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "original",
+      "block": 1,
+      "ops_s": 41737926.2,
+      "samples_ops_s": [
+        41422102.2,
+        42053750.2
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "original",
+      "block": 2,
+      "ops_s": 41923294.7,
+      "samples_ops_s": [
+        41964362.3,
+        41882227.1
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "async-load",
+      "block": 0,
+      "ops_s": 41360750.849999994,
+      "samples_ops_s": [
+        42284547.8,
+        40436953.9
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "async-load",
+      "block": 1,
+      "ops_s": 41549612.7,
+      "samples_ops_s": [
+        41725331.6,
+        41373893.8
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "async-load",
+      "block": 2,
+      "ops_s": 42000705.25,
+      "samples_ops_s": [
+        41781566.7,
+        42219843.8
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-original",
+      "block": 0,
+      "ops_s": 44234534.7,
+      "samples_ops_s": [
+        44720199.9,
+        43748869.5
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-original",
+      "block": 1,
+      "ops_s": 44375581.75,
+      "samples_ops_s": [
+        44177962.4,
+        44573201.1
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-original",
+      "block": 2,
+      "ops_s": 43053723.65,
+      "samples_ops_s": [
+        44187103.3,
+        41920344.0
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-main",
+      "block": 0,
+      "ops_s": 45118075.4,
+      "samples_ops_s": [
+        45132190.5,
+        45103960.3
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-main",
+      "block": 1,
+      "ops_s": 44885358.1,
+      "samples_ops_s": [
+        44966839.7,
+        44803876.5
+      ]
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-main",
+      "block": 2,
+      "ops_s": 43388933.1,
+      "samples_ops_s": [
+        43386550.0,
+        43391316.2
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "main",
+      "block": 0,
+      "ops_s": 44842116.8,
+      "samples_ops_s": [
+        44820462.3,
+        44863771.3
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "main",
+      "block": 1,
+      "ops_s": 47019807.8,
+      "samples_ops_s": [
+        47759987.9,
+        46279627.7
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "main",
+      "block": 2,
+      "ops_s": 47505292.25,
+      "samples_ops_s": [
+        47133439.0,
+        47877145.5
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "original",
+      "block": 0,
+      "ops_s": 47212049.45,
+      "samples_ops_s": [
+        47274839.1,
+        47149259.8
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "original",
+      "block": 1,
+      "ops_s": 46501422.85,
+      "samples_ops_s": [
+        46142096.5,
+        46860749.2
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "original",
+      "block": 2,
+      "ops_s": 46686251.4,
+      "samples_ops_s": [
+        46683204.3,
+        46689298.5
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "async-load",
+      "block": 0,
+      "ops_s": 46918344.95,
+      "samples_ops_s": [
+        46626662.8,
+        47210027.1
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "async-load",
+      "block": 1,
+      "ops_s": 46115849.35,
+      "samples_ops_s": [
+        45354079.2,
+        46877619.5
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "async-load",
+      "block": 2,
+      "ops_s": 46529263.35,
+      "samples_ops_s": [
+        46589601.0,
+        46468925.7
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-original",
+      "block": 0,
+      "ops_s": 47659068.0,
+      "samples_ops_s": [
+        47463009.3,
+        47855126.7
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-original",
+      "block": 1,
+      "ops_s": 47369021.5,
+      "samples_ops_s": [
+        47483832.4,
+        47254210.6
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-original",
+      "block": 2,
+      "ops_s": 47281515.65,
+      "samples_ops_s": [
+        47040424.3,
+        47522607.0
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-main",
+      "block": 0,
+      "ops_s": 47701923.5,
+      "samples_ops_s": [
+        48134004.7,
+        47269842.3
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-main",
+      "block": 1,
+      "ops_s": 48152596.95,
+      "samples_ops_s": [
+        48051934.7,
+        48253259.2
+      ]
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-main",
+      "block": 2,
+      "ops_s": 47951559.900000006,
+      "samples_ops_s": [
+        47750455.1,
+        48152664.7
+      ]
+    }
+  ],
+  "selected_comparisons": [
+    {
+      "mode": "independent",
+      "profile": "async-load",
+      "baseline": "main",
+      "estimates": {
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.447131609795004,
+          "ci95_low_pct": -3.3151860815214595,
+          "ci95_high_pct": 2.506000715623391,
+          "block_delta_pct": [
+            -1.4395111684855189,
+            -0.7393240564467995,
+            0.8512431958714872
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.27789515787202124,
+          "ci95_low_pct": -2.709616702313966,
+          "ci95_high_pct": 3.357145037913911,
+          "block_delta_pct": [
+            1.6854225577566995,
+            -0.26099395943297576,
+            -0.5758481411098026
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 1.4471604378348601,
+          "ci95_low_pct": 1.4471599628303355,
+          "ci95_high_pct": 1.4471609128393847,
+          "block_delta_pct": [
+            1.4471602846873877,
+            1.4471606521281766,
+            1.4471603766890162
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.4667721339205011,
+          "ci95_low_pct": -2.511704192312081,
+          "ci95_high_pct": 3.5362472939354017,
+          "block_delta_pct": [
+            1.5314318528310666,
+            0.7375849834512227,
+            -0.85397626228495
+          ]
+        }
+      }
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-main",
+      "baseline": "main",
+      "estimates": {
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 6.298677795283769,
+          "ci95_low_pct": 1.7896036164760432,
+          "ci95_high_pct": 11.007494867546441,
+          "block_delta_pct": [
+            7.5139951566215,
+            7.229663418124721,
+            4.184627806398522
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -7.587640474363477,
+          "ci95_low_pct": -11.984257527815378,
+          "ci95_high_pct": -2.9714008741744125,
+          "block_delta_pct": [
+            -8.658559582598013,
+            -8.598327607651557,
+            -5.470321903123954
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.7235806311072457,
+          "ci95_low_pct": -0.7235807587163912,
+          "ci95_high_pct": -0.7235805034981002,
+          "block_delta_pct": [
+            -0.7235806288673707,
+            -0.7235805808983753,
+            -0.723580683555991
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -5.928613407687388,
+          "ci95_low_pct": -9.916312111776616,
+          "ci95_high_pct": -1.7643928345742577,
+          "block_delta_pct": [
+            -6.993521029487171,
+            -6.7422989534557605,
+            -4.021329882741687
+          ]
+        }
+      }
+    },
+    {
+      "mode": "independent",
+      "profile": "async-load",
+      "baseline": "original",
+      "estimates": {
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.029807654215607826,
+          "ci95_low_pct": -1.0238971098119887,
+          "ci95_high_pct": 1.0947302142294335,
+          "block_delta_pct": [
+            0.3577719952217562,
+            -0.45118077764007003,
+            0.18464805916122984
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.08351514509512548,
+          "ci95_low_pct": -0.250449905657546,
+          "ci95_high_pct": 0.4185983227467993,
+          "block_delta_pct": [
+            0.21103455282562855,
+            -0.05724788295721206,
+            0.0969399163113005
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -3.707372187022884e-08,
+          "ci95_low_pct": -2.275425070585868e-07,
+          "ci95_high_pct": 1.5339507442035938e-07,
+          "block_delta_pct": [
+            -1.2081965428123453e-07,
+            2.9657210021127867e-08,
+            -2.0058721350579845e-08
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.019879383141752083,
+          "ci95_low_pct": -1.035207542622918,
+          "ci95_high_pct": 1.0058655240113845,
+          "block_delta_pct": [
+            -0.3220473106797961,
+            0.44884235194315725,
+            -0.18474427492501944
+          ]
+        }
+      }
+    },
+    {
+      "mode": "independent",
+      "profile": "mask-original",
+      "baseline": "original",
+      "estimates": {
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 5.4299956582829045,
+          "ci95_low_pct": -0.4841007691118393,
+          "ci95_high_pct": 11.695558904777315,
+          "block_delta_pct": [
+            7.330724334210825,
+            6.3195654172199855,
+            2.6964220204763523
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -6.64231410025613,
+          "ci95_low_pct": -11.319289531743792,
+          "ci95_high_pct": -1.718677370372912,
+          "block_delta_pct": [
+            -8.12645851353102,
+            -7.324102416248268,
+            -4.43629570693923
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.762821333350928e-07,
+          "ci95_low_pct": -2.6394399998963536e-07,
+          "ci95_high_pct": -8.862026668055023e-08,
+          "block_delta_pct": [
+            -2.1513812953344313e-07,
+            -1.4623592337059677e-07,
+            -1.6747234710123848e-07
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -5.1383850746952735,
+          "ci95_low_pct": -10.57488236783316,
+          "ci95_high_pct": 0.6286178258253949,
+          "block_delta_pct": [
+            -6.846447599051175,
+            -5.961227505718158,
+            -2.5537415572683964
+          ]
+        }
+      }
+    },
+    {
+      "mode": "dependent",
+      "profile": "async-load",
+      "baseline": "main",
+      "estimates": {
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.16977718724597857,
+          "ci95_low_pct": -8.793851493844729,
+          "ci95_high_pct": 10.014340327783234,
+          "block_delta_pct": [
+            4.630085058785638,
+            -1.9225056253845296,
+            -2.0545687728086737
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.3335328907845714,
+          "ci95_low_pct": -8.254742055297227,
+          "ci95_high_pct": 8.271586876124326,
+          "block_delta_pct": [
+            -4.093476530915996,
+            1.4554986791753155,
+            1.7474312696442507
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 1.5902782237141144,
+          "ci95_low_pct": 1.5902779063155403,
+          "ci95_high_pct": 1.5902785411126885,
+          "block_delta_pct": [
+            1.5902782268399696,
+            1.59027809442005,
+            1.5902783498823014
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.17103333834684875,
+          "ci95_low_pct": -9.092902457990048,
+          "ci95_high_pct": 9.62645221543954,
+          "block_delta_pct": [
+            -4.421296520897666,
+            1.9627341900527506,
+            2.0862190675781545
+          ]
+        }
+      }
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-main",
+      "baseline": "main",
+      "estimates": {
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 3.2166593304996383,
+          "ci95_low_pct": -3.5046960696153096,
+          "ci95_high_pct": 10.406188999978493,
+          "block_delta_pct": [
+            6.377501563440924,
+            2.4091743522609788,
+            0.9394061774243845
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -3.0706178380280447,
+          "ci95_low_pct": -9.187478514173343,
+          "ci95_high_pct": 3.45825633492578,
+          "block_delta_pct": [
+            -5.818002066033678,
+            -2.4768277463296906,
+            -0.8504803008915207
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.7951390717029438,
+          "ci95_low_pct": -0.7951393435178145,
+          "ci95_high_pct": -0.7951387998880732,
+          "block_delta_pct": [
+            -0.7951390167859951,
+            -0.7951390006274317,
+            -0.7951391976954048
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -3.1223091101766354,
+          "ci95_low_pct": -9.410584495099794,
+          "ci95_high_pct": 3.6024676816298618,
+          "block_delta_pct": [
+            -5.987424858543755,
+            -2.3760169466436,
+            -0.9330335761995934
+          ]
+        }
+      }
+    },
+    {
+      "mode": "dependent",
+      "profile": "async-load",
+      "baseline": "original",
+      "estimates": {
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.5960464486390427,
+          "ci95_low_pct": -1.2088984904568112,
+          "ci95_high_pct": 0.0206074297755654,
+          "block_delta_pct": [
+            -0.6220964847354238,
+            -0.829164951024719,
+            -0.3362618443167542
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.41679991359375723,
+          "ci95_low_pct": 0.26690882692592677,
+          "ci95_high_pct": 0.5669150755634567,
+          "block_delta_pct": [
+            0.38946426305659365,
+            0.48603714901498396,
+            0.37493463814393113
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 1.7560592979748435e-07,
+          "ci95_low_pct": -1.8646616473105837e-07,
+          "ci95_high_pct": 5.376780354282573e-07,
+          "block_delta_pct": [
+            3.1743738748701844e-07,
+            2.624549466645476e-08,
+            1.8313492944344034e-07
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.6053057161869324,
+          "ci95_low_pct": -0.045287144507366595,
+          "ci95_high_pct": 1.2601332053274072,
+          "block_delta_pct": [
+            0.6299736702627845,
+            0.8551413367728244,
+            0.33148816634063216
+          ]
+        }
+      }
+    },
+    {
+      "mode": "dependent",
+      "profile": "mask-original",
+      "baseline": "original",
+      "estimates": {
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 1.3618238581970532,
+          "ci95_low_pct": 0.21224447197716323,
+          "ci95_high_pct": 2.5245905826727366,
+          "block_delta_pct": [
+            0.9468314873164241,
+            1.8657464585516426,
+            1.2750311540326464
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.269402187723101,
+          "ci95_low_pct": -2.436539054246656,
+          "ci95_high_pct": -0.08830304011611112,
+          "block_delta_pct": [
+            -0.8550946632993828,
+            -1.7832412154109356,
+            -1.1676095978279566
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 6.424709653174432e-08,
+          "ci95_low_pct": -8.676589446920957e-08,
+          "ci95_high_pct": 2.1526009863492845e-07,
+          "block_delta_pct": [
+            1.2315102271287515e-07,
+            1.7393642082197402e-09,
+            6.785092487859856e-08
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.3436592932429714,
+          "ci95_low_pct": -2.4734109753896227,
+          "ci95_high_pct": -0.20082052504032388,
+          "block_delta_pct": [
+            -0.9365908968334224,
+            -1.8378047422402677,
+            -1.2544627638103156
+          ]
+        }
+      }
+    }
+  ],
+  "findings": [
+    "The current async-load candidate does not show a large hot resident lookup loss. Versus original, independent throughput is +0.03%; dependent is -0.60% with cycles/op +0.42%. This does not resolve the separate fixed-work insertion regression.",
+    "Masking benefits original and main. Mask-original/original is +5.43% throughput and -6.64% cycles/op for independent access; +1.36% throughput and -1.27% cycles/op for dependent access. Independent throughput confidence interval includes zero, but its cycle interval and all three throughput block means favor masking.",
+    "Original, async-load and mask-original each retire four more instructions/op than main; mask-main retires two fewer than main. Mask-original cycle improvement occurs with unchanged retired instruction count, consistent with reduced instruction cost/dependencies or layout rather than fewer instructions. These counters do not measure micro-op count or isolate divider latency.",
+    "Dependent main controls show a substantial first-block slowdown, widening all candidate/main intervals. Do not use those intervals as evidence for a precise sub-three-percent bound.",
+    "Every measured and precondition process shows a thermal-counter increment somewhere across setup/warmup/measurement/teardown. Counter scope does not locate the event in the timed phase. No samples were discarded and no frequency normalization was applied.",
+    "The screen supports constructing async-mask for further validation and comparison, not production acceptance. It cannot establish insertion neutrality or writer-contention behavior."
+  ],
+  "limitations": [
+    "Few blocks give imprecise intervals; normal-log-ratio and independent-block assumptions may be imperfect under thermal carryover.",
+    "Intervals are pointwise, not adjusted for multiple scenarios/candidates.",
+    "No samples are silently excluded, including flagged thermal events; inspect all block ratios.",
+    "The user-cycle/thread-CPU-time proxy is not calibrated CPU frequency and is not used to normalize throughput.",
+    "Zero I/O and error checks apply to these cache probe cases; results are not database steady-state or durability benchmarks.",
+    "For degrees of freedom above 30, the t cutoff is conservatively held at 2.042.",
+    "Counters and CPU/op include unchanged probe address generation, identity/ref checks, checksum, cache_get and cache_unget; they are not isolated clockcache_get symbol costs.",
+    "Offset-zero page lines may conflict in L1 even for a 32-page working set. Cache/directory capacity and deterministic spread layout stay fixed across profiles."
+  ],
+  "followup_source": "async-mask-source.json",
+  "followup_status": "Source prepared only; not built, tested or benchmarked."
+}

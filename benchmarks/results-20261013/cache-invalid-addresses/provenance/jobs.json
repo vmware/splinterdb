@@ -1,0 +1,218 @@
+[
+  {
+    "name": "invalid-addresses-parent-release",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "make",
+      "-C",
+      ".cache/projects-20261011/worktrees/cache-errors",
+      "BUILD_ROOT=build-invalid-address-control",
+      "BUILD_MODE=release",
+      "-j4",
+      "build-invalid-address-control/release/lib/libsplinterdb.a"
+    ],
+    "started": 1791875451.1959853,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791875452.8603694
+  },
+  {
+    "name": "cache-invalid-addresses-debug-build",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j6",
+      "BUILD_MODE=debug",
+      "build/debug/bin/unit/writeback_set_test",
+      "build/debug/bin/unit/splinterdb_quick_test",
+      "build/debug/bin/unit/splinter_test",
+      "build/debug/bin/driver_test"
+    ],
+    "started": 1791875572.5986235,
+    "pid": 10,
+    "returncode": 2,
+    "finished": 1791875572.967841
+  },
+  {
+    "name": "cache-invalid-addresses-debug-build-retry",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses",
+    "command": [
+      "make",
+      "--jobserver-style=pipe",
+      "-j6",
+      "BUILD_MODE=debug",
+      "build/debug/bin/unit/writeback_set_test",
+      "build/debug/bin/unit/splinterdb_quick_test",
+      "build/debug/bin/unit/splinter_test",
+      "build/debug/bin/driver_test"
+    ],
+    "started": 1791875603.4785936,
+    "pid": 7,
+    "returncode": 0,
+    "finished": 1791875605.595484
+  },
+  {
+    "name": "invalid-addresses-parent-harness",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/build_invalid_addresses.py",
+      "parent"
+    ],
+    "started": 1791875625.9721475,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791875651.779751
+  },
+  {
+    "name": "invalid-addresses-candidate-release",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "make",
+      "-C",
+      ".cache/projects-20261011/worktrees/cache-invalid-addresses",
+      "BUILD_ROOT=build-invalid-address-bench",
+      "BUILD_MODE=release",
+      "-j4",
+      "build-invalid-address-bench/release/lib/libsplinterdb.a"
+    ],
+    "started": 1791875683.251422,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791875684.9326556
+  },
+  {
+    "name": "invalid-addresses-candidate-harness",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/build_invalid_addresses.py",
+      "validated"
+    ],
+    "started": 1791875719.8842585,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791875745.7336469
+  },
+  {
+    "name": "invalid-address-validation-debug",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/validate_invalid_addresses.py",
+      "debug"
+    ],
+    "started": 1791875753.2140782,
+    "pid": 4,
+    "returncode": 0,
+    "finished": 1791875765.2209795
+  },
+  {
+    "name": "cache-invalid-addresses-abba",
+    "mode": "benchmark",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/run_invalid_addresses.py"
+    ],
+    "started": 1791875781.821668,
+    "pid": 3,
+    "db_dir": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-invalid-addresses",
+    "returncode": 0,
+    "finished": 1791876637.4282846
+  },
+  {
+    "name": "invalid-address-validation-asan-build",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/validate_invalid_addresses.py",
+      "build-asan"
+    ],
+    "started": 1791876637.4300838,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791876638.6845963
+  },
+  {
+    "name": "invalid-address-validation-release-build",
+    "mode": "build",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/validate_invalid_addresses.py",
+      "build-release"
+    ],
+    "started": 1791876637.4300833,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791876647.0087051
+  },
+  {
+    "name": "invalid-address-validation-asan",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/validate_invalid_addresses.py",
+      "asan"
+    ],
+    "started": 1791876682.4606645,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791876685.2683628
+  },
+  {
+    "name": "invalid-address-validation-release",
+    "mode": "test",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/validate_invalid_addresses.py",
+      "release"
+    ],
+    "started": 1791876682.4583657,
+    "pid": 3,
+    "returncode": 0,
+    "finished": 1791876693.6331475
+  },
+  {
+    "name": "cache-invalid-addresses-resident-repeat",
+    "mode": "benchmark",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/invalid_addresses_repeat.py",
+      "resident"
+    ],
+    "started": 1791876714.8878982,
+    "pid": 3,
+    "db_dir": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-invalid-addresses",
+    "returncode": 0,
+    "finished": 1791877211.8063319
+  },
+  {
+    "name": "cache-invalid-addresses-insert-repeat",
+    "mode": "benchmark",
+    "cwd": "/home/rob/projects/splinterdb",
+    "command": [
+      "python3",
+      ".cache/projects-20261011/coordination/invalid_addresses_insert_repeat.py",
+      "insert"
+    ],
+    "started": 1791877211.8080192,
+    "pid": 3,
+    "db_dir": "/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/cache-invalid-addresses",
+    "returncode": 0,
+    "finished": 1791877291.9093232
+  }
+]

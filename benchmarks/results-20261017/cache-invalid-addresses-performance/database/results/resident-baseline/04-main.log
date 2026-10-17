@@ -1,0 +1,34 @@
+kvbench version=main splinter=splinterdb_build_version invalid-address-perf-main db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/resident-baseline/04-main.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=5.0 warmup=1.0 rep=4 sabotage=0
+open took 0.004 s
+phase warm@1: T=1 dist=uniform (fixed count)
+== warm@1                 T=1  ops=200000     secs=   0.05 ops/s=    3951580  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.04s ops/cpu-s=4915575 rd=128.8 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@1: T=1 dist=uniform (fixed duration)
+   found=5509597 notfound=0
+== point:uniform@1        T=1  ops=5509597    secs=   5.00 ops/s=    1101860  lat us p50=0.86 p99=1.20 p99.9=1.55 max=172.9 mean=0.88
+   cpu=5.00s ops/cpu-s=1101987 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+  [point:uniform@8] progress 24990668 ops (+2498816 ops/s)
+   found=24923969 notfound=0
+== point:uniform@8        T=8  ops=24923969   secs=   5.00 ops/s=    4984552  lat us p50=1.49 p99=2.14 p99.9=4.80 max=82.5 mean=1.55
+   cpu=39.99s ops/cpu-s=623238 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@1: T=1 dist=uniform (fixed duration)
+== range:uniform:1@1      T=1  ops=539466     secs=   5.00 ops/s=     107885  lat us p50=9.09 p99=12.93 p99.9=17.66 max=153.4 mean=9.24
+   cpu=5.00s ops/cpu-s=107911 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=8.83 p99=12.42 mean=8.86  per-tuple=nan ns  deinit mean=0.35 us  tuples/s=107885
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 1481170 ops (+1844467542218086912 ops/s)
+== range:uniform:1@8      T=8  ops=2490990    secs=   5.00 ops/s=     498175  lat us p50=14.21 p99=22.27 p99.9=33.28 max=112.4 mean=16.01
+   cpu=39.99s ops/cpu-s=62288 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=13.44 p99=20.74 mean=15.04  per-tuple=nan ns  deinit mean=0.92 us  tuples/s=498175
+phase range:uniform:10000@1: T=1 dist=uniform (fixed duration)
+== range:uniform:10000@1  T=1  ops=3858       secs=   5.00 ops/s=        772  lat us p50=1327.10 p99=1392.64 p99.9=1392.64 max=1408.3 mean=1296.04
+   cpu=5.00s ops/cpu-s=772 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=12.16 p99=16.26 mean=12.22  per-tuple=131.8 ns  deinit mean=0.61 us  tuples/s=7513676
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:10000@8] progress 3790 ops (+1844468704842968576 ops/s)
+close took 0.068 s
+== range:uniform:10000@8  T=8  ops=19594      secs=   5.00 ops/s=       3919  lat us p50=1884.16 p99=2523.14 p99.9=2523.14 max=3146.2 mean=2041.11
+   cpu=39.99s ops/cpu-s=490 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=17.15 p99=25.34 mean=17.43  per-tuple=207.4 ns  deinit mean=1.21 us  tuples/s=38211432
+   insert/run=5.00s drain(close)=0.07s total=5.07s drain_cpu=0.01s drain_rd=0 drain_wr=311296 wamp=nan db_apparent=159256576 db_alloc=26931200

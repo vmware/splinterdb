@@ -1,0 +1,365 @@
+{
+  "status": "complete audit passed; no samples excluded",
+  "source_sha256": "7f370079f60ccb1b86744a209c20dd09d0b729d512bdf3e022e04b51d23a777a",
+  "library_sha256": "c7b04dabd8a600500ead9095a04e0a572baf904e256f077043c7191abdd8d228",
+  "report": ".cache/invalid-address-perf-20261017/database/analysis/mask-final-hot32-audited.json",
+  "report_sha256": "8c44766264c346a63a5b38ff9e54f5eed514742f74b92b08951b75dce6e4c9f5",
+  "measured_rows": 36,
+  "excluded_preconditions": 2,
+  "guards": "Zero errors, measured read/write bytes, major faults; verified exact working pages/geometry/address setup, fixed CPU/TID mapping, un-multiplexed counters, raw logs, provenance and machine-lock chronology.",
+  "paired_throughput_independently_recomputed": true,
+  "thermal_flagged_samples": 36,
+  "findings": [
+    "Independent hot reads improve 8.10% vs main and 6.67% vs original; all three block ratios positive for both comparisons.",
+    "Dependent hot reads are +0.38% vs main and +1.21% vs original; intervals include losses and gains, with main lower bound -3.51%.",
+    "Instruction deltas match full resident read evidence: +3 per successful get/unget vs main, -1 vs original. Lower cycles despite more instructions than main are consistent with eliminating the alignment division; this comparison also includes the diagnostic-helper layout change.",
+    "Do not pool rates with the 48 MiB read harness or call this database insertion evidence. Offset-zero cache lines can conflict in L1 even at 32 pages.",
+    "Three blocks and package thermal carryover limit precision; process-level thermal flags are not phase-localized."
+  ],
+  "comparisons": [
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "async-mask",
+      "baseline": "main",
+      "estimates": {
+        "branch_misses_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.2557768348355971,
+          "ci95_low_pct": -1.7046364032397787,
+          "ci95_high_pct": 2.255288764073926,
+          "block_delta_pct": [
+            0.8885855981846325,
+            -0.6358521489827851,
+            0.520924355548158
+          ]
+        },
+        "branches_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.8476766365414732,
+          "ci95_low_pct": -1.8476779701750545,
+          "ci95_high_pct": -1.8476753029078807,
+          "block_delta_pct": [
+            -1.8476767609966416,
+            -1.847676048428859,
+            -1.84767710019893
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -9.04578774555651,
+          "ci95_low_pct": -13.295736045055584,
+          "ci95_high_pct": -4.587521426567642,
+          "block_delta_pct": [
+            -8.724651646574266,
+            -7.462635182316135,
+            -10.916386826948477
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 1.0853699949732842,
+          "ci95_low_pct": 1.0853697136682827,
+          "ci95_high_pct": 1.0853702762782858,
+          "block_delta_pct": [
+            1.0853699719849619,
+            1.085370117934903,
+            1.085369894999988
+          ]
+        },
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 8.09715857465434,
+          "ci95_low_pct": 3.1747731719852457,
+          "ci95_high_pct": 13.254387023811343,
+          "block_delta_pct": [
+            7.728998525472464,
+            6.294169118728643,
+            10.306415200121698
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.6838401498770583,
+          "ci95_low_pct": -1.8050917535528122,
+          "ci95_high_pct": -1.5624388240654374,
+          "block_delta_pct": [
+            -1.6720657011047635,
+            -1.6419578693976034,
+            -1.7374726219641312
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -7.487144175832761,
+          "ci95_low_pct": -11.703257727184436,
+          "ci95_high_pct": -3.0697138712200367,
+          "block_delta_pct": [
+            -7.1731540025454565,
+            -5.915044961758332,
+            -9.340673883620344
+          ]
+        }
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "async-mask",
+      "baseline": "original",
+      "estimates": {
+        "branch_misses_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.013447504888020045,
+          "ci95_low_pct": -0.10804614674417845,
+          "ci95_high_pct": 0.08124072279258598,
+          "block_delta_pct": [
+            -0.009637240670323788,
+            -0.05329751318163822,
+            0.022606753940523916
+          ]
+        },
+        "branches_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.50555339306635e-06,
+          "ci95_low_pct": -2.3739879173589884e-06,
+          "ci95_high_pct": -6.371188465692512e-07,
+          "block_delta_pct": [
+            -1.2539868254890507e-06,
+            -1.9047054711229805e-06,
+            -1.3579678714847887e-06
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -7.613449649687043,
+          "ci95_low_pct": -9.598076723107729,
+          "ci95_high_pct": -5.585253319354755,
+          "block_delta_pct": [
+            -7.503749035660379,
+            -6.86327841980201,
+            -8.46626658486176
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.3566294738789,
+          "ci95_low_pct": -0.3566296377346956,
+          "ci95_high_pct": -0.3566293100231044,
+          "block_delta_pct": [
+            -0.3566294395419001,
+            -0.3566295499189298,
+            -0.35662943217587006
+          ]
+        },
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 6.667250135153369,
+          "ci95_low_pct": 5.1438978468357766,
+          "ci95_high_pct": 8.212673149797855,
+          "block_delta_pct": [
+            6.2266142127237245,
+            6.403367212892763,
+            7.375348527257097
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.4479616770161963,
+          "ci95_low_pct": -2.626567078920694,
+          "ci95_high_pct": -0.25509046716257755,
+          "block_delta_pct": [
+            -1.7456304571017878,
+            -0.8959467809446564,
+            -1.69999428532569
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -6.26095249875106,
+          "ci95_low_pct": -7.610706087006591,
+          "ci95_high_pct": -4.891479799418386,
+          "block_delta_pct": [
+            -5.862316590842065,
+            -6.034357388268486,
+            -6.88299179784122
+          ]
+        }
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "dependent",
+      "profile": "async-mask",
+      "baseline": "main",
+      "estimates": {
+        "branch_misses_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.0169167144567504,
+          "ci95_low_pct": -1.186829715234694,
+          "ci95_high_pct": -0.8467115418180016,
+          "block_delta_pct": [
+            -0.9460305191250074,
+            -1.0220188955743503,
+            -1.0826533886995615
+          ]
+        },
+        "branches_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.8141555828303124,
+          "ci95_low_pct": -1.8141565936533266,
+          "ci95_high_pct": -1.814154572007276,
+          "block_delta_pct": [
+            -1.8141552007677197,
+            -1.8141560106547439,
+            -1.8141555370684626
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.5001917326003302,
+          "ci95_low_pct": -3.4864328967018077,
+          "ci95_high_pct": 2.578447179898835,
+          "block_delta_pct": [
+            -0.760929126937071,
+            -1.5632393577565407,
+            0.838581682683115
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 1.1927084601246696,
+          "ci95_low_pct": 1.192708228897743,
+          "ci95_high_pct": 1.1927086913516183,
+          "block_delta_pct": [
+            1.1927085111614444,
+            1.1927083526967142,
+            1.1927085165158724
+          ]
+        },
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.3816170514586714,
+          "ci95_low_pct": -3.506794755532028,
+          "ci95_high_pct": 4.4267212011116275,
+          "block_delta_pct": [
+            0.6090114021041204,
+            1.8629974857492737,
+            -1.3018007646298124
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.10165986200338928,
+          "ci95_low_pct": -1.0751806147652032,
+          "ci95_high_pct": 0.8814413242830721,
+          "block_delta_pct": [
+            -0.1344798950488446,
+            0.3083495872464814,
+            -0.4772967780020898
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.39642693268496787,
+          "ci95_low_pct": -4.3002018106575,
+          "ci95_high_pct": 3.6665902695789843,
+          "block_delta_pct": [
+            -0.6225222761857441,
+            -1.8632873412150364,
+            1.322355700068223
+          ]
+        }
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "dependent",
+      "profile": "async-mask",
+      "baseline": "original",
+      "estimates": {
+        "branch_misses_op": {
+          "blocks": 3,
+          "geometric_delta_pct": 0.4614011081297109,
+          "ci95_low_pct": -0.5122665190524178,
+          "ci95_high_pct": 1.4445978361874223,
+          "block_delta_pct": [
+            0.5575515688398758,
+            0.02934151905058524,
+            0.7988534720032137
+          ]
+        },
+        "branches_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -5.681946357860568e-07,
+          "ci95_low_pct": -1.4508730217244192e-06,
+          "ci95_high_pct": 3.144837501523057e-07,
+          "block_delta_pct": [
+            -2.1664923188779994e-07,
+            -5.60806312499551e-07,
+            -9.271283740730496e-07
+          ]
+        },
+        "cycles_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.5285367259672555,
+          "ci95_low_pct": -4.189525365673696,
+          "ci95_high_pct": 1.206356782363116,
+          "block_delta_pct": [
+            -1.310008548767605,
+            -2.699918498504239,
+            -0.5637221524135372
+          ]
+        },
+        "instructions_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.3913461308756694,
+          "ci95_low_pct": -0.3913462689517422,
+          "ci95_high_pct": -0.3913459927995966,
+          "block_delta_pct": [
+            -0.3913460687727355,
+            -0.39134614791278555,
+            -0.391346175941476
+          ]
+        },
+        "ops_s": {
+          "blocks": 3,
+          "geometric_delta_pct": 1.2117161058409431,
+          "ci95_low_pct": -2.6851555484317835,
+          "ci95_high_pct": 5.264633929384721,
+          "block_delta_pct": [
+            0.8626846646229813,
+            2.972321388840271,
+            -0.1745356995077385
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 3,
+          "geometric_delta_pct": -0.32483047448358393,
+          "ci95_low_pct": -1.5353899119760706,
+          "ci95_high_pct": 0.9006120174422927,
+          "block_delta_pct": [
+            -0.4559753867288019,
+            0.2191691334533452,
+            -0.7352723140160666
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 3,
+          "geometric_delta_pct": -1.2075031038924933,
+          "ci95_low_pct": -5.0442862456033355,
+          "ci95_high_pct": 2.7843092013565274,
+          "block_delta_pct": [
+            -0.856990352316056,
+            -2.9133084480541416,
+            0.17286285495843323
+          ]
+        }
+      }
+    }
+  ]
+}

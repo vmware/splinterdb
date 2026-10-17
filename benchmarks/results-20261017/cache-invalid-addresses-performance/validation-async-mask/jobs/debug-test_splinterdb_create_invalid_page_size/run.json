@@ -1,0 +1,18 @@
+{
+  "name": "debug-test_splinterdb_create_invalid_page_size",
+  "command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/debug/bin/unit/limitations_test",
+    "test_splinterdb_create_invalid_page_size"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/validation-async-mask/debug-test_splinterdb_create_invalid_page_size",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/debug/lib",
+    "MSAN_OPTIONS": "halt_on_error=1:exit_code=86"
+  },
+  "queued": 1792227853.9864554,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792227853.986462,
+  "returncode": 0,
+  "finished": 1792227853.9881692,
+  "log_sha256": "4dd0f323f01ac479dbb995d9c2180f401e4df5978255fdc663c9c933bf17031b"
+}

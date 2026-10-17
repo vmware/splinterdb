@@ -1,0 +1,283 @@
+--- run.py
++++ run_quota.py
+@@ -1,13 +1,14 @@
+ #!/usr/bin/env python3
+-"""Run serialized, balanced public-API comparisons using one frozen driver.
++"""Compare fixed/shared insertion quotas using one separate frozen driver.
+ 
+ Examples:
+-  python3 run.py resident baseline --profiles main original --seconds 5 --blocks 2
+-  python3 run.py insert candidate --profiles main original candidate --seconds 5
+-
+-Each block uses profiles + reverse(profiles): ABBA or ABCCBA. Resident tests
+-use 200k 24/100-byte tuples, a full warm scan, and a 128 MiB cache. Insert
+-tests use 16/16-byte tuples, eight writers, 256 MiB cache, and both WAL modes.
++  python3 run_quota.py insert fixed --quota-mode fixed --profiles main original async-load
++  python3 run_quota.py insert shared --quota-mode shared --profiles main original async-load
++
++Each block uses profiles + reverse(profiles): ABBA or ABCCBA. Both quota modes
++use the same binary, 20M records, 16/16-byte tuples, eight writers and 256MiB cache.
++Excluded preconditions ALWAYS use fixed quotas with a time limit and independent
++record cap. Shared quotas are restricted to count-limited measured runs.
+ This runner takes machine.lock itself; do not wrap it in another lock holder.
+ Only newly created scratch images from successful, validated runs are deleted.
+ """
+@@ -29,9 +30,6 @@
+ HERE = Path(__file__).resolve().parent
+ ROOT = HERE.parent
+ LOCK = Path('/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock')
+-PHASES = ['warm@1', 'point:uniform@1', 'point:uniform@8',
+-          'range:uniform:1@1', 'range:uniform:1@8',
+-          'range:uniform:10000@1', 'range:uniform:10000@8']
+ 
+ 
+ def digest(path):
+@@ -128,79 +126,6 @@
+     return record
+ 
+ 
+-def query_base(binary, db, args, csv_path, profile, index):
+-    return ['taskset', '-c', args.cpus, str(binary), '--db', str(db),
+-            '--n', '200000', '--cache-mib', '128', '--disk-gib', '8',
+-            '--log', '0', '--threads', '8', '--mt-bg', '0', '--normal-bg', '0',
+-            '--memtable-mib', '4', '--secs', str(args.seconds), '--warmup', str(args.warmup),
+-            '--csv', str(csv_path), '--vtag', profile, '--stag', 'resident',
+-            '--otag', str(index), '--rep', str(index), '--seed', '42',
+-            '--hang-secs', '60', '--hang-dir', str(csv_path.parent)]
+-
+-
+-def checked_query_rows(path, expected, resident=True):
+-    rows = read_csv(path)
+-    assert [r['phase'] for r in rows] == expected, rows
+-    assert all(int(r['ops']) > 0 and int(r['errors']) == 0 and
+-               int(r['violations']) == 0 for r in rows), rows
+-    if resident:
+-        assert all(int(r['rd_bytes']) == 0 for r in rows if not r['phase'].startswith('warm')), rows
+-    assert all(int(r['swapin']) == 0 and int(r['swapout']) == 0 for r in rows), rows
+-    return rows
+-
+-
+-def resident(out, manifest, args, order, binary):
+-    phases = ['warm@1', *args.phases]
+-    fixture = out / 'fixture.db'
+-    csv_path = out / 'fixture.csv'
+-    cmd = query_base(binary, fixture, args, csv_path, 'main', -1)
+-    record = execute(out, manifest, 'fixture', cmd + ['--create', 'load:random@1'],
+-                     'main', fixture, args.min_free_gib)
+-    rows = checked_query_rows(csv_path, ['load:random@1'], False)
+-    assert int(rows[0]['ops']) == 200000, rows
+-    with fixture.open('r+b') as stream:
+-        os.fsync(stream.fileno())
+-    record['correctness_passed'] = True
+-    manifest['fixture_sha256'] = digest(fixture)
+-    save(out / 'manifest.json', manifest)
+-    all_rows = []
+-    runs = list(enumerate(order))
+-    if args.precondition_seconds:
+-        runs.insert(0, (-1, args.profiles[0]))
+-    for index, profile in runs:
+-        precondition = index == -1
+-        name = 'precondition' if precondition else f'{index:02d}-{profile}'
+-        db = out / (name + '.db')
+-        assert not db.exists()
+-        subprocess.run(['cp', '--reflink=auto', '--sparse=always', str(fixture), str(db)], check=True)
+-        with db.open('r+b') as stream:
+-            os.fsync(stream.fileno())
+-        csv_path = out / (name + '.csv')
+-        cmd = query_base(binary, db, args, csv_path, profile, index)
+-        if precondition:
+-            cmd[cmd.index('--secs') + 1] = str(args.precondition_seconds)
+-        record = execute(out, manifest, name, cmd + ['--open', *phases],
+-                         profile, db, args.min_free_gib)
+-        rows = checked_query_rows(csv_path, phases)
+-        record['correctness_passed'] = True
+-        record['csv_sha256'] = digest(csv_path)
+-        record['validated_rows'] = len(rows)
+-        record['excluded_precondition'] = precondition
+-        if not precondition:
+-            all_rows.extend(rows)
+-        db.unlink()
+-        record['own_successful_scratch_removed'] = True
+-        save(out / 'manifest.json', manifest)
+-    fixture.unlink()
+-    manifest['fixture_removed_after_all_queries_passed'] = True
+-    write_csv(out / 'results.csv', all_rows)
+-    return [dict(profile=r['version'], phase=r['phase'], ops_s=float(r['ops_s']),
+-                 block=int(r['order']) // (2 * len(args.profiles)),
+-                 cpu_us_op=float(r['cpu_s']) * 1e6 / int(r['ops']),
+-                 p99_us=float(r['p99_us']), read_B_op=float(r['rd_B_op']))
+-            for r in all_rows if not r['phase'].startswith('warm')]
+-
+-
+ def inserts(out, manifest, args, order, binary):
+     rows = []
+     for wal in args.wal:
+@@ -215,7 +140,7 @@
+             summary_path = out / (name + '.summary.csv')
+             cmd = ['taskset', '-c', args.cpus, str(binary), '--db', str(db),
+                    '--csv', str(csv_path), '--summary', str(summary_path),
+-                   '--records', str(args.records), '--seconds',
++                   '--records', str(args.precondition_records if precondition else args.records), '--seconds',
+                    str(args.precondition_seconds if precondition else 0 if args.fixed_records else args.seconds),
+                    '--report-ms', '100', '--cache-mib', '256', '--disk-gib', '8',
+                    '--direct', '--inserters', '8', '--readers', '0',
+@@ -224,6 +149,9 @@
+                    '--min-free-gib', str(args.min_free_gib), '--seed', '42']
+             if wal == 0:
+                 cmd.append('--no-log')
++            quota_mode = 'fixed' if precondition else args.quota_mode
++            if quota_mode == 'shared':
++                cmd.append('--shared-quota')
+             record = execute(out, manifest, name, cmd, profile, db, args.min_free_gib)
+             log = (out / (name + '.log')).read_text()
+             expected_reason = 'complete' if args.fixed_records and not precondition else 'time_limit'
+@@ -237,7 +165,7 @@
+             if expected_reason == 'complete':
+                 assert inserted == args.records, summary
+             else:
+-                assert 0 < inserted < args.records, summary
++                assert 0 < inserted < (args.precondition_records if precondition else args.records), summary
+             intervals = read_csv(csv_path)
+             assert intervals, csv_path
+             last = intervals[-1]
+@@ -245,7 +173,8 @@
+             sampled_inserted = int(last['inserted'])
+             elapsed_s = float(summary['elapsed_s'])
+             cpu_s = sum(float(r['cpu_cores']) * float(r['interval_s']) for r in intervals)
+-            result = dict(profile=profile, phase=f'insert-wal{wal}@8',
++            result = dict(profile=profile, phase=f'insert-wal{wal}-{quota_mode}@8',
++                             quota_mode=quota_mode,
+                              block=index // (2 * len(args.profiles)),
+                              ops_s=float(summary['achieved_insert_ops_s']),
+                              cpu_us_op=cpu_s * 1e6 / sampled_inserted,
+@@ -265,6 +194,7 @@
+             if args.insert_diagnostics:
+                 stages = {}
+                 workers = []
++                quota = None
+                 for line in log.splitlines():
+                     if line.startswith('diagnostic_stage '):
+                         fields = dict(item.split('=', 1) for item in line.split()[1:])
+@@ -273,9 +203,26 @@
+                     elif line.startswith('diagnostic_worker '):
+                         fields = {k: int(v) for k, v in (item.split('=', 1) for item in line.split()[1:])}
+                         workers.append(fields)
++                    elif line.startswith('diagnostic_quota '):
++                        fields = dict(item.split('=', 1) for item in line.split()[1:])
++                        mode = fields.pop('mode')
++                        quota = dict(mode=mode, **{k: int(v) for k, v in fields.items()})
+                 expected_stages = ['worker_start', 'stop_request', 'workers_joined', 'before_close', 'after_close']
+                 assert list(stages) == expected_stages, stages
+                 assert len(workers) == 8 and sum(w['completed'] for w in workers) == inserted, workers
++                assert quota is not None and quota['mode'] == quota_mode, quota
++                assert quota['target_records'] == (args.precondition_records if precondition else args.records), quota
++                assert quota['completed_records'] == inserted, quota
++                assert quota['productive_end_ns'] == max(w['last_end_ns'] for w in workers), quota
++                if quota_mode == 'shared':
++                    assert quota['batch'] == 1024, quota
++                    # Every worker makes one empty reservation before exiting.
++                    expected_next = ((args.records + 1023) // 1024 + 8) * 1024
++                    assert quota['next_record'] == expected_next, quota
++                else:
++                    assert quota['batch'] == 0 and quota['next_record'] == 0, quota
++                    if not precondition:
++                        assert all(w['completed'] == (args.records + 7 - w['index']) // 8 for w in workers), workers
+                 for previous, following in zip(expected_stages, expected_stages[1:]):
+                     assert all(stages[following][key] >= stages[previous][key] for key in ['wall_ns', 'cpu_ns']), stages
+                 for phase, start, end in [('window', 'worker_start', 'stop_request'),
+@@ -287,6 +234,13 @@
+                         result[f'diagnostic_{phase}_{counter}_s'] = (stages[end][counter + '_ns'] - stages[start][counter + '_ns']) / 1e9
+                 result['body_cpu_us_op'] = result['diagnostic_body_cpu_s'] * 1e6 / inserted
+                 result['drain_cpu_us_op'] = result['diagnostic_drain_cpu_s'] * 1e6 / inserted
++                productive_end_ns = quota['productive_end_ns']
++                result['productive_wall_s'] = (productive_end_ns - stages['worker_start']['wall_ns']) / 1e9
++                result['productive_ops_s'] = inserted / result['productive_wall_s']
++                result['productive_end_to_stop_s'] = (stages['stop_request']['wall_ns'] - productive_end_ns) / 1e9
++                result['exact_body_ops_s'] = inserted / result['diagnostic_body_wall_s']
++                result['exact_drain_ops_s'] = inserted / result['diagnostic_drain_wall_s']
++                result['worker_completion_spread_s'] = (productive_end_ns - min(w['last_end_ns'] for w in workers if w['completed'])) / 1e9
+                 stop_ns = stages['stop_request']['wall_ns']
+                 for worker in workers:
+                     worker['last_insert_ms'] = (worker['last_end_ns'] - worker['last_start_ns']) / 1e6
+@@ -295,6 +249,7 @@
+                     worker['deregister_ms'] = (worker['deregister_end_ns'] - worker['deregister_start_ns']) / 1e6
+                 record['diagnostic_stages'] = stages
+                 record['diagnostic_workers'] = workers
++                record['diagnostic_quota'] = quota
+             if not precondition:
+                 rows.append(result)
+             record.update(correctness_passed=True, summary_sha256=digest(summary_path),
+@@ -334,7 +289,7 @@
+                     baseline_metric = statistics.fmean(r[metric] for r in group[profiles[0]])
+                     summary[metric + '_delta_baseline_pct'] = 100 * (summary[metric + '_mean'] / baseline_metric - 1)
+             if 'body_cpu_us_op' in samples[0]:
+-                for metric in [k for k in samples[0] if k.startswith('diagnostic_')] + ['body_cpu_us_op', 'drain_cpu_us_op']:
++                for metric in [k for k in samples[0] if k.startswith('diagnostic_')] + ['body_cpu_us_op', 'drain_cpu_us_op', 'productive_wall_s', 'productive_ops_s', 'productive_end_to_stop_s', 'exact_body_ops_s', 'exact_drain_ops_s', 'worker_completion_spread_s']:
+                     summary[metric + '_mean'] = statistics.fmean(r[metric] for r in samples)
+             block_ratios = []
+             for block in sorted({r['block'] for r in samples}):
+@@ -366,18 +321,18 @@
+ 
+ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
+-    parser.add_argument('mode', choices=['resident', 'insert'])
++    parser.add_argument('mode', choices=['insert'])
+     parser.add_argument('name', help='new result directory name')
+     parser.add_argument('--profiles', nargs='+', default=['main', 'original'])
+     parser.add_argument('--seconds', type=int, default=5)
+     parser.add_argument('--records', type=int, default=20000000, help='insert target; identical across all profiles')
+-    parser.add_argument('--fixed-records', action='store_true', help='insert exactly --records instead of stopping on time; --seconds is ignored')
+-    parser.add_argument('--insert-diagnostics', action='store_true', help='use separately built driver with exact CPU/wall phase boundaries and worker-exit diagnostics')
++    parser.add_argument('--fixed-records', action='store_true', default=True, help='measured runs always insert exactly --records; --seconds is ignored')
++    parser.add_argument('--insert-diagnostics', action='store_true', default=True, help='all runs use the separate quota driver with exact CPU/wall diagnostics')
++    parser.add_argument('--quota-mode', choices=['fixed', 'shared'], default='fixed', help='measured quota allocation; excluded preconditions always use fixed quotas')
++    parser.add_argument('--precondition-records', type=int, default=100000000, help='independent cap for excluded fixed-quota timed preconditions')
+     parser.add_argument('--blocks', type=int, default=2)
+     parser.add_argument('--rotate-blocks', action='store_true', help='rotate profile starting position each mirrored block')
+-    parser.add_argument('--phases', nargs='+', choices=PHASES[1:], default=PHASES[1:], help='resident phases; a full warm scan is always prepended')
+-    parser.add_argument('--warmup', type=float, default=1, help='resident warmup before each timed phase, seconds')
+-    parser.add_argument('--precondition-seconds', type=int, default=0, help='excluded startup run before measurement; per selected phase or WAL mode')
++    parser.add_argument('--precondition-seconds', type=int, default=15, help='excluded fixed-quota timed run before measurement per WAL mode')
+     parser.add_argument('--cpus', default='0-11')
+     parser.add_argument('--min-free-gib', type=int, default=6)
+     parser.add_argument('--wal', nargs='+', type=int, choices=[0, 1], default=[0, 1])
+@@ -386,16 +341,17 @@
+     assert all(re.fullmatch(r'[A-Za-z0-9_-]+', p) for p in args.profiles)
+     assert (args.seconds >= 0 if args.fixed_records else args.seconds > 0)
+     assert args.blocks > 0 and len(set(args.profiles)) == len(args.profiles)
+-    assert args.warmup >= 0 and args.precondition_seconds >= 0
++    assert args.precondition_seconds >= 0
+     assert args.records > 0 and (not args.fixed_records or args.mode == 'insert')
++    assert args.precondition_records > 0
+     assert not args.insert_diagnostics or args.mode == 'insert'
+     out = HERE / 'results' / (args.mode + '-' + args.name)
+     out.mkdir(parents=True, exist_ok=False)
+     filesystem = subprocess.check_output(['findmnt', '-n', '-o', 'FSTYPE,SOURCE', '-T', str(out)], text=True).strip()
+     fstype, source = filesystem.split()[:2]
+     assert fstype not in {'tmpfs', 'ramfs'} and source.startswith('/dev/'), filesystem
+-    build = json.loads((HERE / ('diagnostics-build.json' if args.insert_diagnostics else 'dynamic-build.json')).read_text())
+-    binary_name = 'kvbench' if args.mode == 'resident' else 'insert_benchmark'
++    build = json.loads((HERE / 'quota-build.json').read_text())
++    binary_name = 'insert_benchmark'
+     driver = build['binaries'][binary_name]
+     binary = Path(driver['binary'])
+     assert digest(binary) == driver['binary_sha256']
+@@ -422,14 +378,16 @@
+                                  'Block confidence intervals assume independent approximately normal log ratios; few blocks and thermal carryover limit certainty.',
+                                  'Hardware snapshots are observational before/after context, not timed frequency measurements or normalization.',
+                                  'Insert cpu_us_op covers the sampled reporting window only; it excludes post-sample joins and close. process_cpu_us_op includes setup, all joins, and close.',
+-                                 'Resident background thread count is zero, differing from historical 1+3 background configuration.'])
++                                 'Shared quotas also change worker/key assignment and add one relaxed atomic reservation per 1024 inserts.',
++                                 'Excluded preconditions always use fixed quotas and their separate record cap, regardless of measured quota mode.',
++                                 'productive_ops_s excludes final controller polling, deregistration and close; it supplements rather than replaces exact body/drain throughput.'])
+     save(out / 'manifest.json', manifest)
+     print('WAIT machine.lock', flush=True)
+     with LOCK.open('rb') as lock:
+         fcntl.flock(lock, fcntl.LOCK_EX)
+         manifest['lock_acquired'] = time.time()
+         try:
+-            rows = (resident if args.mode == 'resident' else inserts)(out, manifest, args, order, binary)
++            rows = inserts(out, manifest, args, order, binary)
+             summarize(out, rows, args.profiles)
+             manifest['complete'] = True
+         finally:
