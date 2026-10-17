@@ -1,0 +1,4 @@
+Starting main-7bb5fab-prefix-kvbench-build build
+lto-wrapper: warning: using serial compilation of 14 LTRANS jobs
+lto-wrapper: note: see the ‘-flto’ option documentation for more information
+/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/build-main-7bb5fab/release/bin/prefix_kvbench

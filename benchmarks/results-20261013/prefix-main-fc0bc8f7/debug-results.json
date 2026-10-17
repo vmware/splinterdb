@@ -1,0 +1,78 @@
+[
+  {
+    "name": "btree",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/build-main-fc0bc8f7/debug/bin/unit/btree_test"
+    ],
+    "binary_sha256": "ead5a86bb8ebe576962f3cc4aee4586e817e2dec9b2f447485ca8ce63d4cfeb2",
+    "started": 1791959458.4605818,
+    "returncode": 0,
+    "finished": 1791959458.4770203,
+    "log_sha256": "6346da6b14eacbfcc92f83021e08b8812212ce5725048bfe87a9723862015f71",
+    "summaries": [
+      "RESULTS: 12 tests (12 ok, 0 failed, 0 skipped) ran in 14 ms"
+    ]
+  },
+  {
+    "name": "superblock",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/build-main-fc0bc8f7/debug/bin/unit/superblock_test"
+    ],
+    "binary_sha256": "8beaa6a0e904e9961a640dfa730255ade59ebd54cb21ea86ada9f39b30fd152b",
+    "started": 1791959458.4778826,
+    "returncode": 0,
+    "finished": 1791959458.5129135,
+    "log_sha256": "4066201b28a14966f9dc8a07b6f2ba54c784ebeba1460c7a6b179aa1e25a7ca4",
+    "summaries": [
+      "RESULTS: 17 tests (17 ok, 0 failed, 0 skipped) ran in 33 ms"
+    ]
+  },
+  {
+    "name": "merge",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/build-main-fc0bc8f7/debug/bin/unit/merge_test"
+    ],
+    "binary_sha256": "f4899bb5864956dd08b389df35b7b61a6172705a7c03c84f2ef997856ccda395",
+    "started": 1791959458.5134087,
+    "returncode": 0,
+    "finished": 1791959458.516288,
+    "log_sha256": "9d63b1f08cb37323104d7bcae492db1e32f9060345599994389f42c429e07d44",
+    "summaries": [
+      "RESULTS: 10 tests (10 ok, 0 failed, 0 skipped) ran in 1 ms"
+    ]
+  },
+  {
+    "name": "splinterdb_quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/build-main-fc0bc8f7/debug/bin/unit/splinterdb_quick_test"
+    ],
+    "binary_sha256": "d7d123e37c141b375d56962cadd7d688cc86cb02fd37878477020882c04bdabe",
+    "started": 1791959458.5170405,
+    "returncode": 0,
+    "finished": 1791959472.331525,
+    "log_sha256": "70436b5cc006d7da2c2a5377ff16b24d50651f545f83f3d1f48c26b4384ae6f8",
+    "summaries": [
+      "RESULTS: 57 tests (57 ok, 0 failed, 0 skipped) ran in 13812 ms"
+    ]
+  },
+  {
+    "name": "splinter",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/build-main-fc0bc8f7/debug/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/prefix-main-fc0bc8f7/scratch-debug/core.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64"
+    ],
+    "binary_sha256": "8c32e394c9cfcdd9a4d63dd4c0bbb334b655140dd627460da1570ffc220b9cad",
+    "started": 1791959472.3323362,
+    "returncode": 0,
+    "finished": 1791959577.1396105,
+    "log_sha256": "5be7592693bdf1cd87dea3e731be7ed6486d8b6f7f44fce835664efb468a2364",
+    "summaries": [
+      "RESULTS: 41 tests (41 ok, 0 failed, 0 skipped) ran in 104805 ms"
+    ]
+  }
+]

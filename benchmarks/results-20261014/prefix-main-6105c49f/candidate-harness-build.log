@@ -1,0 +1,3 @@
+lto-wrapper: warning: using serial compilation of 13 LTRANS jobs
+lto-wrapper: note: see the ‘-flto’ option documentation for more information
+/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/build-main-6105c49f/release/bin/prefix_kvbench

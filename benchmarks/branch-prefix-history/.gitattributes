@@ -1,0 +1,6 @@
+# Preserve archived raw measurements without normalizing their bytes.
+*.csv whitespace=cr-at-eol
+*.txt -whitespace
+*.patch -whitespace
+*.log -whitespace
+*.diff -whitespace

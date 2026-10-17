@@ -59,6 +59,9 @@ struct ONDISK btree_hdr {
    uint8       flags;
    node_offset next_entry;
    table_index num_entries;
+   /* Branch leaves only: prefix bytes occupy the end of the page. Entry keys
+    * are suffixes; index pivots and all mutable memtable keys remain full. */
+   uint16      prefix_length;
    table_entry offsets[];
 };
 
@@ -505,6 +508,99 @@ btree_get_tuple_key(const btree_config *cfg,
                     table_index         k)
 {
    return leaf_entry_key(btree_get_leaf_entry(cfg, hdr, k));
+}
+
+static inline const char *
+btree_leaf_prefix(const btree_config *cfg, const btree_hdr *hdr)
+{
+   return (const char *)hdr + btree_page_size(cfg) - hdr->prefix_length;
+}
+
+/* Compressed suffixes are commonly only a few bytes. Fixed-size copies avoid
+ * an out-of-line memcpy for these keys without reading past the suffix. */
+static inline void
+btree_copy_key_suffix(char *dst, const char *src, uint64 length)
+{
+   if (length > 16) {
+      memcpy(dst, src, length);
+   } else if (length >= 8) {
+      memcpy(dst, src, 8);
+      memcpy(dst + length - 8, src + length - 8, 8);
+   } else if (length >= 4) {
+      memcpy(dst, src, 4);
+      memcpy(dst + length - 4, src + length - 4, 4);
+   } else if (length >= 2) {
+      memcpy(dst, src, 2);
+      memcpy(dst + length - 2, src + length - 2, 2);
+   } else if (length == 1) {
+      *dst = *src;
+   }
+}
+
+/* The source leaf stays pinned while this key is used. Uncompressed keys keep
+ * the existing zero-copy path. */
+static inline platform_status
+btree_leaf_full_key(const btree_config *cfg,
+                    const btree_hdr    *hdr,
+                    const leaf_entry   *entry,
+                    key_buffer         *buffer,
+                    key                *result)
+{
+   if (hdr->prefix_length == 0) {
+      *result = leaf_entry_key((leaf_entry *)entry);
+      return STATUS_OK;
+   }
+   uint64          length = (uint64)hdr->prefix_length + entry->key_length;
+   platform_status rc     = key_buffer_resize(buffer, length);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   memcpy(
+      key_buffer_data(buffer), btree_leaf_prefix(cfg, hdr), hdr->prefix_length);
+   memcpy((char *)key_buffer_data(buffer) + hdr->prefix_length,
+          entry->key_and_message,
+          entry->key_length);
+   *result = key_buffer_key(buffer);
+   return STATUS_OK;
+}
+
+/* Compare the shared prefix once before binary searching its suffixes. The
+ * mismatch may put target on either side of the entire leaf. */
+static inline int
+btree_compare_prefix(const btree_config *cfg, const btree_hdr *hdr, key target)
+{
+   if (key_is_negative_infinity(target)) {
+      return -1;
+   }
+   if (key_is_positive_infinity(target)) {
+      return 1;
+   }
+   uint64 length = MIN(key_length(target), hdr->prefix_length);
+   int    cmp = memcmp(key_data(target), btree_leaf_prefix(cfg, hdr), length);
+   if (cmp != 0) {
+      return cmp;
+   }
+   return key_length(target) < hdr->prefix_length ? -1 : 0;
+}
+
+static inline int
+btree_compare_leaf_key(const btree_config *cfg,
+                       const btree_hdr    *hdr,
+                       key                 target,
+                       const leaf_entry   *entry)
+{
+   if (hdr->prefix_length == 0) {
+      return btree_key_compare(
+         cfg, target, leaf_entry_key((leaf_entry *)entry));
+   }
+   int cmp = btree_compare_prefix(cfg, hdr, target);
+   if (cmp != 0) {
+      return cmp;
+   }
+   return slice_lex_cmp(
+      slice_create(key_length(target) - hdr->prefix_length,
+                   (const char *)key_data(target) + hdr->prefix_length),
+      key_slice(leaf_entry_key((leaf_entry *)entry)));
 }
 
 static inline message

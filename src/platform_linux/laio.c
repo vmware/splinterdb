@@ -513,6 +513,8 @@ typedef struct laio_async_state {
 _Static_assert(
    sizeof(laio_async_state) <= IO_ASYNC_STATE_BUFFER_SIZE,
    "laio_async_read_state is to large for IO_ASYNC_STATE_BUFFER_SIZE");
+_Static_assert(_Alignof(laio_async_state) <= _Alignof(io_async_state_buffer),
+               "io_async_state_buffer has insufficient alignment");
 
 static void
 laio_async_state_deinit(io_async_state *ios)
@@ -555,6 +557,21 @@ laio_async_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
    laio_async_state *ios =
       (laio_async_state *)((char *)iocb - offsetof(laio_async_state, req));
    ios->status = res;
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+   /* libaio's kernel writes bypass MSan instrumentation. Publish only the
+    * bytes actually read, before a callback can expose them to its readers.
+    * Short reads leave the rest of the iovecs untouched. */
+   if (ios->cmd == io_async_preadv && res > 0) {
+      uint64 remaining = (uint64)res;
+      for (uint64 i = 0; i < ios->iovlen && remaining != 0; i++) {
+         uint64 bytes = MIN(remaining, ios->iovs[i].iov_len);
+         __msan_unpoison(ios->iovs[i].iov_base, bytes);
+         remaining -= bytes;
+      }
+   }
+#   endif
+#endif
    /*
     * A positive short completion may have extended a regular file.  Invalidate
     * for every write completion, including failures, because the completion

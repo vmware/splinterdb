@@ -169,6 +169,36 @@ CTEST2(superblock, test_format_sets_fresh_state)
    superblock_context_deinit(&ctx);
 }
 
+CTEST2(superblock, test_rejects_other_experiment_formats)
+{
+   const uint64       versions[] = {7, 0x8006, 0x8007};
+   superblock_context ctx;
+   platform_status    rc =
+      superblock_context_init(&ctx, data->ioh, &data->allocator_cfg, data->hid);
+   ASSERT_TRUE(SUCCESS(rc));
+   for (uint64 i = 0; i < ARRAY_SIZE(versions); i++) {
+      rc = superblock_format(&ctx, &data->allocator_cfg);
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_EQUAL(SUPERBLOCK_FORMAT_VERSION, ctx.image->format_version);
+      ctx.image->format_version = versions[i];
+      // Publish both slots with a valid checksum for the incompatible format.
+      rc = superblock_make_durable(&ctx);
+      ASSERT_TRUE(SUCCESS(rc));
+      rc = superblock_make_durable(&ctx);
+      ASSERT_TRUE(SUCCESS(rc));
+      rc = superblock_mount(&ctx, &data->allocator_cfg);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+      superblock image;
+      rc = superblock_read_bootstrap(data->io_cfg.filename, &image);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+   }
+   rc = superblock_format(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+   rc = superblock_mount(&ctx, &data->allocator_cfg);
+   ASSERT_TRUE(SUCCESS(rc));
+   superblock_context_deinit(&ctx);
+}
+
 /*
  * A durable tree snapshot and a subsequent durable allocator snapshot (the
  * clean-unmount Part A / Part B sequence) survive a deinit + re-mount: the

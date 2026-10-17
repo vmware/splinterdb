@@ -71,7 +71,10 @@ typedef platform_status (*io_range_is_readable_fn)(io_handle *io,
                                                    bool32    *readable);
 
 #define IO_ASYNC_STATE_BUFFER_SIZE (1024)
-typedef uint8 io_async_state_buffer[IO_ASYNC_STATE_BUFFER_SIZE];
+/* Backends store their native async state in this opaque byte buffer. Its
+ * alignment must hold when embedded after a smaller field in another state. */
+typedef uint8 io_async_state_buffer[IO_ASYNC_STATE_BUFFER_SIZE]
+   __attribute__((aligned(_Alignof(max_align_t))));
 typedef enum { io_async_preadv, io_async_pwritev } io_async_cmd;
 typedef platform_status (*io_async_state_init_fn)(io_async_state   *state,
                                                   io_handle        *io,

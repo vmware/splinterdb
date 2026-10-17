@@ -36,9 +36,13 @@
 /*
  * Immutable branch versions travel with the root address. Query and recovery
  * entry points validate the version before interpreting branch pages. The
- * version argument is ignored for PAGE_TYPE_MEMTABLE (an in-memory structure).
+ * Version 2 adds the common-prefix length to the page header and encodes
+ * branch leaf keys as suffixes when that length is nonzero. The construction
+ * opt-in is not required to read existing prefix-compressed leaves.
+ * The version argument is ignored for PAGE_TYPE_MEMTABLE (an in-memory
+ * structure).
  */
-#define BTREE_BRANCH_FORMAT_VERSION (1)
+#define BTREE_BRANCH_FORMAT_VERSION (2)
 
 /*
  * Mini-allocator uses separate batches for each height of the BTree.
@@ -214,6 +218,8 @@ typedef struct btree_iterator {
    // Entry checked by the last successful positioning operation. Branch-tree
    // curr() reuses it so it does not decode the offset table again.
    const void *validated_entry;
+   // Owned scratch space, allocated only after encountering a compressed leaf.
+   struct btree_iterator_prefix_state *prefix_state;
 
    btree_prefetch_cursor prefetch;
    btree_pivot_data      pivot_data;
@@ -476,7 +482,6 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
    local, uint64,                       next_addr,
    local, uint64,                       prev_addr,
    local, uint64,                       expected_page_no,
-   local, key,                          first_key,
    local, key,                          last_key)
 // clang-format on
 

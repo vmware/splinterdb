@@ -1,0 +1,13 @@
+prefix-pattern=nonlexical key_bytes=64 compression_disabled=false
+kvbench version=main splinter=splinterdb_build_version 6105c49f db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/prefix-main-6105c49f/databases/repeat-resident-nonlexical-wal0-04-main.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=15.0 warmup=1.0 rep=4 sabotage=0
+open took 0.006 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.02 ops/s=   12605094  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.07s ops/cpu-s=2906132 rd=178.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=1
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 11026604 ops (+1102592 ops/s)
+close took 0.069 s
+== range:uniform:1@8      T=8  ops=15121727   secs=  15.00 ops/s=    1008100  lat us p50=6.98 p99=10.88 p99.9=20.22 max=754.3 mean=7.86
+   cpu=119.96s ops/cpu-s=126053 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=6.59 p99=10.37 mean=7.40  per-tuple=nan ns  deinit mean=0.41 us  tuples/s=1008100
+   insert/run=15.00s drain(close)=0.07s total=15.07s drain_cpu=0.01s drain_rd=0 drain_wr=307200 wamp=nan db_apparent=237375488 db_alloc=37285888

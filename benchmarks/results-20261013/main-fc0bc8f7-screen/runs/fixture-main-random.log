@@ -1,0 +1,8 @@
+prefix-pattern=random key_bytes=64 compression_disabled=false
+kvbench version=main splinter=splinterdb_build_version fc0bc8f7 db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-fc0bc8f7/branch-screen/fixture-main-random.db mode=create n=200000 cache_mib=128 disk_gib=8 log=0 threads=1 mt_bg=0 normal_bg=0 memtable_mib=4 secs=1.0 warmup=1.0 rep=0 sabotage=0
+create took 0.009 s
+phase load:random: T=1 dist=random (fixed count)
+close took 0.118 s
+== load:random            T=1  ops=200000     secs=   0.25 ops/s=     784707  lat us p50=0.58 p99=2.66 p99.9=4.54 max=35898.4 mean=1.16
+   cpu=0.25s ops/cpu-s=784701 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   insert/run=0.25s drain(close)=0.12s total=0.37s drain_cpu=0.02s drain_rd=4096 drain_wr=37253120 wamp=1.136 db_apparent=237375488 db_alloc=37408768

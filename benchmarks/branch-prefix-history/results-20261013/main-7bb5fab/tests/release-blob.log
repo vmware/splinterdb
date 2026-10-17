@@ -1,0 +1,6 @@
+Running 1 CTests, suite name 'splinter', test case 'test_blob_'.
+TEST 1/4 splinter:test_blob_descriptor_sizes [OK]
+TEST 2/4 splinter:test_blob_trees [OK]
+TEST 3/4 splinter:test_blob_height_three_and_large_stats [OK]
+TEST 4/4 splinter:test_blob_checksums [OK]
+RESULTS: 4 tests (4 ok, 0 failed, 0 skipped) ran in 1232 ms
