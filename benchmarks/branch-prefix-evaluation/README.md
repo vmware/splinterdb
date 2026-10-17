@@ -16,6 +16,12 @@ that build except for a recorded brace-formatting correction in `btree.c`.
 Subsequent merge preparation adds tests, documentation and formatter handling;
 it does not change runtime code.
 
+The later [MSan follow-up](msan-fix/README.md) clears previously uninitialized
+free space during compressed-leaf construction and corrects sanitizer tracking
+for asynchronous reads. The throughput measurements below predate that fix;
+they have not been rerun with the added compressed-leaf gap clearing. The
+async-read change is compiled only for MSan builds.
+
 ## Nonlexical results
 
 Positive values mean higher throughput. Random insertion uses a separate fixed

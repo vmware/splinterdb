@@ -46,6 +46,12 @@
 #include "splinterdb_tests_private.h"
 #include "clockcache.h"
 
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+#      include <sanitizer/msan_interface.h>
+#   endif
+#endif
+
 #define TEST_LARGE_KEY_SIZE 23
 
 /* -1 for message encoding overhead */
@@ -1299,6 +1305,128 @@ prefix_test_compare(const data_config *cfg, user_key first, user_key second)
    platform_assert(slice_length(first.key) >= 48);
    platform_assert(slice_length(second.key) >= 48);
    return slice_lex_cmp(first.key, second.key);
+}
+
+typedef struct prefix_pack_test_iterator {
+   iterator super;
+   uint64   pos;
+   char     keys[64][64];
+   uint64   values[64];
+} prefix_pack_test_iterator;
+
+static void
+prefix_pack_test_curr(iterator *base, key *tuple_key, message *msg)
+{
+   prefix_pack_test_iterator *itor = (prefix_pack_test_iterator *)base;
+   *tuple_key = key_create(FALSE, sizeof(itor->keys[0]), itor->keys[itor->pos]);
+   *msg       = message_create(
+      MESSAGE_TYPE_INSERT,
+      NULL,
+      slice_create(sizeof(itor->values[0]), &itor->values[itor->pos]));
+}
+
+static bool32
+prefix_pack_test_can_step(iterator *base)
+{
+   prefix_pack_test_iterator *itor = (prefix_pack_test_iterator *)base;
+   return itor->pos < ARRAY_SIZE(itor->keys);
+}
+
+static platform_status
+prefix_pack_test_next(iterator *base)
+{
+   prefix_pack_test_iterator *itor = (prefix_pack_test_iterator *)base;
+   itor->pos++;
+   return STATUS_OK;
+}
+
+static const iterator_ops prefix_pack_test_ops = {
+   .curr     = prefix_pack_test_curr,
+   .can_prev = prefix_pack_test_can_step,
+   .can_next = prefix_pack_test_can_step,
+   .next     = prefix_pack_test_next,
+};
+
+/* Stop soon after the first uncompressed leaf fills. Compression leaves a
+ * large unused gap, which must not contain uninitialized scratch bytes when
+ * the complete page is copied or written. Pack directly from an array so the
+ * check observes the resident output before any writeback or disk reload can
+ * erase the sanitizer's initialization history. */
+CTEST2(splinterdb_quick, test_branch_prefix_pack_initializes_free_gap)
+{
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   prefix_pack_test_iterator input = {.super = {.ops = &prefix_pack_test_ops}};
+   for (uint64 i = 0; i < ARRAY_SIZE(input.keys); i++) {
+      prefix_test_key(input.keys[i], i);
+      input.values[i] = i;
+   }
+   ASSERT_TRUE(core->cfg.btree_cfg->data_cfg->key_compare_is_lexical);
+   btree_pack_req req;
+   ASSERT_TRUE(SUCCESS(btree_pack_req_init(&req,
+                                           core->cc,
+                                           core->cfg.btree_cfg,
+                                           &input.super,
+                                           ARRAY_SIZE(input.keys),
+                                           0,
+                                           FALSE,
+                                           core->heap_id)));
+   ASSERT_TRUE(SUCCESS(btree_pack(&req)));
+   btree_iterator scan;
+   ASSERT_TRUE(SUCCESS(btree_iterator_init(core->cc,
+                                           core->cfg.btree_cfg,
+                                           &scan,
+                                           req.root_addr,
+                                           BTREE_BRANCH_FORMAT_VERSION,
+                                           PAGE_TYPE_BRANCH,
+                                           greater_than_or_equal,
+                                           NEGATIVE_INFINITY_KEY,
+                                           less_than,
+                                           POSITIVE_INFINITY_KEY,
+                                           greater_than_or_equal,
+                                           NEGATIVE_INFINITY_KEY,
+                                           FALSE,
+                                           0,
+                                           0)));
+   btree_hdr *hdr = scan.curr.hdr;
+   ASSERT_EQUAL(0, hdr->height);
+   ASSERT_TRUE(hdr->prefix_length != 0);
+   ASSERT_EQUAL(ARRAY_SIZE(input.keys), hdr->num_entries);
+   char  *gap        = (char *)&hdr->offsets[hdr->num_entries];
+   uint64 gap_length = (char *)hdr + hdr->next_entry - gap;
+   ASSERT_TRUE(gap_length > 1024);
+   bool32 gap_initialized = TRUE;
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+   gap_initialized = __msan_test_shadow(gap, gap_length) == -1;
+#   endif
+#endif
+   bool32 gap_zero = gap_initialized;
+   if (gap_initialized) {
+      for (uint64 i = 0; i < gap_length; i++) {
+         gap_zero &= gap[i] == 0;
+      }
+   }
+   for (uint64 i = 0; i < ARRAY_SIZE(input.keys); i++) {
+      ASSERT_TRUE(iterator_can_curr(&scan.super));
+      key     found;
+      message msg;
+      iterator_curr(&scan.super, &found, &msg);
+      ASSERT_EQUAL(sizeof(input.keys[0]), key_length(found));
+      ASSERT_EQUAL(0,
+                   memcmp(key_data(found), input.keys[i], key_length(found)));
+      ASSERT_EQUAL(sizeof(input.values[0]), message_length(msg));
+      ASSERT_EQUAL(
+         0,
+         memcmp(message_data(msg), &input.values[i], sizeof(input.values[0])));
+      ASSERT_TRUE(SUCCESS(iterator_next(&scan.super)));
+   }
+   ASSERT_FALSE(iterator_can_curr(&scan.super));
+   btree_iterator_deinit(&scan);
+   btree_dec_ref(
+      core->cc, core->cfg.btree_cfg, req.root_addr, PAGE_TYPE_BRANCH);
+   btree_pack_req_deinit(&req, core->heap_id);
+   ASSERT_TRUE(gap_initialized, "compressed leaf copied uninitialized bytes");
+   ASSERT_TRUE(gap_zero, "compressed leaf free gap was not cleared");
 }
 
 typedef struct prefix_predicate_context {

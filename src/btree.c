@@ -5618,6 +5618,14 @@ btree_pack_compress_leaf(btree_pack_req *req, btree_hdr *hdr)
          req->cfg, packed, i, suffix, leaf_entry_message(req->cc, entry));
       platform_assert(fits);
    }
+   /* The whole page is copied back and may be written to disk. Do not copy
+    * uninitialized stack bytes from the free space between offsets and tuples.
+    * Initialize just that gap; the header, offsets and payload are already set.
+    */
+   uint64 offsets_end =
+      sizeof(*packed) + packed->num_entries * sizeof(packed->offsets[0]);
+   debug_assert(offsets_end <= packed->next_entry);
+   memset(scratch + offsets_end, 0, packed->next_entry - offsets_end);
    memcpy(hdr, scratch, btree_page_size(req->cfg));
    return TRUE;
 }
