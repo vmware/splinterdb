@@ -1,0 +1,245 @@
+{
+  "status": "passed",
+  "scope": "Local Markdown destinations in finalized README and intended delivery appendix; not a web or benchmark check",
+  "documents": {
+    "README.md": {
+      "sha256": "8d18bce5fc5a314f4c56a1c7bbb45c925d02648cc4a783bb48e46380572f92bd",
+      "words": 1855
+    },
+    "delivery-docs.md": {
+      "sha256": "00404681691b42083ac1dcd4a9198f4981aa548c8c4f540f5df61887dd2dab1b",
+      "words": 384
+    }
+  },
+  "links": [
+    {
+      "document": "README.md",
+      "link": "review/async-mask-independent-correctness-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/async-mask-contract-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/async-mask-hit-codegen-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/analysis/mask-final-hits-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "probe-results/mask-final-hits/results.csv",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "probe-results/mask-final-hits/manifest.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/mask-final-resident-evidence-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/analysis/mask-final-hot32-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "probe-results/mask-final-hot32/results.csv",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/mask-final-hot32-evidence-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/analysis/mask-final-writes-hot32-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "probe-results/mask-final-writes-hot32/results.csv",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/mask-final-writes-evidence-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "harness/controlled-writes/validation-status.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/analysis/mask-final-misses-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "probe-results/mask-final-misses/results.csv",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/mask-final-misses-evidence-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/long-scan-path-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/analysis/mask-final-quota-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/results/insert-mask-final-fixed20m/",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/analysis/insert-final-fixed20m-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/analysis/quota-fixed-shared-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/analysis/mask-final-resident-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "database/results/resident-mask-final-single/manifest.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "async-load-report.md",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "validation-async-mask/validation.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "validation-async-mask/validate.py",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "delivery-source-check.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "jobs/target-mask-format/run.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/mask-churn-audited.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "mask-churn-validation.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/build-configs/async-mask-manifest.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "harness/controlled-final/cache_api_probe.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "harness/controlled-final/README.md",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/isolated-miss-review.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "async-mask-source.json",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "README.md",
+      "link": "review/async-mask-vs-original.patch",
+      "exists": true,
+      "check": "existing local file or directory"
+    },
+    {
+      "document": "delivery-docs.md",
+      "link": "../benchmarks/results-20261017/cache-invalid-addresses-performance/README.md",
+      "exists": true,
+      "check": "appendix target layout resolves to packaged campaign README"
+    }
+  ],
+  "pending_markers": false
+}

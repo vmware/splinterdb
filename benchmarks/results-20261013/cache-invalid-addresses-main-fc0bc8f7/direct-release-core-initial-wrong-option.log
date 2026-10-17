@@ -1,0 +1,4 @@
+Starting cache-invalid-addresses-fc0-direct-release-core test
+Running 1 CTests, suite name 'splinter', test case 'test_cache_read_errors_reach_core_operations'.
+TEST 1/1 splinter:test_cache_read_errors_reach_core_operations config: invalid option: --test
+OS-pid=899, OS-tid=899, Thread-ID=0, Assertion failed at tests/config.c:290:config_parse_use_shmem(): "SUCCESS(rc)". Failed to parse config arguments.

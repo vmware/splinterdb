@@ -1,0 +1,6 @@
+{
+  "jobs/initial-blocking-1-05-main-interrupted/output.log": "Restart partial; no run.json and exact endpoint unknown.",
+  "jobs/build-async-mask/output.log": "Launcher argument parsing failed before any compiler or workload was created.",
+  "database/results/insert-final-fixed20m/manifest.json": "Canceled while queued; no workload launched because precondition record cap could be exhausted.",
+  "database/results/insert-fixed20m/manifest.json": "Parser rejected the successful excluded precondition; no measured samples; separate retry retained."
+}

@@ -1,0 +1,25 @@
+{
+  "name": "dispatch-counters-async-1-01-original",
+  "command": [
+    "taskset",
+    "-c",
+    "2",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/harness/counters/cache_api_probe",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/dispatch-counters-async-1-01-original/cache.db",
+    "64",
+    "1",
+    "3",
+    "both",
+    "async"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/dispatch-counters-async-1-01-original",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/original/release/lib"
+  },
+  "queued": 1792223051.9732516,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792223051.973263,
+  "returncode": 0,
+  "finished": 1792223060.413554,
+  "log_sha256": "305d5976915805a4a37122e25448ac53df4eead92b445e88a582f5321d834844"
+}

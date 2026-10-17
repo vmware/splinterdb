@@ -1,0 +1,16 @@
+{
+  "name": "build-database-drivers",
+  "command": [
+    "/usr/bin/python3",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/prepare.py",
+    "--build"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017",
+  "environment_overrides": null,
+  "queued": 1792222028.896861,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792222036.9923198,
+  "returncode": 0,
+  "finished": 1792222037.9090853,
+  "log_sha256": "e842400c1ab1115ada976c1499644af81df378711c39027b2f0dfc739e165008"
+}

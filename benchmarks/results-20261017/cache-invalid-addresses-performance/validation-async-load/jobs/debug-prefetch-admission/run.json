@@ -1,0 +1,23 @@
+{
+  "name": "debug-prefetch-admission",
+  "command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/debug/bin/driver_test",
+    "cache_test",
+    "--prefetch-admission",
+    "--cache-capacity-mib",
+    "64",
+    "--db-capacity-gib",
+    "2"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/validation-async-load/debug-prefetch-admission",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/debug/lib",
+    "MSAN_OPTIONS": "halt_on_error=1:exit_code=86"
+  },
+  "queued": 1792224512.5135403,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792224512.513554,
+  "returncode": 0,
+  "finished": 1792224512.6284206,
+  "log_sha256": "48410fad8ce3981a3456f87cb964f901d71c4f8f36f5dc6204769b7f506af8ee"
+}

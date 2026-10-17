@@ -1,0 +1,39 @@
+{
+  "reviewer": "invalid_codegen",
+  "scope": "Read-only contract audit of using already validated cache geometry for allocator membership. No source edits, build, or workloads.",
+  "profile": "async-mask",
+  "clockcache_sha256": "7f370079f60ccb1b86744a209c20dd09d0b729d512bdf3e022e04b51d23a777a",
+  "conclusion": "A cache-local miss membership helper can avoid the repeated get_config and page alignment check after geometry equality is established at cache initialization. The existing initializer does not state/enforce this equality, so a blind substitution is not justified for arbitrary allocator implementations. Checked allocator get_refcount must remain unless a new allocator-owned API explicitly validates its inputs.",
+  "facts": [
+    {
+      "source": "src/splinterdb.c:360,398,639; tests/functional/test.h:281-289",
+      "fact": "Production and standard test configuration pass the same I/O configuration to allocator and clockcache. This is call-site evidence, not an asserted clockcache_init contract."
+    },
+    {
+      "source": "src/clockcache.c:4381-4413,4447; src/platform_linux/platform_buffer.c:61",
+      "fact": "Lookup is allocated for floor(allocator_get_capacity(al)/cache_page_size) entries and buffer length records the exact requested length. Clockcache init does not compare allocator config page/extent size against cache config. cc->cfg->capacity is RAM cache capacity, not allocator disk capacity."
+    },
+    {
+      "source": "src/allocator.h:81-89,175-202,235-238,318-322,348-384",
+      "fact": "Allocator exposes separate virtual get_config/get_capacity/get_ref operations. allocator_page_valid checks config page alignment, extent base using config extent_mask, nonzero extent base, address below config capacity, then get_refcount != 0. These are not automatically proved by a generic cache lookup unless matching geometry/capacity is established."
+    },
+    {
+      "source": "src/rc_allocator.c:63-102,569-576,587-589,612-615",
+      "fact": "Current rc_allocator returns the same config/capacity and get_ref independently checks live map, base alignment, capacity and extent index before relaxed atomic refcount read. A cache-local shortcut still pays these backend checks/division."
+    },
+    {
+      "source": "src/allocator.h:19-20; src/cache.h:379-382; src/clockcache.c:2458-2464",
+      "fact": "AL_NO_REFS=1 remains allocated; AL_FREE=0 is invalid. Reject all pages in extent 0, including aligned nonzero addresses; reserved refcount-map extents outside extent 0 are not categorically rejected. Caller must maintain allocation throughout get and handle lifetime; checking refcount is a snapshot, not a pin."
+    },
+    {
+      "source": "src/clockcache.c:3476-3496",
+      "fact": "If a helper replaces prefetch validation, validate both endpoints as before, including straddling two extents and overflow. Do not remove first/last allocator membership checks."
+    }
+  ],
+  "principled_options": [
+    "Establish immutable geometry at clockcache_init: compare allocator config page/extent values, extent_mask and get_capacity/config capacity; then already checked cache addresses can use a cache-local extent base calculation, extent-zero rejection and allocator_get_refcount != 0. Retain diagnostics on failure.",
+    "Alternatively, an allocator-owned page validity API can take over all geometry and membership work in one dispatch, without exposing unchecked refcount-array access to cache. Its checked contract should return false rather than assert for malformed public input.",
+    "Caching allocator_config solely to avoid get_config requires documenting its immutable lifetime; it does not itself justify omitting geometry checks or get_ref backend validation."
+  ],
+  "non_goals": "No performance claim; no proposed variant implemented. Do not introduce this extra change merely because the mask candidate is being tested."
+}

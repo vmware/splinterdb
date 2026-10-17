@@ -1,0 +1,161 @@
+{
+  "scope": "Static review plus analysis of existing root-run data; no new build/benchmark or production edits",
+  "counter_summary": [
+    {
+      "api": "blocking",
+      "mode": "independent",
+      "profile": "main",
+      "samples": 2,
+      "ops_s_mean": 17281291.9,
+      "cycles_per_op": 239.27801003669646,
+      "instructions_per_op": 269.4189750246145,
+      "branches_per_op": 54.12210017500626,
+      "branch_misses_per_op": 0.01698509737759331
+    },
+    {
+      "api": "blocking",
+      "mode": "dependent",
+      "profile": "main",
+      "samples": 2,
+      "ops_s_mean": 9650495.8,
+      "cycles_per_op": 439.80048474001813,
+      "instructions_per_op": 250.4346244163149,
+      "branches_per_op": 55.12212426447137,
+      "branch_misses_per_op": 0.016747194408882983
+    },
+    {
+      "api": "blocking",
+      "mode": "independent",
+      "profile": "original",
+      "samples": 2,
+      "ops_s_mean": 17209003.3,
+      "cycles_per_op": 237.74711772861684,
+      "instructions_per_op": 273.4189747604622,
+      "branches_per_op": 53.1220995174228,
+      "branch_misses_per_op": 0.01688073600894925
+    },
+    {
+      "api": "blocking",
+      "mode": "dependent",
+      "profile": "original",
+      "samples": 2,
+      "ops_s_mean": 9578321.8,
+      "cycles_per_op": 439.73236862094507,
+      "instructions_per_op": 254.43462570144413,
+      "branches_per_op": 54.122125092055086,
+      "branch_misses_per_op": 0.017001781443980686
+    },
+    {
+      "api": "blocking",
+      "mode": "independent",
+      "profile": "isolated-miss",
+      "samples": 2,
+      "ops_s_mean": 17209569.6,
+      "cycles_per_op": 238.57251579065962,
+      "instructions_per_op": 272.4189741073084,
+      "branches_per_op": 54.122098327009496,
+      "branch_misses_per_op": 0.016903551460674706
+    },
+    {
+      "api": "blocking",
+      "mode": "dependent",
+      "profile": "isolated-miss",
+      "samples": 2,
+      "ops_s_mean": 9832919.5,
+      "cycles_per_op": 431.0880406640571,
+      "instructions_per_op": 253.43462340933496,
+      "branches_per_op": 55.1221235115475,
+      "branch_misses_per_op": 0.016816353107825907
+    },
+    {
+      "api": "async",
+      "mode": "independent",
+      "profile": "main",
+      "samples": 2,
+      "ops_s_mean": 15846415.350000001,
+      "cycles_per_op": 247.4826527582607,
+      "instructions_per_op": 361.4199548273531,
+      "branches_per_op": 72.10745418363038,
+      "branch_misses_per_op": 0.016666208856751828
+    },
+    {
+      "api": "async",
+      "mode": "dependent",
+      "profile": "main",
+      "samples": 2,
+      "ops_s_mean": 9926873.25,
+      "cycles_per_op": 418.85211011058743,
+      "instructions_per_op": 343.43559898873264,
+      "branches_per_op": 73.09184803294372,
+      "branch_misses_per_op": 0.01664069579155251
+    },
+    {
+      "api": "async",
+      "mode": "independent",
+      "profile": "original",
+      "samples": 2,
+      "ops_s_mean": 15771849.2,
+      "cycles_per_op": 249.79063745364647,
+      "instructions_per_op": 369.41995361215913,
+      "branches_per_op": 72.10745329500661,
+      "branch_misses_per_op": 0.01676929618268199
+    },
+    {
+      "api": "async",
+      "mode": "dependent",
+      "profile": "original",
+      "samples": 2,
+      "ops_s_mean": 10189546.75,
+      "cycles_per_op": 408.4365896438296,
+      "instructions_per_op": 351.4355985698778,
+      "branches_per_op": 73.0918477789372,
+      "branch_misses_per_op": 0.016674505925068216
+    },
+    {
+      "api": "async",
+      "mode": "independent",
+      "profile": "isolated-miss",
+      "samples": 2,
+      "ops_s_mean": 15778612.45,
+      "cycles_per_op": 248.04632528638348,
+      "instructions_per_op": 365.419954335182,
+      "branches_per_op": 72.10745366271507,
+      "branch_misses_per_op": 0.016730044485019933
+    },
+    {
+      "api": "async",
+      "mode": "dependent",
+      "profile": "isolated-miss",
+      "samples": 2,
+      "ops_s_mean": 10159133.75,
+      "cycles_per_op": 409.75931657454055,
+      "instructions_per_op": 347.43559710862036,
+      "branches_per_op": 73.09184704713698,
+      "branch_misses_per_op": 0.017024787858616337
+    }
+  ],
+  "findings": [
+    "Original adds exactly 4 retired instructions per synchronous hit and 8 per async hit against main with identical driver. Branch miss rate remains approximately 0.0167 per operation across versions.",
+    "Isolated-miss removes one sync instruction and four async instructions per operation versus original. It is not a complete removal of the added hot-path instruction count.",
+    "Async outer coroutine in isolated-miss saves rbp/rbx and allocates 8 bytes versus original r13/r12/rbp/rbx plus 8 bytes. Main saves only rbx; the remaining rbp save in isolated-miss supports the inlined error logger.",
+    "Isolating the sync miss helper introduces pointer escape for handle and rc, forcing a handle stack store/reload and an rc test on normal hits. Smaller function size alone is not sufficient justification to retain this change.",
+    "The initial 8-thread async comparison has only two 3-second samples per profile and permits migrations across CPUs 0-11 (six physical P cores, two siblings each). Work placement and refcount stripe identity are uncontrolled, so a 2-3 percent difference cannot yet be assigned to branch code.",
+    "No new allocator lookup, shared atomic operation, refcount width, entry metadata or status protocol is present on the resident-hit path. No source evidence supports a concurrency-protocol explanation of an 8-thread-only loss.",
+    "Nonblocking misses do add membership checks relative to main, as required to distinguish invalid addresses from valid BUSY misses. Compare this semantic cost explicitly rather than removing checks for benchmark parity.",
+    "Blocking and async admission still execute one membership validation each. Moving the async check into the disk child does not cross a suspension point before admission and preserves revalidation on admission-race retries."
+  ],
+  "recommended_next_evidence": [
+    "Repeat 8-thread resident probes using fixed per-worker CPU assignments, identical mapping for every variant. A six-worker one-per-P-core control can separate SMT sensitivity.",
+    "Retain retired-instruction and branch-miss counters; do not infer misprediction or allocator costs from throughput alone.",
+    "Measure valid misses separately, with realistic blocking/async I/O and nonblocking BUSY as a semantic comparison. No extra source variant is justified by current evidence.",
+    "Adopt a source change only if controlled application/cache measurements establish an actual improvement; neutral counters do not require landing an optimization."
+  ],
+  "minimal_validation_if_isolated_miss_lands": [
+    "Full writeback_set unit suite in debug and release (18 current cases). Covers invalid shapes, zero/reserved/unallocated/freed addresses, blocking/nonblocking/asynchronous/prefetch errors, empty handles, no rejected I/O, successful retries, async setup failures, failed-load waiters, prefetch failures, and cross-thread handles.",
+    "Debug deterministic cache_test --prefetch-admission. Covers stale candidate references and duplicate publication without relying on long stress progress.",
+    "Focused splinter:test_cache_read_errors_reach_core_operations in debug and release to confirm error propagation through consumers.",
+    "Public quick suite in release for representative reads/inserts/scans; run writeback_set under one available sanitizer for async-state placement coverage.",
+    "No new test is required merely to mirror the refactoring: existing tests directly cover the changed invalid-child completion and retry behavior.",
+    "If the full --async functional stress is run, use a bounded timeout and keep diagnostics for the already documented inherited cache-capacity progress stall. Do not silently treat a stall as an optimization test pass."
+  ]
+}

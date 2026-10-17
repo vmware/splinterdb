@@ -1,0 +1,22 @@
+kvbench version=main splinter=splinterdb_build_version 7bb5fab3 db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/repeat-cache-invalid-addresses/scratch.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=10.0 warmup=1.0 rep=0 sabotage=0
+open took 0.008 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.03 ops/s=    7671510  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.07s ops/cpu-s=2837000 rd=138.4 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@1: T=1 dist=uniform (fixed duration)
+  [point:uniform@1] progress 13521072 ops (+1352001 ops/s)
+   found=12373220 notfound=0
+== point:uniform@1        T=1  ops=12373220   secs=  10.00 ops/s=    1237298  lat us p50=0.76 p99=1.10 p99.9=4.93 max=64.9 mean=0.79
+   cpu=10.00s ops/cpu-s=1237324 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+  [point:uniform@8] progress 62522303 ops (+4899787 ops/s)
+   found=62074622 notfound=0
+== point:uniform@8        T=8  ops=62074622   secs=  10.00 ops/s=    6207308  lat us p50=1.23 p99=1.78 p99.9=2.34 max=109.6 mean=1.25
+   cpu=79.99s ops/cpu-s=776053 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 4972203 ops (+1844547616666670592 ops/s)
+close took 0.107 s
+== range:uniform:1@8      T=8  ops=5466627    secs=  10.00 ops/s=     546650  lat us p50=13.70 p99=19.71 p99.9=29.44 max=261.6 mean=14.59
+   cpu=79.98s ops/cpu-s=68346 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=13.18 p99=18.69 mean=13.96  per-tuple=nan ns  deinit mean=0.59 us  tuples/s=546650
+   insert/run=10.00s drain(close)=0.11s total=10.11s drain_cpu=0.01s drain_rd=0 drain_wr=311296 wamp=nan db_apparent=162664448 db_alloc=28655616

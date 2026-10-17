@@ -1,0 +1,55 @@
+{
+  "campaign_original_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017",
+  "copied_file_count": 2527,
+  "exclusions": [
+    "database files",
+    "build directories and compiled libraries",
+    "executables and objects",
+    "temporary directories",
+    "__pycache__",
+    "scratch directories",
+    "full source exports"
+  ],
+  "finite_leaf_overlaps": 0,
+  "inventory_note": "SHA256SUMS covers all archived files except itself; its own digest is printed by this packaging command.",
+  "known_harness_issues": "audit/known-harness-issues.json",
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "missing_run_records": 2,
+  "package_command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/package.py",
+    "--selected-profile",
+    "async-mask",
+    "--output",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/archive",
+    "--intentional-partial",
+    "jobs/initial-blocking-1-05-main-interrupted/output.log=Restart partial; no run.json and exact endpoint unknown.",
+    "--intentional-partial",
+    "jobs/build-async-mask/output.log=Launcher argument parsing failed before any compiler or workload was created.",
+    "--intentional-partial",
+    "database/results/insert-final-fixed20m/manifest.json=Canceled while queued; no workload launched because precondition record cap could be exhausted.",
+    "--intentional-partial",
+    "database/results/insert-fixed20m/manifest.json=Parser rejected the successful excluded precondition; no measured samples; separate retry retained."
+  ],
+  "packaged_at_unix": 1792231333.3256917,
+  "performance_claims_generated": false,
+  "post_package_adjustments": [
+    {
+      "changed_files": [
+        ".gitattributes",
+        "package.py",
+        "package-manifest.json",
+        "SHA256SUMS"
+      ],
+      "previous_checksum_inventory_sha256": "cc73c909613ca7628cd10aff85e69fc7f125a7606de303ff6032f96705f244ae",
+      "reason": "Treat standard CSV CRLF line endings as valid while preserving exact raw bytes and retaining other whitespace checks. No benchmark data or production source changes.",
+      "time": 1792231432.865453
+    }
+  ],
+  "profile_count": 13,
+  "profiles": "provenance/profiles.json",
+  "raw_commands_rewritten": false,
+  "reconstruction": "setup_sources.py",
+  "selected_profile": "async-mask",
+  "unknown_finish_records": 0,
+  "workload_audit": "audit/workload-intervals.json"
+}

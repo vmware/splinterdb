@@ -1,0 +1,3 @@
+Starting invalid-address-validation-release-build build
+Building build-release
+{"name": "build-release", "command": ["make", "-j4", "BUILD_MODE=release", "build/release/bin/unit/writeback_set_test", "build/release/bin/unit/splinterdb_quick_test", "build/release/bin/unit/splinter_test"], "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses", "started": 1791876637.4629016, "returncode": 0, "finished": 1791876647.0033953}

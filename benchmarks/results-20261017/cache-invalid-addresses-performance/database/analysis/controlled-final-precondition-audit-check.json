@@ -1,0 +1,464 @@
+{
+  "validation": {
+    "complete": false,
+    "expected_rows": 18,
+    "observed_rows": 9,
+    "missing_jobs": [
+      "controlled-misses-b01-nonblocking-1-miss-s03-main",
+      "controlled-misses-b01-nonblocking-1-miss-s04-candidate",
+      "controlled-misses-b01-nonblocking-1-miss-s05-original",
+      "controlled-misses-b02-nonblocking-1-miss-s00-candidate",
+      "controlled-misses-b02-nonblocking-1-miss-s01-main",
+      "controlled-misses-b02-nonblocking-1-miss-s02-original",
+      "controlled-misses-b02-nonblocking-1-miss-s03-original",
+      "controlled-misses-b02-nonblocking-1-miss-s04-main",
+      "controlled-misses-b02-nonblocking-1-miss-s05-candidate"
+    ],
+    "manifest_sha256": "219a29f79de02320be897ba813d8c0b782e3a79093f72ba313ccef517135c9b4",
+    "results_sha256": "71ac3955c7a2015021ef6b3fc9a443bdb1fbef746ff196812fd87d41f998d1f9",
+    "driver_build_sha256": "53c7c2ba492635eb955c1f7e7dd095a25f18b2d8e31c55cf41cc2881d790b1a4",
+    "driver_sha256": "44e670cb89560c5f226633b6486da992d9cd4c8581806df5a701a3a7a3f38349",
+    "runner_sha256": "b4ee56784a4410be110a116719777050bc7024a70afea69cdbe57eefe34f2c09",
+    "libraries": {
+      "main": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6",
+      "original": "e0c680239539a36a9a9f927888963508c39992c7366250a3a2c7c8b8224ad3e2",
+      "candidate": "77aef3f90d765108d96edf0edc441a742b952f061530494a23ad967bf617f9cd"
+    },
+    "all_present_raw_logs_and_job_records_verified": true,
+    "scenario_order_verified": true,
+    "excluded_precondition_runs": [
+      {
+        "name": "controlled-misses-precondition-s00-nonblocking-1-miss-r00-main",
+        "scenario_index": 0,
+        "scenario": {
+          "api": "nonblocking",
+          "threads": 1,
+          "mode": "miss"
+        },
+        "profile": "main",
+        "warmup_seconds": 30,
+        "measured_seconds": 1.000068146,
+        "excluded_from_results": true,
+        "log_sha256": "b5eb39a5e56d0e3d37d7d0539e2e9d89a5120ed084db68413cd431b2ecde5739"
+      }
+    ],
+    "sample_exclusions": 0,
+    "thermal_flagged_samples": 9
+  },
+  "arguments": {
+    "label": "controlled-misses",
+    "profiles": [
+      "main",
+      "original",
+      "candidate"
+    ],
+    "apis": [
+      "nonblocking"
+    ],
+    "threads": [
+      1
+    ],
+    "modes": [
+      "miss"
+    ],
+    "blocks": 3,
+    "seconds": 4,
+    "warmup": 2,
+    "cache_mib": 64,
+    "control_cpu": 12,
+    "cpus_1": "2",
+    "cpus_6": "0,2,4,6,8,10",
+    "cpus_8": "0,2,4,6,8,10,1,3",
+    "perf": "single",
+    "precondition_warmup": 30,
+    "precondition_seconds": 1,
+    "precondition_profile": "main"
+  },
+  "summaries": [
+    {
+      "api": "nonblocking",
+      "threads": 1,
+      "mode": "miss",
+      "profile": "main",
+      "samples": 3,
+      "means": {
+        "ops_s": 120070554.36666667,
+        "worker_cpu_ns_op": 8.327780266141692,
+        "cycles_op": 30.05666340829221,
+        "instructions_op": 93.21875474492136,
+        "branches_op": 13.078129684541146,
+        "branch_misses_op": 0.015627494774783767,
+        "user_cycles_per_worker_cpu_ns_proxy": 3.6092045869020537
+      }
+    },
+    {
+      "api": "nonblocking",
+      "threads": 1,
+      "mode": "miss",
+      "profile": "original",
+      "samples": 3,
+      "means": {
+        "ops_s": 71109237.96666667,
+        "worker_cpu_ns_op": 14.062219283217994,
+        "cycles_op": 50.345606355912594,
+        "instructions_op": 152.2187580166807,
+        "branches_op": 32.07813291472181,
+        "branch_misses_op": 0.015629443165275453,
+        "user_cycles_per_worker_cpu_ns_proxy": 3.5803519796757635
+      }
+    },
+    {
+      "api": "nonblocking",
+      "threads": 1,
+      "mode": "miss",
+      "profile": "candidate",
+      "samples": 3,
+      "means": {
+        "ops_s": 68735244.8,
+        "worker_cpu_ns_op": 14.548199685643064,
+        "cycles_op": 50.77575529268296,
+        "instructions_op": 173.21875822902243,
+        "branches_op": 35.07813312354329,
+        "branch_misses_op": 0.015667611383806183,
+        "user_cycles_per_worker_cpu_ns_proxy": 3.490312166550471
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "api": "nonblocking",
+      "threads": 1,
+      "mode": "miss",
+      "profile": "original",
+      "baseline": "main",
+      "paired_blocks": [
+        {
+          "block": 0,
+          "candidate_mean": {
+            "ops_s": 70766063.45,
+            "worker_cpu_ns_op": 14.129591460697686,
+            "cycles_op": 50.37859727588536,
+            "instructions_op": 152.21875812512405,
+            "branches_op": 32.07813302267546,
+            "branch_misses_op": 0.0156305087070173,
+            "user_cycles_per_worker_cpu_ns_proxy": 3.565476272240417
+          },
+          "baseline_mean": {
+            "ops_s": 120160924.8,
+            "worker_cpu_ns_op": 8.321639488247062,
+            "cycles_op": 30.028628405240696,
+            "instructions_op": 93.2187548288625,
+            "branches_op": 13.07812976852776,
+            "branch_misses_op": 0.015627076078256065,
+            "user_cycles_per_worker_cpu_ns_proxy": 3.608500513485927
+          },
+          "ratios": {
+            "ops_s": 0.5889274201890963,
+            "worker_cpu_ns_op": 1.6979336200100226,
+            "cycles_op": 1.6776855937613562,
+            "instructions_op": 1.632919881890483,
+            "branches_op": 2.45280736545915,
+            "branch_misses_op": 1.0002196590548382,
+            "user_cycles_per_worker_cpu_ns_proxy": 0.9880769751633076
+          },
+          "thermal_flagged": true
+        }
+      ],
+      "estimates": {
+        "branch_misses_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.021965905483822823,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.021965905483822823
+          ]
+        },
+        "branches_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 145.280736545915,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            145.280736545915
+          ]
+        },
+        "cycles_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 67.76855937613561,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            67.76855937613561
+          ]
+        },
+        "instructions_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 63.29198818904831,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            63.29198818904831
+          ]
+        },
+        "ops_s": {
+          "blocks": 1,
+          "geometric_delta_pct": -41.10725798109037,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -41.10725798109037
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 1,
+          "geometric_delta_pct": -1.1923024836692386,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -1.1923024836692386
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 69.79336200100225,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            69.79336200100225
+          ]
+        }
+      }
+    },
+    {
+      "api": "nonblocking",
+      "threads": 1,
+      "mode": "miss",
+      "profile": "candidate",
+      "baseline": "main",
+      "paired_blocks": [
+        {
+          "block": 0,
+          "candidate_mean": {
+            "ops_s": 68397911.0,
+            "worker_cpu_ns_op": 14.61911274307105,
+            "cycles_op": 50.81830350634377,
+            "instructions_op": 173.21875831503013,
+            "branches_op": 35.078133209036146,
+            "branch_misses_op": 0.01564727419948357,
+            "user_cycles_per_worker_cpu_ns_proxy": 3.476154616304823
+          },
+          "baseline_mean": {
+            "ops_s": 120160924.8,
+            "worker_cpu_ns_op": 8.321639488247062,
+            "cycles_op": 30.028628405240696,
+            "instructions_op": 93.2187548288625,
+            "branches_op": 13.07812976852776,
+            "branch_misses_op": 0.015627076078256065,
+            "user_cycles_per_worker_cpu_ns_proxy": 3.608500513485927
+          },
+          "ratios": {
+            "ops_s": 0.5692192458891595,
+            "worker_cpu_ns_op": 1.7567587208888495,
+            "cycles_op": 1.692328494679923,
+            "instructions_op": 1.858196439472263,
+            "branches_op": 2.68219797707245,
+            "branch_misses_op": 1.001292508024301,
+            "user_cycles_per_worker_cpu_ns_proxy": 0.9633238524737652
+          },
+          "thermal_flagged": true
+        }
+      ],
+      "estimates": {
+        "branch_misses_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.12925080243009202,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.12925080243009202
+          ]
+        },
+        "branches_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 168.219797707245,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            168.219797707245
+          ]
+        },
+        "cycles_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 69.23284946799231,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            69.23284946799231
+          ]
+        },
+        "instructions_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 85.8196439472263,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            85.8196439472263
+          ]
+        },
+        "ops_s": {
+          "blocks": 1,
+          "geometric_delta_pct": -43.07807541108405,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -43.07807541108405
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 1,
+          "geometric_delta_pct": -3.6676147526234826,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -3.6676147526234826
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 75.67587208888496,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            75.67587208888496
+          ]
+        }
+      }
+    },
+    {
+      "api": "nonblocking",
+      "threads": 1,
+      "mode": "miss",
+      "profile": "candidate",
+      "baseline": "original",
+      "paired_blocks": [
+        {
+          "block": 0,
+          "candidate_mean": {
+            "ops_s": 68397911.0,
+            "worker_cpu_ns_op": 14.61911274307105,
+            "cycles_op": 50.81830350634377,
+            "instructions_op": 173.21875831503013,
+            "branches_op": 35.078133209036146,
+            "branch_misses_op": 0.01564727419948357,
+            "user_cycles_per_worker_cpu_ns_proxy": 3.476154616304823
+          },
+          "baseline_mean": {
+            "ops_s": 70766063.45,
+            "worker_cpu_ns_op": 14.129591460697686,
+            "cycles_op": 50.37859727588536,
+            "instructions_op": 152.21875812512405,
+            "branches_op": 32.07813302267546,
+            "branch_misses_op": 0.0156305087070173,
+            "user_cycles_per_worker_cpu_ns_proxy": 3.565476272240417
+          },
+          "ratios": {
+            "ops_s": 0.9665354785253354,
+            "worker_cpu_ns_op": 1.0346451122620917,
+            "cycles_op": 1.0087280363931228,
+            "instructions_op": 1.1379593451461747,
+            "branches_op": 1.0935216580166944,
+            "branch_misses_op": 1.0010726133602257,
+            "user_cycles_per_worker_cpu_ns_proxy": 0.9749481838847106
+          },
+          "thermal_flagged": true
+        }
+      ],
+      "estimates": {
+        "branch_misses_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.10726133602256827,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.10726133602256827
+          ]
+        },
+        "branches_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 9.352165801669443,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            9.352165801669443
+          ]
+        },
+        "cycles_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.8728036393122807,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.8728036393122807
+          ]
+        },
+        "instructions_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 13.79593451461747,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            13.79593451461747
+          ]
+        },
+        "ops_s": {
+          "blocks": 1,
+          "geometric_delta_pct": -3.346452147466461,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -3.346452147466461
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 1,
+          "geometric_delta_pct": -2.5051816115289394,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -2.5051816115289394
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 3.464511226209166,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            3.464511226209166
+          ]
+        }
+      }
+    }
+  ],
+  "metric_direction": {
+    "ops_s": "higher is better",
+    "worker_cpu_ns_op": "lower is better",
+    "cycles_op": "lower is better",
+    "instructions_op": "lower is better",
+    "branches_op": "descriptive only",
+    "branch_misses_op": "descriptive only",
+    "user_cycles_per_worker_cpu_ns_proxy": "diagnostic only; no normalization"
+  },
+  "uncertainty_method": "Arithmetic mirror-pair means within each block; geometric mean and two-sided Student-t interval of block log ratios. Blocks, not individual adjacent runs, are the replication units.",
+  "limitations": [
+    "Few blocks give imprecise intervals; normal-log-ratio and independent-block assumptions may be imperfect under thermal carryover.",
+    "Intervals are pointwise, not adjusted for multiple scenarios/candidates.",
+    "No samples are silently excluded, including flagged thermal events; inspect all block ratios.",
+    "The user-cycle/thread-CPU-time proxy is not calibrated CPU frequency and is not used to normalize throughput.",
+    "Zero I/O and error checks apply to these cache probe cases; results are not database steady-state or durability benchmarks.",
+    "For degrees of freedom above 30, the t cutoff is conservatively held at 2.042."
+  ],
+  "campaign": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/probe-results/controlled-misses",
+  "report_script_sha256": "18bcad3231f3173abe80f259fa2063254d6b2cb67bcbd977370580eaef8d925a"
+}

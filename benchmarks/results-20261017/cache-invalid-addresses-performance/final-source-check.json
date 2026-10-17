@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "checked_at": 1792231189.4517071,
+  "selected_profile": "async-mask",
+  "checked_source_files": 172,
+  "selected_clockcache_sha256": "7f370079f60ccb1b86744a209c20dd09d0b729d512bdf3e022e04b51d23a777a",
+  "release_library_sha256": "c7b04dabd8a600500ead9095a04e0a572baf904e256f077043c7191abdd8d228",
+  "target_head_before_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+  "reports_sha256": {
+    "mask-final-hits-audited.json": "59327537ec2f67042d7bdf30bb28163a8e19fbc7f340e61cbe474cf114a31fb4",
+    "mask-final-hot32-audited.json": "8c44766264c346a63a5b38ff9e54f5eed514742f74b92b08951b75dce6e4c9f5",
+    "mask-final-misses-audited.json": "ef49f29d9686ff1c5a6014e66af384e08b20eab09c4f78aab3f8da97c4d8d5f3",
+    "mask-final-quota-audited.json": "ff59c88a9d6a14c203f1b59be99d11c493ca5deaff8c6aa7a9180334e2f863be",
+    "mask-final-resident-audited.json": "a0665765463cf5a5bc09734d89f9f6c73d72773d517b633e69d899daf91d1ec7",
+    "mask-final-writes-hot32-audited.json": "a62d30f44b2df18ecde6c74176a0e7d0c97d29b2945e1fc2db9b66a45db095dd"
+  },
+  "machine_lock_was_free": true,
+  "git_whitespace_check_passed": true
+}

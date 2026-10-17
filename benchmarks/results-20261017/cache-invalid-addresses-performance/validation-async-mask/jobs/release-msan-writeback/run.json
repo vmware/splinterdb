@@ -1,0 +1,17 @@
+{
+  "name": "release-msan-writeback",
+  "command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/release-msan/bin/unit/writeback_set_test"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/validation-async-mask/release-msan-writeback",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/release-msan/lib",
+    "MSAN_OPTIONS": "halt_on_error=1:exit_code=86"
+  },
+  "queued": 1792227877.1572282,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792227877.1572344,
+  "returncode": 0,
+  "finished": 1792227879.1786134,
+  "log_sha256": "ba4861c0252211de8b6c172f7901b99fa0ef908248b1a9476fd12b3a41e373bc"
+}

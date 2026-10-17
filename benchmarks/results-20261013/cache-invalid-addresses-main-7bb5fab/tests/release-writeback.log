@@ -1,0 +1,209 @@
+Running 1 CTests, suite name 'writeback_set', test case 'all'.
+TEST 1/18 writeback_set:test_rejected_extent_submissions clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+writeback_set_wait: writeback of addr 1179648 failed
+[OK]
+TEST 2/18 writeback_set:test_rejected_cleaner_submission clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_write_callback: async write failed: Input/output error
+clockcache_writeback_dirty: writeback of addr 1179648 failed
+clockcache_writeback_dirty: writeback of addr 1183744 failed
+clockcache_writeback_dirty: writeback of addr 1187840 failed
+clockcache_writeback_dirty: writeback of addr 1191936 failed
+clockcache_writeback_dirty: writeback of addr 1196032 failed
+clockcache_writeback_dirty: writeback of addr 1200128 failed
+clockcache_writeback_dirty: writeback of addr 1204224 failed
+clockcache_writeback_dirty: writeback of addr 1208320 failed
+clockcache_writeback_dirty: writeback of addr 1212416 failed
+clockcache_writeback_dirty: writeback of addr 1216512 failed
+clockcache_writeback_dirty: writeback of addr 1220608 failed
+clockcache_writeback_dirty: writeback of addr 1224704 failed
+clockcache_writeback_dirty: writeback of addr 1228800 failed
+clockcache_writeback_dirty: writeback of addr 1232896 failed
+clockcache_writeback_dirty: writeback of addr 1236992 failed
+clockcache_writeback_dirty: writeback of addr 1241088 failed
+clockcache_writeback_dirty: writeback of addr 1245184 failed
+clockcache_writeback_dirty: writeback of addr 1249280 failed
+clockcache_writeback_dirty: writeback of addr 1253376 failed
+clockcache_writeback_dirty: writeback of addr 1257472 failed
+clockcache_writeback_dirty: writeback of addr 1261568 failed
+clockcache_writeback_dirty: writeback of addr 1265664 failed
+clockcache_writeback_dirty: writeback of addr 1269760 failed
+clockcache_writeback_dirty: writeback of addr 1273856 failed
+clockcache_writeback_dirty: writeback of addr 1277952 failed
+clockcache_writeback_dirty: writeback of addr 1282048 failed
+clockcache_writeback_dirty: writeback of addr 1286144 failed
+clockcache_writeback_dirty: writeback of addr 1290240 failed
+clockcache_writeback_dirty: writeback of addr 1294336 failed
+clockcache_writeback_dirty: writeback of addr 1298432 failed
+clockcache_writeback_dirty: writeback of addr 1302528 failed
+clockcache_writeback_dirty: writeback of addr 1306624 failed
+[OK]
+TEST 3/18 writeback_set:test_wait_makes_pages_clean [OK]
+TEST 4/18 writeback_set:test_add_extent [OK]
+TEST 5/18 writeback_set:test_empty_set [OK]
+TEST 6/18 writeback_set:test_add_clean_page [OK]
+TEST 7/18 writeback_set:test_repeated_rounds [OK]
+TEST 8/18 writeback_set:test_cache_invalid_address_shapes allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=4096, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=4096, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=4096, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=4096, allocator_get_capacity()=32212254720
+Unaligned cache prefetch extent address 4096
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=126976, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=126976, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=126976, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=126976, allocator_get_capacity()=32212254720
+Unaligned cache prefetch extent address 126976
+Unaligned cache page address 1179649 (page size 4096)
+Unaligned cache page address 1179649 (page size 4096)
+Unaligned cache page address 1179649 (page size 4096)
+Unaligned cache page address 1179649 (page size 4096)
+Unaligned cache prefetch extent address 1179649
+Unaligned cache page address 1183743 (page size 4096)
+Unaligned cache page address 1183743 (page size 4096)
+Unaligned cache page address 1183743 (page size 4096)
+Unaligned cache page address 1183743 (page size 4096)
+Unaligned cache prefetch extent address 1183743
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212258816 is outside lookup capacity 32212254720
+Cache page address 32212258816 is outside lookup capacity 32212254720
+Cache page address 32212258816 is outside lookup capacity 32212254720
+Cache page address 32212258816 is outside lookup capacity 32212254720
+Unaligned cache prefetch extent address 32212258816
+Cache page address 18446744073709547520 is outside lookup capacity 32212254720
+Cache page address 18446744073709547520 is outside lookup capacity 32212254720
+Cache page address 18446744073709547520 is outside lookup capacity 32212254720
+Cache page address 18446744073709547520 is outside lookup capacity 32212254720
+Unaligned cache prefetch extent address 18446744073709547520
+Unaligned cache page address 18446744073709551615 (page size 4096)
+Unaligned cache page address 18446744073709551615 (page size 4096)
+Unaligned cache page address 18446744073709551615 (page size 4096)
+Unaligned cache page address 18446744073709551615 (page size 4096)
+Unaligned cache prefetch extent address 18446744073709551615
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=0, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=4096, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=4096, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=4096, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=4096, allocator_get_capacity()=32212254720
+Unaligned cache prefetch extent address 4096
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=126976, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=126976, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=126976, allocator_get_capacity()=32212254720
+allocator_page_valid():380: Extent out of allocator capacity range. base_addr=0, addr=126976, allocator_get_capacity()=32212254720
+Unaligned cache prefetch extent address 126976
+Unaligned cache page address 1179649 (page size 4096)
+Unaligned cache page address 1179649 (page size 4096)
+Unaligned cache page address 1179649 (page size 4096)
+Unaligned cache page address 1179649 (page size 4096)
+Unaligned cache prefetch extent address 1179649
+Unaligned cache page address 1183743 (page size 4096)
+Unaligned cache page address 1183743 (page size 4096)
+Unaligned cache page address 1183743 (page size 4096)
+Unaligned cache page address 1183743 (page size 4096)
+Unaligned cache prefetch extent address 1183743
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212254720 is outside lookup capacity 32212254720
+Cache page address 32212258816 is outside lookup capacity 32212254720
+Cache page address 32212258816 is outside lookup capacity 32212254720
+Cache page address 32212258816 is outside lookup capacity 32212254720
+Cache page address 32212258816 is outside lookup capacity 32212254720
+Unaligned cache prefetch extent address 32212258816
+Cache page address 18446744073709547520 is outside lookup capacity 32212254720
+Cache page address 18446744073709547520 is outside lookup capacity 32212254720
+Cache page address 18446744073709547520 is outside lookup capacity 32212254720
+Cache page address 18446744073709547520 is outside lookup capacity 32212254720
+Unaligned cache prefetch extent address 18446744073709547520
+Unaligned cache page address 18446744073709551615 (page size 4096)
+Unaligned cache page address 18446744073709551615 (page size 4096)
+Unaligned cache page address 18446744073709551615 (page size 4096)
+Unaligned cache page address 18446744073709551615 (page size 4096)
+Unaligned cache prefetch extent address 18446744073709551615
+[OK]
+TEST 9/18 writeback_set:test_cache_unallocated_and_freed_addresses allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212123648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212123648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212123648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212123648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212123648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212250624, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212250624, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212250624, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=32212123648, addr=32212250624, allocator_get_refcount()=0
+Unaligned cache prefetch extent address 32212250624
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1179648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1179648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1179648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1179648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1179648, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1306624, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1306624, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1306624, allocator_get_refcount()=0
+allocator_page_valid():369: Trying to access an unreferenced extent. base_addr=1179648, addr=1306624, allocator_get_refcount()=0
+Unaligned cache prefetch extent address 1306624
+[OK]
+TEST 10/18 writeback_set:test_cache_sync_read_error_and_retry clockcache_get_from_disk: io_read failed for addr 1179648, type 8: Connection timed out
+[OK]
+TEST 11/18 writeback_set:test_cache_async_read_setup_failures clockcache_get_from_disk_async: async read failed for addr 1179648, entry 130: Connection timed out
+[OK]
+TEST 12/18 writeback_set:test_cache_failed_load_wakes_waiters clockcache_get_from_disk_async_callback: async read failed for addr 1179648, entry 128: Connection timed out
+clockcache_get_from_disk_async: async read failed for addr 1179648, entry 128: Connection timed out
+[OK]
+TEST 13/18 writeback_set:test_partial_reclamation_requires_recovery WARNING: abandoned reclamation of mini allocator at 1179648 (type misc): Connection timed out. Remaining space is unavailable until reopen; clean allocation state will not be written. Recovery is required.
+[OK]
+TEST 14/18 writeback_set:test_failed_prefetch_leaves_demand_read_retryable clockcache_prefetch_pages: io_async_state_init failed for first addr 1179648, page addr 1179648, num pages 32, type 8: Cannot allocate memory
+clockcache_prefetch_pages: io_async_state_append_page failed for first addr 1179648, page addr 1179648, entry 128, num pages 32, type 8: Cannot allocate memory
+clockcache_prefetch_callback: async read failed: Connection timed out
+[OK]
+TEST 15/18 writeback_set:test_failed_load_releases_synchronous_waiter clockcache_get_from_disk_async_callback: async read failed for addr 1179648, entry 128: Connection timed out
+clockcache_get_from_disk_async: async read failed for addr 1179648, entry 128: Connection timed out
+[OK]
+TEST 16/18 writeback_set:test_page_handle_thread_handoff [OK]
+TEST 17/18 writeback_set:test_page_handle_outlives_acquiring_thread [OK]
+TEST 18/18 writeback_set:test_rejected_page_submission clockcache_write_callback: async write failed: Input/output error
+writeback_set_wait: writeback of addr 1179648 failed
+[OK]
+RESULTS: 18 tests (18 ok, 0 failed, 0 skipped) ran in 1809 ms

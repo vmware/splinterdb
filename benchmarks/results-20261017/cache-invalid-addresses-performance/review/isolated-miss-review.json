@@ -1,0 +1,21 @@
+{
+  "variant": "isolated-miss",
+  "base": "original export of da575726",
+  "changed_paths": [
+    "src/clockcache.c"
+  ],
+  "base_sha256": "14bfdbb00476f9070b21a4fe0cdb7918e3021e4240201cc516e0a6b671844026",
+  "variant_sha256": "1b87360764eac20c6461170fc8bc355d651290647cefff55f8e84f664b78bd96",
+  "scope": "Moves only miss code into the existing async disk subroutine or new noinline synchronous helper. No mask, cold annotation, diagnostic, cache protocol or public API changes.",
+  "correctness_review": [
+    "Sync initial lookup/bounds validation and resident hit path remain unchanged. Only an unmapped directory result calls the new helper.",
+    "Sync helper preserves allocator validation for both blocking and nonblocking requests. Invalid returns FALSE/BAD_PARAM, valid nonblocking miss returns FALSE/BUSY, blocking delegates to existing disk loader and preserves its retry flag.",
+    "An admission race returns TRUE from disk helper, causing outer synchronous get to repeat full lookup and revalidate membership only if still unmapped.",
+    "Async async_begin(state, depth) resumes by jumping to a previously saved label; initial allocation validation occurs once before entry acquisition. On I/O resumption it is skipped, as it was previously skipped by outer state resumption.",
+    "Moving validation across async_await_subroutine initialization introduces no actual yield or callback between validation and entry acquisition. The initial child call executes inline in the same stack before its first await.",
+    "Invalid async input sets BAD_PARAM and succeeded TRUE, marks child DONE, propagates DONE through internal child and top-level state. No cache reference, I/O state, queue insertion, callback or entry reservation occurs.",
+    "When entry acquisition races with another loader, succeeded FALSE causes the top-level retry. async_await_subroutine initializes inner child states again, so a repeated miss repeats allocation validation.",
+    "The cache extent lifetime and existing race/identity recheck protocol is unchanged. This does not repair or claim to repair the separate inherited batch reservation progress limitation."
+  ],
+  "validation": "Source review only; root owns build, codegen check, correctness tests and benchmarks. The actual invalid-address worktree remains untouched."
+}

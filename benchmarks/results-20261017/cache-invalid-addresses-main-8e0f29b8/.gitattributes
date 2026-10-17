@@ -1,0 +1,2 @@
+# Preserve the required context prefixes in archived unified diffs.
+*.patch -whitespace

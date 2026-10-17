@@ -446,10 +446,12 @@ static void              *read_fault_callback_arg;
 static bool32             read_fault_complete;
 static bool32             read_fault_reject_init;
 static bool32             read_fault_reject_append;
+static uint64             read_fault_attempts;
 
 static platform_status
 reject_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
 {
+   read_fault_attempts++;
    return STATUS_TIMEDOUT;
 }
 
@@ -479,6 +481,9 @@ read_fault_init(io_async_state   *state,
                 async_callback_fn callback,
                 void             *callback_arg)
 {
+   if (cmd == io_async_preadv) {
+      read_fault_attempts++;
+   }
    if (cmd == io_async_preadv && read_fault_reject_init) {
       return STATUS_NO_MEMORY;
    }
@@ -509,6 +514,7 @@ read_fault_install(io_handle *io)
    read_fault_complete             = FALSE;
    read_fault_reject_init          = FALSE;
    read_fault_reject_append        = FALSE;
+   read_fault_attempts             = 0;
    io->ops                         = &read_fault_ops;
 }
 
@@ -517,6 +523,127 @@ read_ready(void *arg)
 {
    bool32 *ready = arg;
    *ready        = TRUE;
+}
+
+static void
+assert_cache_rejects_address(cache *cc, uint64 addr)
+{
+   for (unsigned blocking = 0; blocking <= 1; blocking++) {
+      page_handle page = {.page = (cache_page *)1};
+      ASSERT_TRUE(
+         STATUS_IS_EQ(cache_get(cc, addr, blocking, PAGE_TYPE_MISC, &page),
+                      STATUS_BAD_PARAM));
+      ASSERT_TRUE(page_handle_is_null(&page));
+      cache_assert_free(cc);
+   }
+
+   page_get_async_state_buffer state;
+   bool32                      ready = FALSE;
+   cache_get_async_state_init(
+      &state, cc, addr, PAGE_TYPE_MISC, read_ready, &ready);
+   ASSERT_EQUAL(ASYNC_STATUS_DONE, cache_get_async(&state));
+   page_handle page = {.page = (cache_page *)1};
+   ASSERT_TRUE(STATUS_IS_EQ(cache_get_async_state_result(&state, &page),
+                            STATUS_BAD_PARAM));
+   ASSERT_TRUE(page_handle_is_null(&page));
+   ASSERT_FALSE(ready);
+   cache_assert_free(cc);
+
+   /* Invalid speculative hints must not abort before the demand read can
+    * return its error, nor publish a loading entry or issue any read. */
+   cache_prefetch_page(cc, addr, PAGE_TYPE_MISC);
+   cache_prefetch(cc, addr, PAGE_TYPE_MISC);
+   cache_assert_free(cc);
+}
+
+static void
+assert_cache_reads_address(cache *cc, uint64 addr)
+{
+   page_handle page;
+   ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page)));
+   ASSERT_EQUAL(addr, page_handle_addr(&page));
+   ASSERT_EQUAL(0, (unsigned char)page_handle_data(&page)[0]);
+   cache_unget(cc, &page);
+   ASSERT_TRUE(SUCCESS(cache_get(cc, addr, FALSE, PAGE_TYPE_MISC, &page)));
+   cache_unget(cc, &page);
+
+   page_get_async_state_buffer state;
+   bool32                      ready = FALSE;
+   cache_get_async_state_init(
+      &state, cc, addr, PAGE_TYPE_MISC, read_ready, &ready);
+   ASSERT_EQUAL(ASYNC_STATUS_DONE, cache_get_async(&state));
+   ASSERT_TRUE(SUCCESS(cache_get_async_state_result(&state, &page)));
+   ASSERT_EQUAL(addr, page_handle_addr(&page));
+   cache_unget(cc, &page);
+   cache_assert_free(cc);
+}
+
+CTEST2(writeback_set, test_cache_invalid_address_shapes)
+{
+   cache *cc          = (cache *)&data->cc;
+   uint64 addr        = alloc_and_dirty_extent(&data->cc, &data->al);
+   uint64 page_size   = cache_page_size(cc);
+   uint64 extent_size = cache_extent_size(cc);
+   uint64 capacity    = allocator_get_capacity((allocator *)&data->al);
+   uint64 invalid[]   = {0,
+                         page_size,
+                         extent_size - page_size,
+                         addr + 1,
+                         addr + page_size - 1,
+                         capacity,
+                         capacity + page_size,
+                         UINT64_MAX - (page_size - 1),
+                         UINT64_MAX};
+
+   /* Check misalignment with the containing page both resident and absent.
+    * The largest aligned address also catches overflow-prone end checks. */
+   for (unsigned resident = 0; resident < 2; resident++) {
+      read_fault_install(data->io);
+      read_fault_reject_init = TRUE;
+      for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
+         assert_cache_rejects_address(cc, invalid[i]);
+      }
+      data->io->ops = read_saved_ops;
+      ASSERT_EQUAL(0, read_fault_attempts);
+      assert_cache_reads_address(cc, addr);
+      cache_flush(cc);
+      ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   }
+}
+
+CTEST2(writeback_set, test_cache_unallocated_and_freed_addresses)
+{
+   cache     *cc          = (cache *)&data->cc;
+   allocator *al          = (allocator *)&data->al;
+   uint64     page_size   = cache_page_size(cc);
+   uint64     extent_size = cache_extent_size(cc);
+   uint64     unallocated = allocator_get_capacity(al) - extent_size;
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, unallocated));
+
+   uint64 freed = alloc_and_dirty_extent(&data->cc, &data->al);
+   assert_cache_reads_address(cc, freed);
+   ASSERT_EQUAL(AL_NO_REFS, allocator_dec_ref(al, freed, PAGE_TYPE_MISC));
+   cache_extent_discard(cc, freed, PAGE_TYPE_MISC);
+   ASSERT_EQUAL(AL_FREE, allocator_dec_ref(al, freed, PAGE_TYPE_MISC));
+
+   read_fault_install(data->io);
+   read_fault_reject_init = TRUE;
+   uint64 invalid[]       = {unallocated,
+                             unallocated + extent_size - page_size,
+                             freed,
+                             freed + extent_size - page_size};
+   for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
+      assert_cache_rejects_address(cc, invalid[i]);
+   }
+   data->io->ops = read_saved_ops;
+   ASSERT_EQUAL(0, read_fault_attempts);
+
+   /* Failed reads must not poison admission or subsequent disk reads. */
+   uint64 retry = alloc_and_dirty_extent(&data->cc, &data->al);
+   assert_cache_reads_address(cc, retry);
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   assert_cache_reads_address(cc, retry);
 }
 
 CTEST2(writeback_set, test_cache_sync_read_error_and_retry)

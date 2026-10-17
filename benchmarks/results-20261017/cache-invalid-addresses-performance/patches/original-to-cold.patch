@@ -1,0 +1,48 @@
+diff --git a/src/clockcache.c b/src/clockcache.c
+index e97f385f..e5e69d7e 100644
+--- a/src/clockcache.c
++++ b/src/clockcache.c
+@@ -391,25 +391,33 @@ clockcache_divide_by_page_size(const clockcache *cc, uint64 addr)
+  * structures, and lookup_no indexes cc->lookup directly. Keep these checks in
+  * production and centralize them here so every lookup-table user is covered.
+  */
+-static inline bool32
+-clockcache_try_lookup_number(const clockcache *cc,
+-                             uint64            addr,
+-                             uint64           *lookup_no)
++/* Invalid addresses must not enlarge the normal cache lookup path. */
++static void __attribute__((cold, noinline))
++clockcache_report_invalid_address(const clockcache *cc, uint64 addr)
+ {
+    uint64 page_size = clockcache_config_page_size(cc->cfg);
+    if (addr % page_size != 0) {
+       platform_error_log(
+          "Unaligned cache page address %lu (page size %lu)\n", addr, page_size);
+-      return FALSE;
+-   }
+-
+-   *lookup_no             = clockcache_divide_by_page_size(cc, addr);
+-   uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
+-   if (*lookup_no >= lookup_capacity) {
++   } else {
++      uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
+       platform_error_log("Cache page address %lu is outside lookup capacity "
+                          "%lu\n",
+                          addr,
+                          lookup_capacity * page_size);
++   }
++}
++
++static inline bool32
++clockcache_try_lookup_number(const clockcache *cc,
++                             uint64            addr,
++                             uint64           *lookup_no)
++{
++   uint64 page_size = clockcache_config_page_size(cc->cfg);
++   *lookup_no = clockcache_divide_by_page_size(cc, addr);
++   uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
++   if (UNLIKELY(addr % page_size != 0 || *lookup_no >= lookup_capacity)) {
++      clockcache_report_invalid_address(cc, addr);
+       return FALSE;
+    }
+    return TRUE;

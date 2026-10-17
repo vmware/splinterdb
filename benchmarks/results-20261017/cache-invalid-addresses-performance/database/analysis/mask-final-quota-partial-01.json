@@ -1,0 +1,1051 @@
+{
+  "auditor_sha256": "ee84fcba713d458f3d589ff4a89c01765dac4eb83c48cfff465623c4586fad4e",
+  "same_binary_verified": true,
+  "campaign_lock_intervals_nonoverlapping": true,
+  "campaigns": [
+    {
+      "campaign": "insert-mask-final-fixed20m",
+      "directory": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/insert-mask-final-fixed20m",
+      "arguments": {
+        "mode": "insert",
+        "name": "mask-final-fixed20m",
+        "profiles": [
+          "main",
+          "original",
+          "async-mask"
+        ],
+        "seconds": 5,
+        "records": 20000000,
+        "fixed_records": true,
+        "insert_diagnostics": true,
+        "quota_mode": "fixed",
+        "precondition_records": 100000000,
+        "blocks": 3,
+        "rotate_blocks": true,
+        "precondition_seconds": 15,
+        "cpus": "0-11",
+        "min_free_gib": 6,
+        "wal": [
+          0,
+          1
+        ]
+      },
+      "validation": {
+        "complete": false,
+        "expected_measured_runs": 36,
+        "measured_runs": 9,
+        "excluded_preconditions": 1,
+        "total_measured_inserts": 180000000,
+        "pending_runs": [
+          "wal0-09-main",
+          "wal0-10-async-mask",
+          "wal0-11-original",
+          "wal0-12-async-mask",
+          "wal0-13-main",
+          "wal0-14-original",
+          "wal0-15-original",
+          "wal0-16-main",
+          "wal0-17-async-mask",
+          "wal1-precondition",
+          "wal1-00-main",
+          "wal1-01-original",
+          "wal1-02-async-mask",
+          "wal1-03-async-mask",
+          "wal1-04-original",
+          "wal1-05-main",
+          "wal1-06-original",
+          "wal1-07-async-mask",
+          "wal1-08-main",
+          "wal1-09-main",
+          "wal1-10-async-mask",
+          "wal1-11-original",
+          "wal1-12-async-mask",
+          "wal1-13-main",
+          "wal1-14-original",
+          "wal1-15-original",
+          "wal1-16-main",
+          "wal1-17-async-mask"
+        ],
+        "complete_blocks": {
+          "0": [
+            0
+          ],
+          "1": []
+        },
+        "manifest_sha256": "3675d1cafec72809342a2be8bc31203cb56d8d01144e4d1071c4494e2e54c04d",
+        "driver_sha256": "3bca43da47b568d9ef9331e5c3a6ac12b920df76509eabd3b80ac006b0fd8905",
+        "driver_source_sha256": "c6314c4b205561f55bca66411060644c63e30b3cd15277eff4bad79ddb844092",
+        "runner_sha256": "97cd6b805ea568ee13051f01fc64c0d069f15b7eca930d66b8cf0643ce89c4f8",
+        "build_manifest_sha256": "376cabc1725dfd7f44ec4f2b94d0a026d3a2c1ed9687a085ca47e53f83d42686",
+        "source_file_hashes_checked": {
+          "async-mask": 177,
+          "main": 177,
+          "original": 177
+        },
+        "library_hashes": {
+          "async-mask": "c7b04dabd8a600500ead9095a04e0a572baf904e256f077043c7191abdd8d228",
+          "main": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6",
+          "original": "e0c680239539a36a9a9f927888963508c39992c7366250a3a2c7c8b8224ad3e2"
+        },
+        "lock_acquired": 1792229091.8670254,
+        "finished": null,
+        "checks": [
+          "Exact command/matrix/order and fixed-quota preconditions",
+          "Harness, runner, build, parent driver, source and library hashes",
+          "Raw log/CSV hashes, successful count/error/close, aggregate CSV identities",
+          "Shared reservation identity or per-worker fixed count identity",
+          "Monotonic raw boundaries, zero-work workers, reconstructed wall/CPU metrics",
+          "Serial processes inside recorded shared-lock interval"
+        ]
+      },
+      "samples": [
+        {
+          "name": "wal0-00-main",
+          "profile": "main",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 0,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 9.116634557,
+          "diagnostic_window_cpu_s": 56.333497063,
+          "diagnostic_join_wall_s": 3.3195e-05,
+          "diagnostic_join_cpu_s": 3.2619e-05,
+          "diagnostic_body_wall_s": 9.116667752,
+          "diagnostic_body_cpu_s": 56.333529682,
+          "diagnostic_close_wall_s": 0.159066556,
+          "diagnostic_close_cpu_s": 0.093027216,
+          "diagnostic_drain_wall_s": 9.275807853,
+          "diagnostic_drain_cpu_s": 56.426630418,
+          "body_cpu_us_op": 2.8166764841,
+          "drain_cpu_us_op": 2.8213315209000003,
+          "productive_wall_s": 9.064739269,
+          "productive_end_to_stop_s": 0.051895288,
+          "worker_completion_spread_s": 3.668167664,
+          "exact_body_ops_s": 2193784.0167107587,
+          "exact_drain_ops_s": 2156146.4313355265,
+          "productive_ops_s": 2206351.380496612,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            9.064739269,
+            5.629352846,
+            8.947852959,
+            5.852432564,
+            8.916110152,
+            8.713396141,
+            9.007240069,
+            5.396571605
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.001556,
+          "max_deregister_ms": 0.003383,
+          "quota_next_record": 0,
+          "log_sha256": "729537c541c64107e306737bbd1eab29f1dba3a4496316a37c14da37e876aef0",
+          "service_max_ms": 1900.818403
+        },
+        {
+          "name": "wal0-01-original",
+          "profile": "original",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 0,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 8.814798034,
+          "diagnostic_window_cpu_s": 56.2423347,
+          "diagnostic_join_wall_s": 4.8443e-05,
+          "diagnostic_join_cpu_s": 4.7993e-05,
+          "diagnostic_body_wall_s": 8.814846477,
+          "diagnostic_body_cpu_s": 56.242382693,
+          "diagnostic_close_wall_s": 0.171331618,
+          "diagnostic_close_cpu_s": 0.076948491,
+          "diagnostic_drain_wall_s": 8.986265939,
+          "diagnostic_drain_cpu_s": 56.319418958,
+          "body_cpu_us_op": 2.81211913465,
+          "drain_cpu_us_op": 2.8159709479,
+          "productive_wall_s": 8.803672114,
+          "productive_end_to_stop_s": 0.01112592,
+          "worker_completion_spread_s": 3.33862142,
+          "exact_body_ops_s": 2268899.4133005817,
+          "exact_drain_ops_s": 2225618.531185559,
+          "productive_ops_s": 2271779.2917565717,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            6.014869459,
+            8.470503723,
+            8.553507667,
+            5.465050694,
+            8.36266431,
+            5.710208972,
+            8.803672114,
+            8.761968295
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.001249,
+          "max_deregister_ms": 0.002946,
+          "quota_next_record": 0,
+          "log_sha256": "9933754f3a4de111d60665d2307550cd8cf4043f2d80f44d0f7bb803477d26c7",
+          "service_max_ms": 1778.559646
+        },
+        {
+          "name": "wal0-02-async-mask",
+          "profile": "async-mask",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 0,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 8.81647786,
+          "diagnostic_window_cpu_s": 57.027073851,
+          "diagnostic_join_wall_s": 5.9911e-05,
+          "diagnostic_join_cpu_s": 5.9337e-05,
+          "diagnostic_body_wall_s": 8.816537771,
+          "diagnostic_body_cpu_s": 57.027133188,
+          "diagnostic_close_wall_s": 0.142883858,
+          "diagnostic_close_cpu_s": 0.051072275,
+          "diagnostic_drain_wall_s": 8.959498565,
+          "diagnostic_drain_cpu_s": 57.078282429,
+          "body_cpu_us_op": 2.8513566594,
+          "drain_cpu_us_op": 2.85391412145,
+          "productive_wall_s": 8.740488614,
+          "productive_end_to_stop_s": 0.075989246,
+          "worker_completion_spread_s": 3.068023676,
+          "exact_body_ops_s": 2268464.1658072923,
+          "exact_drain_ops_s": 2232267.78316918,
+          "productive_ops_s": 2288201.596414779,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            5.921745955,
+            5.74077703,
+            8.693855939,
+            8.52984578,
+            8.702826533,
+            8.728875444,
+            5.672464938,
+            8.740488614
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.002087,
+          "max_deregister_ms": 0.003286,
+          "quota_next_record": 0,
+          "log_sha256": "e1a6c393e289b81e61e42db86d0eaa3c40aefe7776d5a42cfb9cc2a283ab288d",
+          "service_max_ms": 1836.54887
+        },
+        {
+          "name": "wal0-03-async-mask",
+          "profile": "async-mask",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 0,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 8.815826543,
+          "diagnostic_window_cpu_s": 56.683189764,
+          "diagnostic_join_wall_s": 4.7407e-05,
+          "diagnostic_join_cpu_s": 4.6716e-05,
+          "diagnostic_body_wall_s": 8.81587395,
+          "diagnostic_body_cpu_s": 56.68323648,
+          "diagnostic_close_wall_s": 0.142186773,
+          "diagnostic_close_cpu_s": 0.060841834,
+          "diagnostic_drain_wall_s": 8.958155199,
+          "diagnostic_drain_cpu_s": 56.744172717,
+          "body_cpu_us_op": 2.8341618239999997,
+          "drain_cpu_us_op": 2.83720863585,
+          "productive_wall_s": 8.808662124,
+          "productive_end_to_stop_s": 0.007164419,
+          "worker_completion_spread_s": 3.264377194,
+          "exact_body_ops_s": 2268634.9774771906,
+          "exact_drain_ops_s": 2232602.5343066845,
+          "productive_ops_s": 2270492.353828419,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            8.808662124,
+            5.657017811,
+            5.590369472,
+            8.757179646,
+            8.456065159,
+            5.54428493,
+            8.387650331,
+            8.468823558
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.001335,
+          "max_deregister_ms": 0.003035,
+          "quota_next_record": 0,
+          "log_sha256": "4686df16eb7b8f462c5f18a9cefee84ce4ce42a6ff5816f16c6199376bddcb85",
+          "service_max_ms": 1691.090468
+        },
+        {
+          "name": "wal0-04-original",
+          "profile": "original",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 0,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 9.214624183,
+          "diagnostic_window_cpu_s": 56.681280867,
+          "diagnostic_join_wall_s": 4.2311e-05,
+          "diagnostic_join_cpu_s": 4.1495e-05,
+          "diagnostic_body_wall_s": 9.214666494,
+          "diagnostic_body_cpu_s": 56.681322362,
+          "diagnostic_close_wall_s": 0.18972294,
+          "diagnostic_close_cpu_s": 0.069167289,
+          "diagnostic_drain_wall_s": 9.404469743,
+          "diagnostic_drain_cpu_s": 56.750569965,
+          "body_cpu_us_op": 2.8340661181,
+          "drain_cpu_us_op": 2.8375284982499998,
+          "productive_wall_s": 9.146287147,
+          "productive_end_to_stop_s": 0.068337036,
+          "worker_completion_spread_s": 3.574045052,
+          "exact_body_ops_s": 2170452.94184252,
+          "exact_drain_ops_s": 2126648.3434524885,
+          "productive_ops_s": 2186679.6524707885,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            9.099522398,
+            5.779004839,
+            5.572242095,
+            8.840512836,
+            8.873907585,
+            6.143719257,
+            9.146287147,
+            9.091086667
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.001509,
+          "max_deregister_ms": 0.003299,
+          "quota_next_record": 0,
+          "log_sha256": "8f34db8f4f379f1149ad1b66771088c2984299cf7617f404ff20470326977021",
+          "service_max_ms": 1981.181563
+        },
+        {
+          "name": "wal0-05-main",
+          "profile": "main",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 0,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 7.712990839,
+          "diagnostic_window_cpu_s": 57.383874589,
+          "diagnostic_join_wall_s": 4.496e-05,
+          "diagnostic_join_cpu_s": 4.4027e-05,
+          "diagnostic_body_wall_s": 7.713035799,
+          "diagnostic_body_cpu_s": 57.383918616,
+          "diagnostic_close_wall_s": 0.130983462,
+          "diagnostic_close_cpu_s": 0.047970422,
+          "diagnostic_drain_wall_s": 7.844109821,
+          "diagnostic_drain_cpu_s": 57.431979569,
+          "body_cpu_us_op": 2.8691959308,
+          "drain_cpu_us_op": 2.87159897845,
+          "productive_wall_s": 7.695023529,
+          "productive_end_to_stop_s": 0.01796731,
+          "worker_completion_spread_s": 2.431045606,
+          "exact_body_ops_s": 2593012.728216951,
+          "exact_drain_ops_s": 2549683.8336526905,
+          "productive_ops_s": 2599082.371174904,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            5.334095269,
+            5.58440942,
+            5.263977923,
+            7.516904607,
+            7.267782734,
+            7.559786874,
+            7.695023529,
+            7.471975081
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.003645,
+          "max_deregister_ms": 0.003411,
+          "quota_next_record": 0,
+          "log_sha256": "8ba7bd009700c1742cbcfa493be7bc6e7b11abd4b47ef0433718c064b39c2d97",
+          "service_max_ms": 1286.351055
+        },
+        {
+          "name": "wal0-06-original",
+          "profile": "original",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 1,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 8.113194018,
+          "diagnostic_window_cpu_s": 56.899892049,
+          "diagnostic_join_wall_s": 3.6707e-05,
+          "diagnostic_join_cpu_s": 3.6033e-05,
+          "diagnostic_body_wall_s": 8.113230725,
+          "diagnostic_body_cpu_s": 56.899928082,
+          "diagnostic_close_wall_s": 0.151877563,
+          "diagnostic_close_cpu_s": 0.058647453,
+          "diagnostic_drain_wall_s": 8.26518684,
+          "diagnostic_drain_cpu_s": 56.958654077,
+          "body_cpu_us_op": 2.8449964041,
+          "drain_cpu_us_op": 2.84793270385,
+          "productive_wall_s": 8.034226866,
+          "productive_end_to_stop_s": 0.078967152,
+          "worker_completion_spread_s": 2.652047535,
+          "exact_body_ops_s": 2465109.2367399675,
+          "exact_drain_ops_s": 2419788.0080833114,
+          "productive_ops_s": 2489349.6703009335,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            7.845172832,
+            5.663286581,
+            5.663248407,
+            5.382179331,
+            7.667990018,
+            7.740239115,
+            8.034226866,
+            7.967973427
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.001431,
+          "max_deregister_ms": 0.003547,
+          "quota_next_record": 0,
+          "log_sha256": "104edb1afbcd520023517662119ecff43c74dd8e8b3e80b681b728d911cf42d8",
+          "service_max_ms": 1327.749068
+        },
+        {
+          "name": "wal0-07-async-mask",
+          "profile": "async-mask",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 1,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 9.315389248,
+          "diagnostic_window_cpu_s": 57.60806626,
+          "diagnostic_join_wall_s": 3.6977e-05,
+          "diagnostic_join_cpu_s": 3.6293e-05,
+          "diagnostic_body_wall_s": 9.315426225,
+          "diagnostic_body_cpu_s": 57.608102553,
+          "diagnostic_close_wall_s": 0.176971124,
+          "diagnostic_close_cpu_s": 0.095294808,
+          "diagnostic_drain_wall_s": 9.492480326,
+          "diagnostic_drain_cpu_s": 57.703480365,
+          "body_cpu_us_op": 2.88040512765,
+          "drain_cpu_us_op": 2.88517401825,
+          "productive_wall_s": 9.295851084,
+          "productive_end_to_stop_s": 0.019538164,
+          "worker_completion_spread_s": 3.691127038,
+          "exact_body_ops_s": 2146976.3719802313,
+          "exact_drain_ops_s": 2106930.8877280257,
+          "productive_ops_s": 2151497.4604556607,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            9.295851084,
+            8.774533248,
+            5.858049884,
+            5.604724046,
+            9.179463898,
+            8.836493965,
+            5.992266497,
+            8.725645675
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.003446,
+          "max_deregister_ms": 0.003545,
+          "quota_next_record": 0,
+          "log_sha256": "d0941315a36234510de7a047063d04c98437077c4e4d351a0da7774b9968ffa0",
+          "service_max_ms": 1966.989437
+        },
+        {
+          "name": "wal0-08-main",
+          "profile": "main",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 1,
+          "inserted": 20000000,
+          "diagnostic_window_wall_s": 7.913229614,
+          "diagnostic_window_cpu_s": 57.141071274,
+          "diagnostic_join_wall_s": 3.7262e-05,
+          "diagnostic_join_cpu_s": 3.655e-05,
+          "diagnostic_body_wall_s": 7.913266876,
+          "diagnostic_body_cpu_s": 57.141107824,
+          "diagnostic_close_wall_s": 0.106934813,
+          "diagnostic_close_cpu_s": 0.054589299,
+          "diagnostic_drain_wall_s": 8.020293016,
+          "diagnostic_drain_cpu_s": 57.195788428,
+          "body_cpu_us_op": 2.8570553912,
+          "drain_cpu_us_op": 2.8597894214000004,
+          "productive_wall_s": 7.893768301,
+          "productive_end_to_stop_s": 0.019461313,
+          "worker_completion_spread_s": 2.291101198,
+          "exact_body_ops_s": 2527401.174937955,
+          "exact_drain_ops_s": 2493674.47798992,
+          "productive_ops_s": 2533644.1655459227,
+          "worker_completed": [
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000,
+            2500000
+          ],
+          "worker_productive_finish_s": [
+            7.61236461,
+            7.893768301,
+            7.868836065,
+            7.807712551,
+            7.756464308,
+            5.602667103,
+            5.895034717,
+            5.634886335
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.003049,
+          "max_deregister_ms": 0.003148,
+          "quota_next_record": 0,
+          "log_sha256": "4f27b8eef1126abaefe74879b73ce13371252000a6f1f4992cea25cea0f063c8",
+          "service_max_ms": 1602.011138
+        }
+      ],
+      "excluded_precondition_samples": [
+        {
+          "name": "wal0-precondition",
+          "profile": "main",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": -1,
+          "inserted": 43085473,
+          "diagnostic_window_wall_s": 15.034105818,
+          "diagnostic_window_cpu_s": 124.949655334,
+          "diagnostic_join_wall_s": 0.003379253,
+          "diagnostic_join_cpu_s": 0.02172618,
+          "diagnostic_body_wall_s": 15.037485071,
+          "diagnostic_body_cpu_s": 124.971381514,
+          "diagnostic_close_wall_s": 0.282745921,
+          "diagnostic_close_cpu_s": 0.245597567,
+          "diagnostic_drain_wall_s": 15.320357206,
+          "diagnostic_drain_cpu_s": 125.217105062,
+          "body_cpu_us_op": 2.900545655237439,
+          "drain_cpu_us_op": 2.9062488199212764,
+          "productive_wall_s": 15.037442431,
+          "productive_end_to_stop_s": -0.003336613,
+          "worker_completion_spread_s": 0.003334169,
+          "exact_body_ops_s": 2865204.7065430465,
+          "exact_drain_ops_s": 2812302.11676306,
+          "productive_ops_s": 2865212.831084786,
+          "worker_completed": [
+            5342780,
+            5384663,
+            5351485,
+            6273657,
+            5590420,
+            4997774,
+            5142161,
+            5002533
+          ],
+          "worker_productive_finish_s": [
+            15.034109844,
+            15.034110244,
+            15.034109764,
+            15.034109088,
+            15.034109665,
+            15.034108262,
+            15.03410921,
+            15.037442431
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 274.572046,
+          "max_deregister_ms": 0.006952,
+          "quota_next_record": 0,
+          "log_sha256": "be38ad9a3b4085887f82d04f1ca9a52376c8bc38e8ed0bd6c6a4f0c75546ea74",
+          "service_max_ms": 1236.295555
+        }
+      ],
+      "summaries": [
+        {
+          "wal": 0,
+          "quota_mode": "fixed",
+          "profile": "main",
+          "samples": 3,
+          "all_expected_samples_present": false,
+          "complete_comparison_blocks": [
+            0
+          ],
+          "inserted_total": 60000000,
+          "exact_body_ops_s_mean": 2438065.9732885547,
+          "exact_drain_ops_s_mean": 2399834.9143260457,
+          "productive_ops_s_mean": 2446359.305739146,
+          "body_cpu_us_op_mean": 2.8476426020333334,
+          "drain_cpu_us_op_mean": 2.8509066402500003,
+          "worker_completion_spread_s_mean": 2.796771489333333,
+          "productive_end_to_stop_s_mean": 0.029774637000000003,
+          "diagnostic_join_wall_s_mean": 3.8472333333333334e-05,
+          "diagnostic_close_wall_s_mean": 0.132328277,
+          "productive_wall_s_mean": 8.217843699666666,
+          "diagnostic_body_wall_s_mean": 8.247656809,
+          "diagnostic_drain_wall_s_mean": 8.38007023,
+          "diagnostic_body_cpu_s_mean": 56.95285204066667,
+          "diagnostic_drain_cpu_s_mean": 57.018132805,
+          "pooled_body_ops_s": 2424931.1608329313,
+          "pooled_drain_ops_s": 2386614.8434414733,
+          "pooled_productive_ops_s": 2433728.4488400826,
+          "max_deregister_ms": 0.003411,
+          "zero_work_worker_observations": 0
+        },
+        {
+          "wal": 0,
+          "quota_mode": "fixed",
+          "profile": "original",
+          "samples": 3,
+          "all_expected_samples_present": false,
+          "complete_comparison_blocks": [
+            0
+          ],
+          "inserted_total": 60000000,
+          "exact_body_ops_s_mean": 2301487.1972943563,
+          "exact_drain_ops_s_mean": 2257351.6275737863,
+          "productive_ops_s_mean": 2315936.2048427644,
+          "body_cpu_us_op_mean": 2.8303938856166666,
+          "drain_cpu_us_op_mean": 2.8338107166666666,
+          "worker_completion_spread_s_mean": 3.188238002333333,
+          "productive_end_to_stop_s_mean": 0.052810036000000005,
+          "diagnostic_join_wall_s_mean": 4.2486999999999995e-05,
+          "diagnostic_close_wall_s_mean": 0.17097737366666665,
+          "productive_wall_s_mean": 8.661395375666666,
+          "diagnostic_body_wall_s_mean": 8.714247898666665,
+          "diagnostic_drain_wall_s_mean": 8.885307507333334,
+          "diagnostic_body_cpu_s_mean": 56.607877712333334,
+          "diagnostic_drain_cpu_s_mean": 56.67621433333333,
+          "pooled_body_ops_s": 2295091.9267582605,
+          "pooled_drain_ops_s": 2250906.9026022283,
+          "pooled_productive_ops_s": 2309096.7601118893,
+          "max_deregister_ms": 0.003547,
+          "zero_work_worker_observations": 0
+        },
+        {
+          "wal": 0,
+          "quota_mode": "fixed",
+          "profile": "async-mask",
+          "samples": 3,
+          "all_expected_samples_present": false,
+          "complete_comparison_blocks": [
+            0
+          ],
+          "inserted_total": 60000000,
+          "exact_body_ops_s_mean": 2228025.1717549046,
+          "exact_drain_ops_s_mean": 2190600.40173463,
+          "productive_ops_s_mean": 2236730.470232953,
+          "body_cpu_us_op_mean": 2.85530787035,
+          "drain_cpu_us_op_mean": 2.85876559185,
+          "worker_completion_spread_s_mean": 3.3411759693333334,
+          "productive_end_to_stop_s_mean": 0.03423060966666667,
+          "diagnostic_join_wall_s_mean": 4.809833333333334e-05,
+          "diagnostic_close_wall_s_mean": 0.15401391833333333,
+          "productive_wall_s_mean": 8.948333940666666,
+          "diagnostic_body_wall_s_mean": 8.982612648666667,
+          "diagnostic_drain_wall_s_mean": 9.136711363333333,
+          "diagnostic_body_cpu_s_mean": 57.106157407000005,
+          "diagnostic_drain_cpu_s_mean": 57.175311837,
+          "pooled_body_ops_s": 2226523.705546704,
+          "pooled_drain_ops_s": 2188971.414842137,
+          "pooled_productive_ops_s": 2235052.930815182,
+          "max_deregister_ms": 0.003545,
+          "zero_work_worker_observations": 0
+        }
+      ],
+      "comparisons": [
+        {
+          "wal": 0,
+          "quota_mode": "fixed",
+          "profile": "original",
+          "baseline": "main",
+          "complete_block_numbers": [
+            0
+          ],
+          "estimates": {
+            "exact_body_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": -7.258390282661875,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -7.258390282661875
+              ]
+            },
+            "exact_drain_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": -7.513305207387367,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -7.513305207387367
+              ]
+            },
+            "productive_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": -7.220468023796267,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -7.220468023796267
+              ]
+            },
+            "body_cpu_us_op": {
+              "blocks": 1,
+              "geometric_delta_pct": -0.6979960022669429,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -0.6979960022669429
+              ]
+            },
+            "drain_cpu_us_op": {
+              "blocks": 1,
+              "geometric_delta_pct": -0.6926319090756916,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -0.6926319090756916
+              ]
+            },
+            "worker_completion_spread_s": {
+              "blocks": 1,
+              "geometric_delta_pct": 13.33701849714135,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                13.33701849714135
+              ]
+            }
+          },
+          "absolute_differences": {
+            "worker_completion_spread_s": {
+              "blocks": 1,
+              "mean_difference_s": 0.4067266009999999,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                0.4067266009999999
+              ]
+            },
+            "productive_end_to_stop_s": {
+              "blocks": 1,
+              "mean_difference_s": 0.004800179000000002,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                0.004800179000000002
+              ]
+            },
+            "diagnostic_join_wall_s": {
+              "blocks": 1,
+              "mean_difference_s": 6.299499999999996e-06,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                6.299499999999996e-06
+              ]
+            },
+            "diagnostic_close_wall_s": {
+              "blocks": 1,
+              "mean_difference_s": 0.03550227,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                0.03550227
+              ]
+            }
+          }
+        },
+        {
+          "wal": 0,
+          "quota_mode": "fixed",
+          "profile": "async-mask",
+          "baseline": "main",
+          "complete_block_numbers": [
+            0
+          ],
+          "estimates": {
+            "exact_body_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": -5.21638195538211,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -5.21638195538211
+              ]
+            },
+            "exact_drain_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": -5.120455561372783,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -5.120455561372783
+              ]
+            },
+            "productive_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": -5.134600000311984,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -5.134600000311984
+              ]
+            },
+            "body_cpu_us_op": {
+              "blocks": 1,
+              "geometric_delta_pct": -0.006224752758676733,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -0.006224752758676733
+              ]
+            },
+            "drain_cpu_us_op": {
+              "blocks": 1,
+              "geometric_delta_pct": -0.03175415632082901,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -0.03175415632082901
+              ]
+            },
+            "worker_completion_spread_s": {
+              "blocks": 1,
+              "geometric_delta_pct": 3.823240632475877,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                3.823240632475877
+              ]
+            }
+          },
+          "absolute_differences": {
+            "worker_completion_spread_s": {
+              "blocks": 1,
+              "mean_difference_s": 0.11659380000000041,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                0.11659380000000041
+              ]
+            },
+            "productive_end_to_stop_s": {
+              "blocks": 1,
+              "mean_difference_s": 0.006645533500000002,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                0.006645533500000002
+              ]
+            },
+            "diagnostic_join_wall_s": {
+              "blocks": 1,
+              "mean_difference_s": 1.4581500000000003e-05,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                1.4581500000000003e-05
+              ]
+            },
+            "diagnostic_close_wall_s": {
+              "blocks": 1,
+              "mean_difference_s": -0.002489693500000001,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                -0.002489693500000001
+              ]
+            }
+          }
+        },
+        {
+          "wal": 0,
+          "quota_mode": "fixed",
+          "profile": "async-mask",
+          "baseline": "original",
+          "complete_block_numbers": [
+            0
+          ],
+          "estimates": {
+            "exact_body_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": 2.201825408792768,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                2.201825408792768
+              ]
+            },
+            "exact_drain_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": 2.587236630501488,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                2.587236630501488
+              ]
+            },
+            "productive_ops_s": {
+              "blocks": 1,
+              "geometric_delta_pct": 2.248198475520735,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                2.248198475520735
+              ]
+            },
+            "body_cpu_us_op": {
+              "blocks": 1,
+              "geometric_delta_pct": 0.6966337250596366,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                0.6966337250596366
+              ]
+            },
+            "drain_cpu_us_op": {
+              "blocks": 1,
+              "geometric_delta_pct": 0.66548712896084,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                0.66548712896084
+              ]
+            },
+            "worker_completion_spread_s": {
+              "blocks": 1,
+              "geometric_delta_pct": -8.394236932309484,
+              "ci95_low_pct": null,
+              "ci95_high_pct": null,
+              "block_delta_pct": [
+                -8.394236932309484
+              ]
+            }
+          },
+          "absolute_differences": {
+            "worker_completion_spread_s": {
+              "blocks": 1,
+              "mean_difference_s": -0.2901328009999995,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                -0.2901328009999995
+              ]
+            },
+            "productive_end_to_stop_s": {
+              "blocks": 1,
+              "mean_difference_s": 0.0018453545000000002,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                0.0018453545000000002
+              ]
+            },
+            "diagnostic_join_wall_s": {
+              "blocks": 1,
+              "mean_difference_s": 8.282000000000006e-06,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                8.282000000000006e-06
+              ]
+            },
+            "diagnostic_close_wall_s": {
+              "blocks": 1,
+              "mean_difference_s": -0.0379919635,
+              "ci95_low_s": null,
+              "ci95_high_s": null,
+              "block_difference_s": [
+                -0.0379919635
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "uncertainty_method": "Arithmetic mirror-pair means within complete blocks; pointwise Student t intervals on block log ratios (or raw second differences). One block has no confidence interval. All samples retained; no multiple-comparison adjustment.",
+  "limitations": [
+    "No exhaustive database readback; uniqueness follows disjoint ID reservation and unchanged bijective key generation, with successful exact-count checks.",
+    "Shared quotas change worker/key assignment and add reservation/control overhead. Compare profiles within each mode; a fixed/shared difference is not solely a quota-tail effect.",
+    "Productive throughput ends at the final insert completion and excludes polling, deregistration and close; it supplements exact body/drain rates.",
+    "Excluded timed preconditions use fixed quotas and may finish their last operation after stop request, producing a negative productive_end_to_stop_s.",
+    "Before/after hardware snapshots retained in the hashed source manifests are not timed frequency measurements. DVFS, variable SMT placement and background-task distribution remain confounders.",
+    "Three blocks and thermal carryover can give broad or optimistic uncertainty. Fixed-record startup tests do not establish steady-state or tail neutrality.",
+    "Small smoke runs validate bookkeeping and zero-work workers; their throughput is not performance evidence.",
+    "This audit checks recorded lock intervals and serial jobs, not unrecorded external machine activity."
+  ]
+}

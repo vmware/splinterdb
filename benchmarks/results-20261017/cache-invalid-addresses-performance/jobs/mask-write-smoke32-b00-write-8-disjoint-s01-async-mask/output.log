@@ -1,0 +1,13 @@
+CONTROL worker_cpus=0,2,4,6,8,10,1,3 control_cpu=12 control_tid=0 warmup_seconds=1
+O_DIRECT address_layout=spread cache_mib=64 disk_ratio=16 resident_pages=32 working_set_bytes=131072 disk_bytes=131072 setup_seconds=0.003
+WORKER worker=0 tid=1 cpu=0 start_cpu=0 end_cpu=0 ops=10453056 cpu_ns=1000092582 cycles=0 instructions=0 branches=0 branch_misses=0 all_ops=20910912 claim_failures=0 all_claim_failures=0
+WORKER worker=1 tid=2 cpu=2 start_cpu=2 end_cpu=2 ops=10584960 cpu_ns=999993198 cycles=0 instructions=0 branches=0 branch_misses=0 all_ops=20451520 claim_failures=0 all_claim_failures=0
+WORKER worker=2 tid=3 cpu=4 start_cpu=4 end_cpu=4 ops=15011520 cpu_ns=1000112374 cycles=0 instructions=0 branches=0 branch_misses=0 all_ops=29900928 claim_failures=0 all_claim_failures=0
+WORKER worker=3 tid=4 cpu=6 start_cpu=6 end_cpu=6 ops=15031488 cpu_ns=1000044950 cycles=0 instructions=0 branches=0 branch_misses=0 all_ops=29904512 claim_failures=0 all_claim_failures=0
+WORKER worker=4 tid=5 cpu=8 start_cpu=8 end_cpu=8 ops=14891136 cpu_ns=1000114793 cycles=0 instructions=0 branches=0 branch_misses=0 all_ops=29790784 claim_failures=0 all_claim_failures=0
+WORKER worker=5 tid=6 cpu=10 start_cpu=10 end_cpu=10 ops=14825664 cpu_ns=999690870 cycles=0 instructions=0 branches=0 branch_misses=0 all_ops=29589568 claim_failures=0 all_claim_failures=0
+WORKER worker=6 tid=7 cpu=1 start_cpu=1 end_cpu=1 ops=10455744 cpu_ns=1000099903 cycles=0 instructions=0 branches=0 branch_misses=0 all_ops=20914176 claim_failures=0 all_claim_failures=0
+WORKER worker=7 tid=8 cpu=3 start_cpu=3 end_cpu=3 ops=10593152 cpu_ns=1000112808 cycles=0 instructions=0 branches=0 branch_misses=0 all_ops=21183552 claim_failures=0 all_claim_failures=0
+VERIFY pages=32 observed=202645952 expected=202645952 errors=0
+mode,api,cache_mib,threads,working_pages,seconds,ops_s,ops,checksum,errors,directory_bytes,entry_bytes,data_bytes,refcount_bytes,pin_bytes,max_rss_bytes,setup_ns,read_bytes,write_bytes,major_faults,minor_faults,cpu_ns,async_waits,perf_enabled,perf_cycles,perf_instructions,perf_branches,perf_branch_misses,perf_enabled_ns,perf_running_ns,warmup_seconds,control_cpu,worker_cpu_ns,claim_failures,all_claim_failures,all_ops,warmup_ops,verified_updates,dirty_pages
+disjoint,write,64,8,32,1.000111667,101835348.4,101846720,16867294515942513984,0,1048576,1048576,67108864,131072,16384,23478272,3233088,0,0,0,9,8002256834,0,0,0,0,0,0,0,0,1,12,8000261478,0,0,202645952,100799232,202645952,32

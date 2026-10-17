@@ -1,0 +1,167 @@
+[New LWP 857106]
+[New LWP 857105]
+[New LWP 857104]
+[New LWP 857103]
+[New LWP 857102]
+[New LWP 857101]
+[New LWP 857100]
+[New LWP 857099]
+[New LWP 857060]
+
+warning: Target and debugger are in different PID namespaces; thread lists and other data are likely unreliable.  Connect to gdbserver inside the container.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+0x00007f88a9d2a72e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+{
+  "capacity": 8192,
+  "held_pages": 8192,
+  "total_references": 62888,
+  "free": 0,
+  "unreferenced": 0,
+  "loading": 0,
+  "pinned": 0,
+  "busy_batches": 8,
+  "status_counts": {
+    "4": 8192
+  },
+  "reference_counts": {
+    "2": 131,
+    "3": 61,
+    "4": 66,
+    "5": 71,
+    "7": 108,
+    "8": 7514,
+    "6": 143,
+    "1": 98
+  },
+  "windows": [
+    {
+      "thread": 857099,
+      "requested_type": "PAGE_TYPE_MISC",
+      "batch_start": 8416,
+      "j": 21,
+      "tid": 1,
+      "i": 8416,
+      "k": 576,
+      "working_set_pages": 7864,
+      "owned_completed_handles": 7840,
+      "async_context_statuses": {
+        "ready_to_continue": 21,
+        "waiting_on_io": 1,
+        "done": 10
+      }
+    },
+    {
+      "thread": 857100,
+      "requested_type": "PAGE_TYPE_MISC",
+      "batch_start": 8192,
+      "j": 26,
+      "tid": 2,
+      "i": 8192,
+      "k": 352,
+      "working_set_pages": 7864,
+      "owned_completed_handles": 7840,
+      "async_context_statuses": {
+        "ready_to_continue": 26,
+        "waiting_on_io": 1,
+        "done": 5
+      }
+    },
+    {
+      "thread": 857101,
+      "requested_type": "PAGE_TYPE_MISC",
+      "batch_start": 8288,
+      "j": 6,
+      "tid": 3,
+      "i": 8288,
+      "k": 448,
+      "working_set_pages": 7864,
+      "owned_completed_handles": 7840,
+      "async_context_statuses": {
+        "ready_to_continue": 6,
+        "waiting_on_io": 1,
+        "done": 25
+      }
+    },
+    {
+      "thread": 857102,
+      "requested_type": "PAGE_TYPE_MISC",
+      "batch_start": 8512,
+      "j": 27,
+      "tid": 4,
+      "i": 8512,
+      "k": 672,
+      "working_set_pages": 7864,
+      "owned_completed_handles": 7840,
+      "async_context_statuses": {
+        "ready_to_continue": 27,
+        "waiting_on_io": 1,
+        "done": 4
+      }
+    },
+    {
+      "thread": 857103,
+      "requested_type": "PAGE_TYPE_MISC",
+      "batch_start": 8480,
+      "j": 30,
+      "tid": 5,
+      "i": 8480,
+      "k": 640,
+      "working_set_pages": 7864,
+      "owned_completed_handles": 7840,
+      "async_context_statuses": {
+        "ready_to_continue": 30,
+        "waiting_on_io": 1,
+        "done": 1
+      }
+    },
+    {
+      "thread": 857104,
+      "requested_type": "PAGE_TYPE_MISC",
+      "batch_start": 8512,
+      "j": 30,
+      "tid": 6,
+      "i": 8512,
+      "k": 672,
+      "working_set_pages": 7864,
+      "owned_completed_handles": 7840,
+      "async_context_statuses": {
+        "ready_to_continue": 30,
+        "waiting_on_io": 1,
+        "done": 1
+      }
+    },
+    {
+      "thread": 857105,
+      "requested_type": "PAGE_TYPE_MISC",
+      "batch_start": 8544,
+      "j": 0,
+      "tid": 7,
+      "i": 8544,
+      "k": 704,
+      "working_set_pages": 7864,
+      "owned_completed_handles": 7840,
+      "async_context_statuses": {
+        "waiting_on_io": 1,
+        "done": 31
+      }
+    },
+    {
+      "thread": 857106,
+      "requested_type": "PAGE_TYPE_MISC",
+      "batch_start": 8448,
+      "j": 28,
+      "tid": 8,
+      "i": 8448,
+      "k": 608,
+      "working_set_pages": 7864,
+      "owned_completed_handles": 7840,
+      "async_context_statuses": {
+        "ready_to_continue": 28,
+        "waiting_on_io": 1,
+        "done": 3
+      }
+    }
+  ]
+}
+[Inferior 1 (process 857059) detached]

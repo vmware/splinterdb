@@ -1,0 +1,16 @@
+{
+  "name": "build-insert-diagnostics",
+  "command": [
+    "/usr/bin/python3",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/prepare_diagnostics.py",
+    "--build"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017",
+  "environment_overrides": null,
+  "queued": 1792223270.6408043,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792223321.321069,
+  "returncode": 0,
+  "finished": 1792223321.6863103,
+  "log_sha256": "f0013e39c14986262c5f7506913ac495208b0b19600b755b80807cd7bab1fa73"
+}

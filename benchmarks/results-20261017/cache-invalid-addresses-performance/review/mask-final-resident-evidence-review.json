@@ -1,0 +1,320 @@
+{
+  "scope": "Independent read-only acceptance review of completed resident matrix; other harnesses are reported separately and no rates are pooled.",
+  "audited_report": "database/analysis/mask-final-hits-audited.json",
+  "audited_report_sha256": "59327537ec2f67042d7bdf30bb28163a8e19fbc7f340e61cbe474cf114a31fb4",
+  "driver_sha256": "44e670cb89560c5f226633b6486da992d9cd4c8581806df5a701a3a7a3f38349",
+  "runner_sha256": "b4ee56784a4410be110a116719777050bc7024a70afea69cdbe57eefe34f2c09",
+  "candidate_library_sha256": "c7b04dabd8a600500ead9095a04e0a572baf904e256f077043c7191abdd8d228",
+  "candidate_source_sha256": "7f370079f60ccb1b86744a209c20dd09d0b729d512bdf3e022e04b51d23a777a",
+  "codegen_review": "review/async-mask-hit-codegen-review.json",
+  "checks": {
+    "measured_rows": 144,
+    "excluded_preconditions": 8,
+    "all_generic_audit_checks_passed": true,
+    "throughput_pairing_and_ci_independently_recomputed": true,
+    "all_working_pages": 12288,
+    "cache_mib": 64,
+    "logical_working_set_mib": 48,
+    "geometry_identical": true,
+    "address_layout": "spread",
+    "disk_ratio": 16,
+    "all_ops_s_match_raw_ops_and_elapsed": true,
+    "sample_exclusions": 0
+  },
+  "headline_table": [
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "vs_main": {
+        "blocks": 3,
+        "geometric_delta_pct": 0.41141133080975223,
+        "ci95_low_pct": -2.8996438898404864,
+        "ci95_high_pct": 3.8353712524660244,
+        "block_delta_pct": [
+          1.987352272356846,
+          -0.3148348536838763,
+          -0.41994443814540316
+        ]
+      },
+      "vs_original": {
+        "blocks": 3,
+        "geometric_delta_pct": 0.5560103649977721,
+        "ci95_low_pct": -0.19209239105578702,
+        "ci95_high_pct": 1.3097204696775444,
+        "block_delta_pct": [
+          0.904727343664824,
+          0.36047143683792804,
+          0.40374134777876325
+        ]
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "dependent",
+      "vs_main": {
+        "blocks": 3,
+        "geometric_delta_pct": 0.18995402566250874,
+        "ci95_low_pct": -2.2876456967874104,
+        "ci95_high_pct": 2.730375900218518,
+        "block_delta_pct": [
+          0.8249995209157923,
+          0.7228976482858807,
+          -0.9678763787234201
+        ]
+      },
+      "vs_original": {
+        "blocks": 3,
+        "geometric_delta_pct": -0.1514329075022247,
+        "ci95_low_pct": -3.9090167205062643,
+        "ci95_high_pct": 3.7530891054230464,
+        "block_delta_pct": [
+          0.12080218532910525,
+          -1.7972697976194718,
+          1.2459425153842352
+        ]
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 8,
+      "mode": "independent",
+      "vs_main": {
+        "blocks": 3,
+        "geometric_delta_pct": 0.8280941801652286,
+        "ci95_low_pct": -2.360699608875594,
+        "ci95_high_pct": 4.121030520292468,
+        "block_delta_pct": [
+          2.3206553460711765,
+          0.32260670767945143,
+          -0.14207116862369196
+        ]
+      },
+      "vs_original": {
+        "blocks": 3,
+        "geometric_delta_pct": 1.6493883525895425,
+        "ci95_low_pct": -0.3089497097608751,
+        "ci95_high_pct": 3.6461961467291637,
+        "block_delta_pct": [
+          2.539414160050324,
+          0.9971967422613082,
+          1.4177935045626366
+        ]
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 8,
+      "mode": "dependent",
+      "vs_main": {
+        "blocks": 3,
+        "geometric_delta_pct": -1.0778939844931612,
+        "ci95_low_pct": -3.305724872910365,
+        "ci95_high_pct": 1.201266007543289,
+        "block_delta_pct": [
+          -0.8881811701190956,
+          -0.277411399555072,
+          -2.059780772435782
+        ]
+      },
+      "vs_original": {
+        "blocks": 3,
+        "geometric_delta_pct": -0.181755755839208,
+        "ci95_low_pct": -0.9896607535463398,
+        "ci95_high_pct": 0.6327415885893695,
+        "block_delta_pct": [
+          -0.3965256240275217,
+          0.19468372546138646,
+          -0.34235660585008043
+        ]
+      }
+    },
+    {
+      "api": "async",
+      "threads": 1,
+      "mode": "independent",
+      "vs_main": {
+        "blocks": 3,
+        "geometric_delta_pct": 1.666576787511942,
+        "ci95_low_pct": -2.2564995302437496,
+        "ci95_high_pct": 5.747111429565077,
+        "block_delta_pct": [
+          0.9777594011163071,
+          3.5239460952648294,
+          0.5236048266044957
+        ]
+      },
+      "vs_original": {
+        "blocks": 3,
+        "geometric_delta_pct": 2.032438848110596,
+        "ci95_low_pct": 0.5857938061340384,
+        "ci95_high_pct": 3.4998898289607006,
+        "block_delta_pct": [
+          2.710903258660058,
+          1.6634165358746067,
+          1.726371437485441
+        ]
+      }
+    },
+    {
+      "api": "async",
+      "threads": 1,
+      "mode": "dependent",
+      "vs_main": {
+        "blocks": 3,
+        "geometric_delta_pct": 0.6006745401329949,
+        "ci95_low_pct": -3.7869986224542185,
+        "ci95_high_pct": 5.188442029953033,
+        "block_delta_pct": [
+          2.0430515555416973,
+          1.198887332328713,
+          -1.4075853543962347
+        ]
+      },
+      "vs_original": {
+        "blocks": 3,
+        "geometric_delta_pct": 0.3683475349907539,
+        "ci95_low_pct": -2.708202329560383,
+        "ci95_high_pct": 3.5421837000904066,
+        "block_delta_pct": [
+          1.701481794196269,
+          -0.8031804550418187,
+          0.22251419073249235
+        ]
+      }
+    },
+    {
+      "api": "async",
+      "threads": 8,
+      "mode": "independent",
+      "vs_main": {
+        "blocks": 3,
+        "geometric_delta_pct": 0.5756206358935367,
+        "ci95_low_pct": -0.8745623002302638,
+        "ci95_high_pct": 2.0470194233368932,
+        "block_delta_pct": [
+          1.1388398779514919,
+          -0.033703384485994636,
+          0.6251619940596642
+        ]
+      },
+      "vs_original": {
+        "blocks": 3,
+        "geometric_delta_pct": 1.9354945077739272,
+        "ci95_low_pct": 0.6452621019577887,
+        "ci95_high_pct": 3.2422671821158655,
+        "block_delta_pct": [
+          2.0170130176690337,
+          1.3784040622895732,
+          2.413745283510682
+        ]
+      }
+    },
+    {
+      "api": "async",
+      "threads": 8,
+      "mode": "dependent",
+      "vs_main": {
+        "blocks": 3,
+        "geometric_delta_pct": 0.5005787518598703,
+        "ci95_low_pct": 0.01005143507628592,
+        "ci95_high_pct": 0.993511997298202,
+        "block_delta_pct": [
+          0.27475303043922317,
+          0.6427491227581461,
+          0.5846237856327097
+        ]
+      },
+      "vs_original": {
+        "blocks": 3,
+        "geometric_delta_pct": 1.4211292950415233,
+        "ci95_low_pct": 0.9785670719800743,
+        "ci95_high_pct": 1.8656311507097678,
+        "block_delta_pct": [
+          1.2498782035036404,
+          1.4076272552582259,
+          1.606196713207475
+        ]
+      }
+    }
+  ],
+  "single_worker_instruction_counts": [
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "means": {
+        "main": 276.40335134269054,
+        "original": 280.4033512655697,
+        "async-mask": 279.40335133645084
+      },
+      "delta_vs_main": 2.999999993760298,
+      "delta_vs_original": -0.9999999291188715
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "dependent",
+      "means": {
+        "main": 251.52837237853842,
+        "original": 255.52837295714016,
+        "async-mask": 254.52837151765786
+      },
+      "delta_vs_main": 2.9999991391194385,
+      "delta_vs_original": -1.000001439482304
+    },
+    {
+      "api": "async",
+      "threads": 1,
+      "mode": "independent",
+      "means": {
+        "main": 360.41995552226257,
+        "original": 368.4199566603188,
+        "async-mask": 358.41995645884134
+      },
+      "delta_vs_main": -1.9999990634212281,
+      "delta_vs_original": -10.000000201477462
+    },
+    {
+      "api": "async",
+      "threads": 1,
+      "mode": "dependent",
+      "means": {
+        "main": 343.4356015153083,
+        "original": 351.4356017494663,
+        "async-mask": 341.4356034927827
+      },
+      "delta_vs_main": -1.999998022525574,
+      "delta_vs_original": -9.999998256683568
+    }
+  ],
+  "worst_mean_throughput_vs_main_pct": -1.0778939844931612,
+  "worst_mean_throughput_vs_original_pct": -0.181755755839208,
+  "cases_with_main_ci_below_minus3pct": [
+    {
+      "api": "blocking",
+      "threads": 8,
+      "mode": "dependent"
+    },
+    {
+      "api": "async",
+      "threads": 1,
+      "mode": "dependent"
+    }
+  ],
+  "thermal_flagged_measured_processes": 144,
+  "thermal_flagged_precondition_processes": 8,
+  "conclusion": "No substantial resident regression observed: worst mean loss 1.08 percent versus main and 0.18 percent versus original; all async mean comparisons positive. Two main confidence intervals extend below minus3percent, so this is not proof of a universal three-percent bound. Hardware counters confirm sync minus 1 and async minus 10 retired instructions versus original.",
+  "limitations": [
+    "Few blocks give imprecise intervals; normal-log-ratio and independent-block assumptions may be imperfect under thermal carryover.",
+    "Intervals are pointwise, not adjusted for multiple scenarios/candidates.",
+    "No samples are silently excluded, including flagged thermal events; inspect all block ratios.",
+    "The user-cycle/thread-CPU-time proxy is not calibrated CPU frequency and is not used to normalize throughput.",
+    "Zero I/O and error checks apply to these cache probe cases; results are not database steady-state or durability benchmarks.",
+    "For degrees of freedom above 30, the t cutoff is conservatively held at 2.042.",
+    "Eight-worker cases use the fixed recorded CPU map including SMT siblings; counters are disabled there, so instruction claims come only from single-worker cases.",
+    "All 152 processes have thermal-counter increases somewhere across their process lifetimes; this does not locate events within the measured phase.",
+    "Hot32, valid-nonblocking-miss and database evidence are separate; this report alone does not establish insertion neutrality."
+  ]
+}

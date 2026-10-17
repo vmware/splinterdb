@@ -1,0 +1,139 @@
+--- harnesses/insert_benchmark_diagnostics.c
++++ harnesses/insert_benchmark_quota.c
+@@ -32,6 +32,7 @@
+ #define HIST_SUB_BITS   5
+ #define HIST_SUB        (1u << HIST_SUB_BITS)
+ #define HIST_BUCKETS    (64 * HIST_SUB)
++#define SHARED_QUOTA_BATCH UINT64_C(1024)
+ 
+ typedef struct latency_histogram {
+    uint64_t buckets[HIST_BUCKETS];
+@@ -50,7 +51,7 @@
+    uint64_t    key_size, value_size, report_ms, seconds, min_free_gib;
+    uint64_t    queue_scale, barrier_ms, target_insert_ops_s;
+    uint64_t    log_group_size_pages;
+-   bool        full_query_range, direct, use_log, open_existing;
++   bool        full_query_range, direct, use_log, open_existing, shared_quota;
+ } options;
+ 
+ typedef struct benchmark benchmark;
+@@ -79,6 +80,9 @@
+    pthread_t            barrier_thread;
+    atomic_bool          barrier_started, barrier_done;
+    atomic_uint_fast64_t barrier_count, barrier_sum_ns, barrier_max_ns;
++   /* Each reservation owns a disjoint range of logical IDs. Keep this
++    * occasional shared write off the existing control/worker cache lines. */
++   _Alignas(64) atomic_uint_fast64_t next_record;
+ };
+ 
+ static volatile sig_atomic_t interrupted;
+@@ -289,6 +293,7 @@
+    uint64_t completed = 0, hits = 0;
+    uint64_t random = o->seed + w->index + 1;
+    uint64_t start = 0, end = 0;
++   uint64_t batch_next = 0, batch_end = 0;
+    while (!atomic_load_explicit(&b->stop, memory_order_relaxed)) {
+       uint64_t scheduled = 0;
+       uint64_t arrival   = UINT64_MAX;
+@@ -308,9 +313,25 @@
+       }
+       uint64_t id;
+       if (!w->query) {
+-         uint64_t offset = o->target_insert_ops_s != 0
+-                              ? arrival
+-                              : completed * o->inserts + w->index;
++         uint64_t offset;
++         if (o->shared_quota) {
++            if (batch_next == batch_end) {
++               batch_next = atomic_fetch_add_explicit(
++                  &b->next_record, SHARED_QUOTA_BATCH, memory_order_relaxed);
++               if (batch_next >= o->records) {
++                  break;
++               }
++               /* The existing record-count bound leaves ample room for
++                * one final empty reservation by every worker. */
++               batch_end = batch_next + MIN(SHARED_QUOTA_BATCH,
++                                            o->records - batch_next);
++            }
++            offset = batch_next++;
++         } else {
++            offset = o->target_insert_ops_s != 0
++                        ? arrival
++                        : completed * o->inserts + w->index;
++         }
+          if (offset >= o->records) {
+             break;
+          }
+@@ -442,6 +463,8 @@
+       "  --id-base N        first logical id inserted (default 0)\n"
+       "  --data-gib N       logical key+value GiB (default 60)\n"
+       "  --records N        override logical data target\n"
++      "  --shared-quota     allocate IDs in shared batches of 1024; requires\n"
++      "                     fresh DB, 8 inserters, 0 readers, seconds 0, no rate limit\n"
+       "  --cache-mib N      default 3072\n"
+       "  --disk-gib N       image capacity (default 512; grows lazily)\n"
+       "  --inserters N      default 8\n"
+@@ -514,6 +537,10 @@
+       }
+       if (!strcmp(argv[i], "--open")) {
+          o->open_existing = true;
++         continue;
++      }
++      if (!strcmp(argv[i], "--shared-quota")) {
++         o->shared_quota = true;
+          continue;
+       }
+       if (i + 1 >= argc) {
+@@ -596,6 +623,12 @@
+        || o->seconds > UINT64_MAX / 1000000000
+        || o->barrier_ms > UINT64_MAX / 1000000
+        || (o->target_insert_ops_s != 0 && (o->seconds == 0 || o->queries != 0)))
++   {
++      return false;
++   }
++   if (o->shared_quota
++       && (o->open_existing || o->inserts != 8 || o->queries != 0
++           || o->seconds != 0 || o->target_insert_ops_s != 0))
+    {
+       return false;
+    }
+@@ -777,7 +810,7 @@
+       "disk_gib=%lu inserters=%lu readers=%lu memtable_bg=%lu normal_bg=%lu "
+       "memtable_mib=%lu queue_scale=%lu log=%d checkpoints=disabled "
+       "direct=%d query_range=%s seed=%lu report_ms=%lu barrier_ms=%lu "
+-      "target_insert_ops_s=%lu id_base=%lu mode=%s\n",
++      "target_insert_ops_s=%lu id_base=%lu mode=%s quota_mode=%s quota_batch=%lu\n",
+       splinterdb_get_version(),
+       o->records,
+       o->key_size,
+@@ -798,7 +831,9 @@
+       o->barrier_ms,
+       o->target_insert_ops_s,
+       o->id_base,
+-      o->open_existing ? "open" : "create");
++      o->open_existing ? "open" : "create",
++      o->shared_quota ? "shared" : "fixed",
++      o->shared_quota ? SHARED_QUOTA_BATCH : UINT64_C(0));
+    int rc = o->open_existing ? splinterdb_open(&cfg, &b.db)
+                              : splinterdb_create(&cfg, &b.db);
+    if (rc) {
+@@ -1036,6 +1071,19 @@
+    print_diagnostic_snapshot("workers_joined", diagnostic_joined);
+    print_diagnostic_snapshot("before_close", diagnostic_before_close);
+    print_diagnostic_snapshot("after_close", diagnostic_after_close);
++   uint64_t productive_end_ns = 0;
++   for (uint64_t i = 0; i < o->inserts; i++) {
++      productive_end_ns = MAX(productive_end_ns, b.workers[i].last_end_ns);
++   }
++   fprintf(stderr,
++           "diagnostic_quota mode=%s batch=%lu next_record=%lu "
++           "target_records=%lu completed_records=%lu productive_end_ns=%lu\n",
++           o->shared_quota ? "shared" : "fixed",
++           o->shared_quota ? SHARED_QUOTA_BATCH : UINT64_C(0),
++           atomic_load(&b.next_record),
++           o->records,
++           inserted,
++           productive_end_ns);
+    for (uint64_t i = 0; i < started; i++) {
+       worker *w = &b.workers[i];
+       fprintf(stderr,

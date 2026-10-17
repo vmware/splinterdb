@@ -1,0 +1,22 @@
+kvbench version=cache-invalid-addresses splinter=splinterdb_build_version 193ba3e4-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/repeat-cache-invalid-addresses/scratch.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=10.0 warmup=1.0 rep=1 sabotage=0
+open took 0.005 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.02 ops/s=    8216585  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.06s ops/cpu-s=3511236 rd=138.4 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=5
+phase point:uniform@1: T=1 dist=uniform (fixed duration)
+  [point:uniform@1] progress 12561842 ops (+1256054 ops/s)
+   found=11448564 notfound=0
+== point:uniform@1        T=1  ops=11448564   secs=  10.00 ops/s=    1144836  lat us p50=0.82 p99=1.26 p99.9=1.90 max=153.2 mean=0.85
+   cpu=10.00s ops/cpu-s=1144966 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=1 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+  [point:uniform@8] progress 56413786 ops (+4384905 ops/s)
+   found=56270477 notfound=0
+== point:uniform@8        T=8  ops=56270477   secs=  10.00 ops/s=    5626906  lat us p50=1.36 p99=1.94 p99.9=2.46 max=81.4 mean=1.38
+   cpu=79.99s ops/cpu-s=703459 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 4815802 ops (+1844545030055114496 ops/s)
+close took 0.096 s
+== range:uniform:1@8      T=8  ops=5406321    secs=  10.00 ops/s=     540621  lat us p50=13.70 p99=19.71 p99.9=29.44 max=232.4 mean=14.75
+   cpu=79.99s ops/cpu-s=67592 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=12.93 p99=19.20 mean=14.11  per-tuple=nan ns  deinit mean=0.60 us  tuples/s=540621
+   insert/run=10.00s drain(close)=0.10s total=10.10s drain_cpu=0.01s drain_rd=0 drain_wr=307200 wamp=nan db_apparent=162664448 db_alloc=28655616

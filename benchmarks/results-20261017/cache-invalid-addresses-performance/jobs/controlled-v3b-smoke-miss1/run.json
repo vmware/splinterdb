@@ -1,0 +1,26 @@
+{
+  "name": "controlled-v3b-smoke-miss1",
+  "command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/harness/controlled-v3b/cache_api_probe",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/controlled-v3b-smoke-miss1/cache.db",
+    "64",
+    "1",
+    "1",
+    "miss",
+    "nonblocking"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/controlled-v3b-smoke-miss1",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/sequential/release/lib",
+    "CACHE_PROBE_CONTROL_CPU": "12",
+    "CACHE_PROBE_WORKER_CPUS": "2",
+    "CACHE_PROBE_WARMUP_SECONDS": "1",
+    "CACHE_PROBE_PERF": "1"
+  },
+  "queued": 1792223784.251447,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792223784.251477,
+  "returncode": 0,
+  "finished": 1792223786.77201,
+  "log_sha256": "2fcae24b48430883f34e8bb4321858b9cf539387430789f51a0217baa31440db"
+}

@@ -1,0 +1,92 @@
+[
+  {
+    "symbol": "btree_iterator_next",
+    "instruction_counts": {
+      "main": 182,
+      "original": 182,
+      "sequential": 182
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  },
+  {
+    "symbol": "btree_iterator_curr",
+    "instruction_counts": {
+      "main": 140,
+      "original": 140,
+      "sequential": 140
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  },
+  {
+    "symbol": "btree_iterator_check_current.lto_priv.0",
+    "instruction_counts": {
+      "main": 131,
+      "original": 131,
+      "sequential": 131
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  },
+  {
+    "symbol": "btree_iterator_decode_current",
+    "instruction_counts": {
+      "main": 75,
+      "original": 75,
+      "sequential": 75
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  },
+  {
+    "symbol": "btree_iterator_next_leaf",
+    "instruction_counts": {
+      "main": 379,
+      "original": 379,
+      "sequential": 379
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  },
+  {
+    "symbol": "core_range_iterator_next",
+    "instruction_counts": {
+      "main": 23,
+      "original": 23,
+      "sequential": 23
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  },
+  {
+    "symbol": "core_range_iterator_next.part.0",
+    "instruction_counts": {
+      "main": 593,
+      "original": 593,
+      "sequential": 593
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  },
+  {
+    "symbol": "clockcache_validate_page",
+    "instruction_counts": {
+      "main": 1,
+      "original": 1,
+      "sequential": 1
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  },
+  {
+    "symbol": "clockcache_validate_page_virtual",
+    "instruction_counts": {
+      "main": 1,
+      "original": 1,
+      "sequential": 1
+    },
+    "main_original_equal_after_address_normalization": true,
+    "main_sequential_equal_after_address_normalization": true
+  }
+]

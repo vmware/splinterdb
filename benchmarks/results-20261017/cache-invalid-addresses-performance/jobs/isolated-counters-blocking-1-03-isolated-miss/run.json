@@ -1,0 +1,25 @@
+{
+  "name": "isolated-counters-blocking-1-03-isolated-miss",
+  "command": [
+    "taskset",
+    "-c",
+    "2",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/harness/counters/cache_api_probe",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/isolated-counters-blocking-1-03-isolated-miss/cache.db",
+    "64",
+    "1",
+    "5",
+    "both",
+    "blocking"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/isolated-counters-blocking-1-03-isolated-miss",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/isolated-miss/release/lib"
+  },
+  "queued": 1792223208.7771642,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792223208.7771764,
+  "returncode": 0,
+  "finished": 1792223221.2803671,
+  "log_sha256": "98766199d7724662023c23ca962879cf2989e0f80675760878818fafcad3ed9a"
+}

@@ -1,0 +1,337 @@
+[New LWP 864394]
+[New LWP 864393]
+[New LWP 864392]
+[New LWP 864391]
+[New LWP 864390]
+[New LWP 864389]
+[New LWP 864388]
+[New LWP 864387]
+[New LWP 864353]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+0x00007f3c35dc972e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 10 (Thread 0x7f3c33a956c0 (LWP 864353) "laio_cleaner"):
+#0  0x00007f3c35e3d4f9 in syscall () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007f3c35c392a9 in ?? () from /lib/x86_64-linux-gnu/libaio.so.1t64
+#2  0x00007f3c35c3931f in ?? () from /lib/x86_64-linux-gnu/libaio.so.1t64
+#3  0x00007f3c35c39425 in ?? () from /lib/x86_64-linux-gnu/libaio.so.1t64
+#4  0x00007f3c35c394ee in io_getevents () from /lib/x86_64-linux-gnu/libaio.so.1t64
+#5  0x00007f3c35fe9ec7 in laio_cleanup_one (pctx=0x7f3c35f38050, mincnt=1) at src/platform_linux/laio.c:146
+#6  0x00007f3c35fea033 in laio_cleaner (arg=0x7f3c35f38050) at src/platform_linux/laio.c:189
+#7  0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#8  0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 9 (Thread 0x7f3c2a7fc6c0 (LWP 864387) "driver_test"):
+#0  0x00007f3c35fc4896 in clockcache_batch_start_writeback (cc=0x55b3631bd8c0, batch=82, is_urgent=1) at src/clockcache.c:1397
+#1  0x00007f3c35fc5089 in clockcache_acquire_batch (cc=0x55b3631bd8c0, is_urgent=1) at src/clockcache.c:1766
+#2  0x00007f3c35fc520c in clockcache_get_free_page (cc=0x55b3631bd8c0, status=22, type=PAGE_TYPE_MISC, refcount=1, blocking=1) at src/clockcache.c:1814
+#3  0x00007f3c35fc6195 in clockcache_acquire_entry_for_load (cc=0x55b3631bd8c0, addr=302514176, type=PAGE_TYPE_MISC) at src/clockcache.c:2274
+#4  0x00007f3c35fc6df7 in clockcache_get_from_disk_async (state=0x55b3631de330, depth=2) at src/clockcache.c:2603
+#5  0x00007f3c35fc7530 in clockcache_get_internal_async (state=0x55b3631de330, depth=1) at src/clockcache.c:2696
+#6  0x00007f3c35fc76e1 in clockcache_get_async (state=0x55b3631de330) at src/clockcache.c:2713
+#7  0x00007f3c35fcaac1 in clockcache_get_async_virtual (payload=0x55b3631de330) at src/clockcache.c:4045
+#8  0x000055b3513f2efd in cache_get_async (buffer=0x55b3631de320) at src/cache.h:411
+#9  0x000055b3513f940d in test_do_read_batch (tid=1, params=0x55b3631de2c0, batch_start=8192) at tests/functional/cache_test.c:1770
+#10 0x000055b3513f9729 in test_reader_thread (arg=0x55b3631de2c0) at tests/functional/cache_test.c:1820
+#11 0x00007f3c35fede5a in thread_worker_function (arg=0x7f3c35f5a240) at src/platform_linux/platform_threads.c:478
+#12 0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#13 0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 8 (Thread 0x7f3c2affd6c0 (LWP 864388) "driver_test"):
+#0  clockcache_get_ref_by_number (cc=0x55b3631bd8c0, rc_number=1455, counter_no=2) at src/clockcache.c:557
+#1  0x00007f3c35fc4b05 in clockcache_try_evict (cc=0x55b3631bd8c0, entry_number=6038) at src/clockcache.c:1611
+#2  0x00007f3c35fc4eed in clockcache_evict_batch (cc=0x55b3631bd8c0, batch=94) at src/clockcache.c:1726
+#3  0x00007f3c35fc5115 in clockcache_acquire_batch (cc=0x55b3631bd8c0, is_urgent=1) at src/clockcache.c:1776
+#4  0x00007f3c35fc520c in clockcache_get_free_page (cc=0x55b3631bd8c0, status=22, type=PAGE_TYPE_MISC, refcount=1, blocking=1) at src/clockcache.c:1814
+#5  0x00007f3c35fc6195 in clockcache_acquire_entry_for_load (cc=0x55b3631bd8c0, addr=309067776, type=PAGE_TYPE_MISC) at src/clockcache.c:2274
+#6  0x00007f3c35fc6df7 in clockcache_get_from_disk_async (state=0x55b3631ee790, depth=2) at src/clockcache.c:2603
+#7  0x00007f3c35fc7530 in clockcache_get_internal_async (state=0x55b3631ee790, depth=1) at src/clockcache.c:2696
+#8  0x00007f3c35fc76e1 in clockcache_get_async (state=0x55b3631ee790) at src/clockcache.c:2713
+#9  0x00007f3c35fcaac1 in clockcache_get_async_virtual (payload=0x55b3631ee790) at src/clockcache.c:4045
+#10 0x000055b3513f2efd in cache_get_async (buffer=0x55b3631ee780) at src/cache.h:411
+#11 0x000055b3513f940d in test_do_read_batch (tid=2, params=0x55b3631ee720, batch_start=9792) at tests/functional/cache_test.c:1770
+#12 0x000055b3513f9729 in test_reader_thread (arg=0x55b3631ee720) at tests/functional/cache_test.c:1820
+#13 0x00007f3c35fede5a in thread_worker_function (arg=0x7f3c35f5a250) at src/platform_linux/platform_threads.c:478
+#14 0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#15 0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 7 (Thread 0x7f3c319ee6c0 (LWP 864389) "driver_test"):
+#0  clockcache_try_evict (cc=0x55b3631bd8c0, entry_number=2765) at src/clockcache.c:1591
+#1  0x00007f3c35fc4eed in clockcache_evict_batch (cc=0x55b3631bd8c0, batch=43) at src/clockcache.c:1726
+#2  0x00007f3c35fc5115 in clockcache_acquire_batch (cc=0x55b3631bd8c0, is_urgent=1) at src/clockcache.c:1776
+#3  0x00007f3c35fc520c in clockcache_get_free_page (cc=0x55b3631bd8c0, status=22, type=PAGE_TYPE_MISC, refcount=1, blocking=1) at src/clockcache.c:1814
+#4  0x00007f3c35fc6195 in clockcache_acquire_entry_for_load (cc=0x55b3631bd8c0, addr=309067776, type=PAGE_TYPE_MISC) at src/clockcache.c:2274
+#5  0x00007f3c35fc6df7 in clockcache_get_from_disk_async (state=0x55b3631febf0, depth=2) at src/clockcache.c:2603
+#6  0x00007f3c35fc7530 in clockcache_get_internal_async (state=0x55b3631febf0, depth=1) at src/clockcache.c:2696
+#7  0x00007f3c35fc76e1 in clockcache_get_async (state=0x55b3631febf0) at src/clockcache.c:2713
+#8  0x00007f3c35fcaac1 in clockcache_get_async_virtual (payload=0x55b3631febf0) at src/clockcache.c:4045
+#9  0x000055b3513f2efd in cache_get_async (buffer=0x55b3631febe0) at src/cache.h:411
+#10 0x000055b3513f940d in test_do_read_batch (tid=3, params=0x55b3631feb80, batch_start=9792) at tests/functional/cache_test.c:1770
+#11 0x000055b3513f9729 in test_reader_thread (arg=0x55b3631feb80) at tests/functional/cache_test.c:1820
+#12 0x00007f3c35fede5a in thread_worker_function (arg=0x7f3c35f5a260) at src/platform_linux/platform_threads.c:478
+#13 0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#14 0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 6 (Thread 0x7f3c321ef6c0 (LWP 864390) "driver_test"):
+#0  0x00007f3c35fc4a93 in clockcache_try_evict (cc=0x55b3631bd8c0, entry_number=2979) at src/clockcache.c:1594
+#1  0x00007f3c35fc4eed in clockcache_evict_batch (cc=0x55b3631bd8c0, batch=46) at src/clockcache.c:1726
+#2  0x00007f3c35fc5115 in clockcache_acquire_batch (cc=0x55b3631bd8c0, is_urgent=1) at src/clockcache.c:1776
+#3  0x00007f3c35fc520c in clockcache_get_free_page (cc=0x55b3631bd8c0, status=22, type=PAGE_TYPE_MISC, refcount=1, blocking=1) at src/clockcache.c:1814
+#4  0x00007f3c35fc6195 in clockcache_acquire_entry_for_load (cc=0x55b3631bd8c0, addr=302452736, type=PAGE_TYPE_MISC) at src/clockcache.c:2274
+#5  0x00007f3c35fc6df7 in clockcache_get_from_disk_async (state=0x55b363217a70, depth=2) at src/clockcache.c:2603
+#6  0x00007f3c35fc7530 in clockcache_get_internal_async (state=0x55b363217a70, depth=1) at src/clockcache.c:2696
+#7  0x00007f3c35fc76e1 in clockcache_get_async (state=0x55b363217a70) at src/clockcache.c:2713
+#8  0x00007f3c35fcaac1 in clockcache_get_async_virtual (payload=0x55b363217a70) at src/clockcache.c:4045
+#9  0x000055b3513f2efd in cache_get_async (buffer=0x55b363217a60) at src/cache.h:411
+#10 0x000055b3513f940d in test_do_read_batch (tid=4, params=0x55b36320efe0, batch_start=8160) at tests/functional/cache_test.c:1770
+#11 0x000055b3513f9729 in test_reader_thread (arg=0x55b36320efe0) at tests/functional/cache_test.c:1820
+#12 0x00007f3c35fede5a in thread_worker_function (arg=0x7f3c35f5a270) at src/platform_linux/platform_threads.c:478
+#13 0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#14 0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 5 (Thread 0x7f3c332946c0 (LWP 864391) "driver_test"):
+#0  clockcache_get_ref_by_number (cc=0x55b3631bd8c0, rc_number=14134737371138, counter_no=139896580481799) at src/clockcache.c:553
+#1  0x00007f3c35fc4b05 in clockcache_try_evict (cc=0x55b3631bd8c0, entry_number=3291) at src/clockcache.c:1611
+#2  0x00007f3c35fc4eed in clockcache_evict_batch (cc=0x55b3631bd8c0, batch=51) at src/clockcache.c:1726
+#3  0x00007f3c35fc5115 in clockcache_acquire_batch (cc=0x55b3631bd8c0, is_urgent=1) at src/clockcache.c:1776
+#4  0x00007f3c35fc520c in clockcache_get_free_page (cc=0x55b3631bd8c0, status=22, type=PAGE_TYPE_MISC, refcount=1, blocking=1) at src/clockcache.c:1814
+#5  0x00007f3c35fc6195 in clockcache_acquire_entry_for_load (cc=0x55b3631bd8c0, addr=302280704, type=PAGE_TYPE_MISC) at src/clockcache.c:2274
+#6  0x00007f3c35fc6df7 in clockcache_get_from_disk_async (state=0x55b363222d90, depth=2) at src/clockcache.c:2603
+#7  0x00007f3c35fc7530 in clockcache_get_internal_async (state=0x55b363222d90, depth=1) at src/clockcache.c:2696
+#8  0x00007f3c35fc76e1 in clockcache_get_async (state=0x55b363222d90) at src/clockcache.c:2713
+#9  0x00007f3c35fcaac1 in clockcache_get_async_virtual (payload=0x55b363222d90) at src/clockcache.c:4045
+#10 0x000055b3513f2efd in cache_get_async (buffer=0x55b363222d80) at src/cache.h:411
+#11 0x000055b3513f940d in test_do_read_batch (tid=5, params=0x55b36321f440, batch_start=8128) at tests/functional/cache_test.c:1770
+#12 0x000055b3513f9729 in test_reader_thread (arg=0x55b36321f440) at tests/functional/cache_test.c:1820
+#13 0x00007f3c35fede5a in thread_worker_function (arg=0x7f3c35f5a280) at src/platform_linux/platform_threads.c:478
+#14 0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#15 0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 4 (Thread 0x7f3c32a936c0 (LWP 864392) "driver_test"):
+#0  0x00007f3c35fc2a51 in clockcache_get_ref_by_number (cc=0x55b3631bd8c0, rc_number=6427, counter_no=2) at src/clockcache.c:557
+#1  0x00007f3c35fc4b05 in clockcache_try_evict (cc=0x55b3631bd8c0, entry_number=3556) at src/clockcache.c:1611
+#2  0x00007f3c35fc4eed in clockcache_evict_batch (cc=0x55b3631bd8c0, batch=55) at src/clockcache.c:1726
+#3  0x00007f3c35fc5115 in clockcache_acquire_batch (cc=0x55b3631bd8c0, is_urgent=1) at src/clockcache.c:1776
+#4  0x00007f3c35fc520c in clockcache_get_free_page (cc=0x55b3631bd8c0, status=22, type=PAGE_TYPE_MISC, refcount=1, blocking=1) at src/clockcache.c:1814
+#5  0x00007f3c35fc6195 in clockcache_acquire_entry_for_load (cc=0x55b3631bd8c0, addr=302514176, type=PAGE_TYPE_MISC) at src/clockcache.c:2274
+#6  0x00007f3c35fc6df7 in clockcache_get_from_disk_async (state=0x55b36322f910, depth=2) at src/clockcache.c:2603
+#7  0x00007f3c35fc7530 in clockcache_get_internal_async (state=0x55b36322f910, depth=1) at src/clockcache.c:2696
+#8  0x00007f3c35fc76e1 in clockcache_get_async (state=0x55b36322f910) at src/clockcache.c:2713
+#9  0x00007f3c35fcaac1 in clockcache_get_async_virtual (payload=0x55b36322f910) at src/clockcache.c:4045
+#10 0x000055b3513f2efd in cache_get_async (buffer=0x55b36322f900) at src/cache.h:411
+#11 0x000055b3513f940d in test_do_read_batch (tid=6, params=0x55b36322f8a0, batch_start=8192) at tests/functional/cache_test.c:1770
+#12 0x000055b3513f9729 in test_reader_thread (arg=0x55b36322f8a0) at tests/functional/cache_test.c:1820
+#13 0x00007f3c35fede5a in thread_worker_function (arg=0x7f3c35f5a290) at src/platform_linux/platform_threads.c:478
+#14 0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#15 0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 3 (Thread 0x7f3c311ed6c0 (LWP 864393) "driver_test"):
+#0  clockcache_get_ref_by_number (cc=0x55b3631bd8c0, rc_number=222, counter_no=3) at src/clockcache.c:555
+#1  0x00007f3c35fc4b05 in clockcache_try_evict (cc=0x55b3631bd8c0, entry_number=3843) at src/clockcache.c:1611
+#2  0x00007f3c35fc4eed in clockcache_evict_batch (cc=0x55b3631bd8c0, batch=60) at src/clockcache.c:1726
+#3  0x00007f3c35fc5115 in clockcache_acquire_batch (cc=0x55b3631bd8c0, is_urgent=1) at src/clockcache.c:1776
+#4  0x00007f3c35fc520c in clockcache_get_free_page (cc=0x55b3631bd8c0, status=22, type=PAGE_TYPE_MISC, refcount=1, blocking=1) at src/clockcache.c:1814
+#5  0x00007f3c35fc6195 in clockcache_acquire_entry_for_load (cc=0x55b3631bd8c0, addr=308924416, type=PAGE_TYPE_MISC) at src/clockcache.c:2274
+#6  0x00007f3c35fc6df7 in clockcache_get_from_disk_async (state=0x55b36324e910, depth=2) at src/clockcache.c:2603
+#7  0x00007f3c35fc7530 in clockcache_get_internal_async (state=0x55b36324e910, depth=1) at src/clockcache.c:2696
+#8  0x00007f3c35fc76e1 in clockcache_get_async (state=0x55b36324e910) at src/clockcache.c:2713
+#9  0x00007f3c35fcaac1 in clockcache_get_async_virtual (payload=0x55b36324e910) at src/clockcache.c:4045
+#10 0x000055b3513f2efd in cache_get_async (buffer=0x55b36324e900) at src/cache.h:411
+#11 0x000055b3513f940d in test_do_read_batch (tid=7, params=0x55b36323fd00, batch_start=9728) at tests/functional/cache_test.c:1770
+#12 0x000055b3513f9729 in test_reader_thread (arg=0x55b36323fd00) at tests/functional/cache_test.c:1820
+#13 0x00007f3c35fede5a in thread_worker_function (arg=0x7f3c35f5a2a0) at src/platform_linux/platform_threads.c:478
+#14 0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#15 0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 2 (Thread 0x7f3c309ec6c0 (LWP 864394) "driver_test"):
+#0  clockcache_get_ref_by_number (cc=0x55b3631bd8c0, rc_number=5153, counter_no=0) at src/clockcache.c:559
+#1  0x00007f3c35fc4b05 in clockcache_try_evict (cc=0x55b3631bd8c0, entry_number=4304) at src/clockcache.c:1611
+#2  0x00007f3c35fc4eed in clockcache_evict_batch (cc=0x55b3631bd8c0, batch=67) at src/clockcache.c:1726
+#3  0x00007f3c35fc5115 in clockcache_acquire_batch (cc=0x55b3631bd8c0, is_urgent=1) at src/clockcache.c:1776
+#4  0x00007f3c35fc520c in clockcache_get_free_page (cc=0x55b3631bd8c0, status=22, type=PAGE_TYPE_MISC, refcount=1, blocking=1) at src/clockcache.c:1814
+#5  0x00007f3c35fc6195 in clockcache_acquire_entry_for_load (cc=0x55b3631bd8c0, addr=302256128, type=PAGE_TYPE_MISC) at src/clockcache.c:2274
+#6  0x00007f3c35fc6df7 in clockcache_get_from_disk_async (state=0x55b3632509f0, depth=2) at src/clockcache.c:2603
+#7  0x00007f3c35fc7530 in clockcache_get_internal_async (state=0x55b3632509f0, depth=1) at src/clockcache.c:2696
+#8  0x00007f3c35fc76e1 in clockcache_get_async (state=0x55b3632509f0) at src/clockcache.c:2713
+#9  0x00007f3c35fcaac1 in clockcache_get_async_virtual (payload=0x55b3632509f0) at src/clockcache.c:4045
+#10 0x000055b3513f2efd in cache_get_async (buffer=0x55b3632509e0) at src/cache.h:411
+#11 0x000055b3513f940d in test_do_read_batch (tid=8, params=0x55b363250160, batch_start=8128) at tests/functional/cache_test.c:1770
+#12 0x000055b3513f9729 in test_reader_thread (arg=0x55b363250160) at tests/functional/cache_test.c:1820
+#13 0x00007f3c35fede5a in thread_worker_function (arg=0x7f3c35f5a2b0) at src/platform_linux/platform_threads.c:478
+#14 0x00007f3c35dc18bb in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#15 0x00007f3c35e3f538 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+
+Thread 1 (Thread 0x7f3c35c35740 (LWP 864352) "driver_test"):
+#0  0x00007f3c35dc972e in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#1  0x00007f3c35dbe388 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#2  0x00007f3c35dbe9ac in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#3  0x00007f3c35dc34b4 in ?? () from /lib/x86_64-linux-gnu/libc.so.6
+#4  0x00007f3c35fee088 in platform_thread_join (thread=0x55b3631de2d8) at src/platform_linux/platform_threads.c:542
+#5  0x000055b3513fa19b in test_cache_async (cc=0x55b3631bd8c0, cfg=0x7ffec9915a20, hid=0x0, ts=0x7ffec9911fc0, num_reader_threads=8, num_writer_threads=0, working_set_percent=80) at tests/functional/cache_test.c:1975
+#6  0x000055b3513fe347 in cache_test (argc=8, argv=0x7ffec9915ed0) at tests/functional/cache_test.c:2772
+#7  0x000055b351428f6b in test_dispatcher (argc=9, argv=0x7ffec9915ec8) at tests/functional/test_dispatcher.c:51
+#8  0x000055b3513fe583 in main (argc=9, argv=0x7ffec9915ec8) at tests/functional/driver_test.c:13
+{
+  "capacity": 8192,
+  "held_pages": 8192,
+  "total_references": 52278,
+  "free": 0,
+  "unreferenced": 0,
+  "loading": 0,
+  "pinned": 0,
+  "busy_batches": 8,
+  "status_counts": {
+    "4": 8192
+  },
+  "reference_counts": {
+    "8": 4865,
+    "3": 1597,
+    "2": 67,
+    "5": 1551,
+    "6": 106,
+    "7": 6
+  },
+  "windows": [
+    {
+      "thread": 864387,
+      "requested_type": "PAGE_TYPE_MISC",
+      "requested_addr": 302514176,
+      "current_mapping": 1280,
+      "batch_start": 8192,
+      "j": 0,
+      "tid": 1,
+      "i": 8192,
+      "k": 1664,
+      "working_set_pages": 6553,
+      "owned_completed_handles": 6528,
+      "async_context_statuses": {
+        "waiting_on_io": 1,
+        "done": 31
+      }
+    },
+    {
+      "thread": 864388,
+      "requested_type": "PAGE_TYPE_MISC",
+      "requested_addr": 309067776,
+      "current_mapping": 4294967295,
+      "batch_start": 9792,
+      "j": 0,
+      "tid": 2,
+      "i": 9792,
+      "k": 3264,
+      "working_set_pages": 6553,
+      "owned_completed_handles": 6528,
+      "async_context_statuses": {
+        "waiting_on_io": 1,
+        "done": 31
+      }
+    },
+    {
+      "thread": 864389,
+      "requested_type": "PAGE_TYPE_MISC",
+      "requested_addr": 309067776,
+      "current_mapping": 4294967295,
+      "batch_start": 9792,
+      "j": 0,
+      "tid": 3,
+      "i": 9792,
+      "k": 3264,
+      "working_set_pages": 6553,
+      "owned_completed_handles": 6528,
+      "async_context_statuses": {
+        "waiting_on_io": 1,
+        "done": 31
+      }
+    },
+    {
+      "thread": 864390,
+      "requested_type": "PAGE_TYPE_MISC",
+      "requested_addr": 302452736,
+      "current_mapping": 7857,
+      "batch_start": 8160,
+      "j": 17,
+      "tid": 4,
+      "i": 8160,
+      "k": 1632,
+      "working_set_pages": 6553,
+      "owned_completed_handles": 6545,
+      "async_context_statuses": {
+        "done": 31,
+        "waiting_on_io": 1
+      }
+    },
+    {
+      "thread": 864391,
+      "requested_type": "PAGE_TYPE_MISC",
+      "requested_addr": 302280704,
+      "current_mapping": 7894,
+      "batch_start": 8128,
+      "j": 7,
+      "tid": 5,
+      "i": 8128,
+      "k": 1600,
+      "working_set_pages": 6553,
+      "owned_completed_handles": 6529,
+      "async_context_statuses": {
+        "done": 25,
+        "ready_to_continue": 6,
+        "waiting_on_io": 1
+      }
+    },
+    {
+      "thread": 864392,
+      "requested_type": "PAGE_TYPE_MISC",
+      "requested_addr": 302514176,
+      "current_mapping": 1280,
+      "batch_start": 8192,
+      "j": 0,
+      "tid": 6,
+      "i": 8192,
+      "k": 1664,
+      "working_set_pages": 6553,
+      "owned_completed_handles": 6528,
+      "async_context_statuses": {
+        "waiting_on_io": 1,
+        "done": 31
+      }
+    },
+    {
+      "thread": 864393,
+      "requested_type": "PAGE_TYPE_MISC",
+      "requested_addr": 308924416,
+      "current_mapping": 3152,
+      "batch_start": 9728,
+      "j": 29,
+      "tid": 7,
+      "i": 9728,
+      "k": 3200,
+      "working_set_pages": 6553,
+      "owned_completed_handles": 6528,
+      "async_context_statuses": {
+        "ready_to_continue": 29,
+        "waiting_on_io": 1,
+        "done": 2
+      }
+    },
+    {
+      "thread": 864394,
+      "requested_type": "PAGE_TYPE_MISC",
+      "requested_addr": 302256128,
+      "current_mapping": 5370,
+      "batch_start": 8128,
+      "j": 1,
+      "tid": 8,
+      "i": 8128,
+      "k": 1600,
+      "working_set_pages": 6553,
+      "owned_completed_handles": 6528,
+      "async_context_statuses": {
+        "ready_to_continue": 1,
+        "waiting_on_io": 1,
+        "done": 30
+      }
+    }
+  ]
+}
+[Inferior 1 (process 864352) detached]

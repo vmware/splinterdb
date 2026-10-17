@@ -1,0 +1,6 @@
+CONTROL worker_cpus=2 control_cpu=12 control_tid=0 warmup_seconds=2
+O_DIRECT address_layout=spread cache_mib=64 disk_ratio=16 resident_pages=32 working_set_bytes=131072 disk_bytes=131072 setup_seconds=0.003
+WORKER worker=0 tid=1 cpu=2 start_cpu=2 end_cpu=2 ops=72462144 cpu_ns=3999651500 cycles=15012568635 instructions=31842868739 branches=6311992791 branch_misses=1262810 all_ops=109025664 claim_failures=0 all_claim_failures=0
+VERIFY pages=32 observed=109025664 expected=109025664 errors=0
+mode,api,cache_mib,threads,working_pages,seconds,ops_s,ops,checksum,errors,directory_bytes,entry_bytes,data_bytes,refcount_bytes,pin_bytes,max_rss_bytes,setup_ns,read_bytes,write_bytes,major_faults,minor_faults,cpu_ns,async_waits,perf_enabled,perf_cycles,perf_instructions,perf_branches,perf_branch_misses,perf_enabled_ns,perf_running_ns,warmup_seconds,control_cpu,worker_cpu_ns,claim_failures,all_claim_failures,all_ops,warmup_ops,verified_updates,dirty_pages
+shared,write,64,1,32,4.000103107,18115069.1,72462144,11737334479424099520,0,1048576,1048576,67108864,131072,16384,24920064,2575368,0,0,0,3,4000295355,0,1,15012568635,31842868739,6311992791,1262810,3999709374,3999709374,2,12,3999651500,0,0,109025664,36563520,109025664,32

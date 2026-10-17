@@ -1,0 +1,30 @@
+{
+  "status": "source reviewed; Python AST valid; no benchmark/build/test workload launched",
+  "auditor_path": ".cache/invalid-address-perf-20261017/database/report_controlled_writes.py",
+  "auditor_sha256": "a9739553ee95a311f16e88f6571119e72d703a0d2ac82d6165abe2213586ede9",
+  "derived_from": ".cache/invalid-address-perf-20261017/database/report_controlled_hotset.py",
+  "parent_sha256": "0854a7061b4ec1ba5eaef5d4e163a0e7a512ce319330396b92252e64888b3806",
+  "frozen_harness_source_sha256": "0bee78d7cf79c83ed3b7e1c572b2ebdd5a418114c54e4545e2e35ca50088fe61",
+  "frozen_runner_sha256": "81fb1255c110f0d7880dc32569f5a27ab301999d56385891dc8f8e7d368effae",
+  "independent_review": "invalid_db_runner reviewed arithmetic, provenance and timing; identified guards now incorporated.",
+  "checks": [
+    "Retains raw log/job/build/library/source/object/runner hash checks, schedule completeness, lock non-overlap, explicit excluded precondition audit and fixed CPU/TID mapping.",
+    "Added exact command/env/geometry validation for measured and excluded processes and finite positive rate/duration checks; rate reconstructed from ops/seconds within CSV rounding tolerance.",
+    "All measured/all-phase worker counts exactly match CSV; raw WORKER/VERIFY records checked; per-worker update/retry inequalities checked; final page sums/complements and dirty presence checked.",
+    "Timing/CPU/perf is collected before post-join verification/logging/writeback; counters include probe bookkeeping and waits, not only cache symbols.",
+    "Ratios use mirror-pair arithmetic means then geometric block ratios with Student-t log intervals. Absolute deltas use arithmetic block differences and Student-t intervals.",
+    "Claim failures use descriptive absolute differences; zero-valued metrics never enter logarithms.",
+    "Partial comparisons include only whole scenario blocks with both mirrored samples from every planned profile; individual partial summary counts are explicit.",
+    "Existing harness C/runner/README/source manifest hashes were reverified unchanged."
+  ],
+  "output_schema": {
+    "schema_version": 1,
+    "validation": "matrix completeness and provenance/guards",
+    "summaries": "per profile/scenario means and sample count",
+    "comparisons": "profile vs main/original, complete paired blocks, ratio estimates in percent, absolute estimates in documented units, block-by-block values",
+    "working_set_audit": "every included/excluded process exact pages/address/geometry",
+    "write_counter_audit": "every process protected-counter sums, update/retry counts and dirty pages",
+    "limitations": "thermal carryover, few pointwise intervals, zero samples excluded, no database-neutrality claim"
+  },
+  "pending": "Run on root-scheduled smoke/full matrix when evidence exists; no result claims yet."
+}

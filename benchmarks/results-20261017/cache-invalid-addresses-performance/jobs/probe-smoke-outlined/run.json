@@ -1,0 +1,25 @@
+{
+  "name": "probe-smoke-outlined",
+  "command": [
+    "taskset",
+    "-c",
+    "2",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/harness/cache_api_probe",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/probe-smoke-outlined/cache.db",
+    "64",
+    "1",
+    "1",
+    "independent",
+    "async"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/probe-smoke-outlined",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/lib"
+  },
+  "queued": 1792221958.1426911,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792221958.142723,
+  "returncode": 0,
+  "finished": 1792221960.514105,
+  "log_sha256": "a9293b067b05ead2f9bd25529259b16472918cfcd2a5f1cdaf444092f8f2f16e"
+}

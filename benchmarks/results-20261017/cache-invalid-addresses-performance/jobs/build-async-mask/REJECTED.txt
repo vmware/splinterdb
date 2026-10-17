@@ -1,0 +1,1 @@
+No compiler or workload launched. The root job.py CLI places command in argparse.REMAINDER, so --cwd after the positional job name was incorrectly treated as the executable. Popen failed with FileNotFoundError before a child was created. Retained empty output.log; corrected invocation uses --cwd before job name.

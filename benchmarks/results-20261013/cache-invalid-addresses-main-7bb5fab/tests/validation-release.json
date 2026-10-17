@@ -1,0 +1,68 @@
+[
+  {
+    "name": "writeback",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/release/bin/unit/writeback_set_test"
+    ],
+    "started": 1791905216.380468,
+    "returncode": 0,
+    "finished": 1791905218.191434,
+    "log_sha256": "7adeca2e34b90a72bac4a365fd2e6e4e4e923fbe5e8be069b549805df240afc1",
+    "summaries": [
+      "RESULTS: 18 tests (18 ok, 0 failed, 0 skipped) ran in 1809 ms"
+    ]
+  },
+  {
+    "name": "quick",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/release/bin/unit/splinterdb_quick_test"
+    ],
+    "started": 1791905218.1918955,
+    "returncode": 0,
+    "finished": 1791905228.1956236,
+    "log_sha256": "4724203b886fb3440b7f85c3c96b8798b14ed8c5139b678c7e79a2ec3661f5fb",
+    "summaries": [
+      "RESULTS: 49 tests (49 ok, 0 failed, 0 skipped) ran in 10002 ms"
+    ]
+  },
+  {
+    "name": "cache-core",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/release/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/scratch-release/core.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64",
+      "test_cache_read_errors_"
+    ],
+    "started": 1791905228.1959682,
+    "returncode": 0,
+    "finished": 1791905228.34346,
+    "log_sha256": "a2843bc276425f5609c0fc1c8efa3139749f3a686a2ad1fbfd94ab8894fbf346",
+    "summaries": [
+      "RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 145 ms"
+    ]
+  },
+  {
+    "name": "blob-core",
+    "command": [
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses/build-main-7bb5fab/release/bin/unit/splinter_test",
+      "--db-location",
+      "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/main-7bb5fab/cache-invalid-addresses/scratch-release/core.db",
+      "--cache-capacity-mib",
+      "128",
+      "--db-capacity-gib",
+      "64",
+      "test_blob_"
+    ],
+    "started": 1791905228.343776,
+    "returncode": 0,
+    "finished": 1791905229.5520601,
+    "log_sha256": "d8ae263eb470bd818a062e1f110075729d3dc33172655324225ec64de0e72968",
+    "summaries": [
+      "RESULTS: 4 tests (4 ok, 0 failed, 0 skipped) ran in 1206 ms"
+    ]
+  }
+]

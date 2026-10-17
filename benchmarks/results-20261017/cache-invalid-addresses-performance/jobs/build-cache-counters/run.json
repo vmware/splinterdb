@@ -1,0 +1,17 @@
+{
+  "name": "build-cache-counters",
+  "command": [
+    "/usr/bin/python3",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/harness/counters/build_probe.py",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/main",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/main/release/lib/libsplinterdb.so"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017",
+  "environment_overrides": null,
+  "queued": 1792222278.9090648,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792222576.399213,
+  "returncode": 0,
+  "finished": 1792222576.8145263,
+  "log_sha256": "d0a15309e6c763801fefc6a6212cc84b2f78896d0fcee2e09640076d9ae49b7b"
+}

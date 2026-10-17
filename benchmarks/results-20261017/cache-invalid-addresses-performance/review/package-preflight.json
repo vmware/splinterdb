@@ -1,0 +1,8 @@
+{
+  "archive": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/archive-preflight",
+  "files": 2556,
+  "bytes": 29485070,
+  "SHA256SUMS_sha256": "55309dedfbbd5e55dcd27156d0479002e330225f7953120dfa1b8e1751d6deae",
+  "finite_leaf_overlaps": 0,
+  "missing_run_records": 2
+}
