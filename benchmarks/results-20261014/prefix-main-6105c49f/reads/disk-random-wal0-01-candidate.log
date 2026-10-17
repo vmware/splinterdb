@@ -1,0 +1,22 @@
+prefix-pattern=random key_bytes=64 compression_disabled=false
+kvbench version=candidate splinter=splinterdb_build_version 97e5c0e3-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/prefix-main-6105c49f/databases/reads-disk-random-wal0-01-candidate.db mode=open n=2000000 cache_mib=64 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=7.0 warmup=1.0 rep=1 sabotage=0
+open took 0.048 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=2000000    secs=   0.18 ops/s=   11292143  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.67s ops/cpu-s=2966796 rd=187.8 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+   found=943897 notfound=0
+== point:uniform@8        T=8  ops=943897     secs=   7.00 ops/s=     134839  lat us p50=64.00 p99=119.81 p99.9=169.98 max=4627.2 mean=59.14
+   cpu=6.56s ops/cpu-s=143882 rd=3529.8 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 154952 ops (+15494 ops/s)
+== range:uniform:1@8      T=8  ops=392378     secs=   7.00 ops/s=      56052  lat us p50=133.12 p99=364.54 p99.9=548.86 max=4175.1 mean=142.49
+   cpu=58.57s ops/cpu-s=6699 rd=14140.5 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=130.05 p99=364.54 mean=141.46  per-tuple=nan ns  deinit mean=0.98 us  tuples/s=56052
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:10000@8] progress 3780 ops (+1844556687578682880 ops/s)
+close took 0.090 s
+== range:uniform:10000@8  T=8  ops=5578       secs=   7.00 ops/s=        797  lat us p50=8192.00 p99=27525.12 p99.9=36175.87 max=41467.4 mean=10034.60
+   cpu=22.61s ops/cpu-s=247 rd=2532493.4 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=405.50 p99=1359.87 mean=450.79  per-tuple=960.3 ns  deinit mean=1.59 us  tuples/s=7955441
+   insert/run=7.00s drain(close)=0.09s total=7.09s drain_cpu=0.01s drain_rd=0 drain_wr=274432 wamp=nan db_apparent=3671592960 db_alloc=833515520

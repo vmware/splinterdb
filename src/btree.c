@@ -130,8 +130,9 @@ btree_increment_height(btree_hdr *hdr)
 static inline void
 btree_reset_node_entries(const btree_config *cfg, btree_hdr *hdr)
 {
-   hdr->num_entries = 0;
-   hdr->next_entry  = btree_page_size(cfg);
+   hdr->num_entries   = 0;
+   hdr->prefix_length = 0;
+   hdr->next_entry    = btree_page_size(cfg);
 }
 
 
@@ -1251,6 +1252,8 @@ btree_read_branch_header(const btree_config *cfg,
 
    uint64 page_size = btree_page_size(cfg);
    if (page_size < sizeof(*hdr) || hdr->height >= BTREE_MAX_HEIGHT
+       || hdr->prefix_length > MAX_INLINE_KEY_SIZE(page_size)
+       || (hdr->height != 0 && hdr->prefix_length != 0)
        || (hdr->flags & ~(BTREE_HDR_FIRST_IN_LEVEL | BTREE_HDR_LAST_IN_LEVEL))
              != 0
        || ((hdr->page_no == 0) != btree_hdr_is_first_in_level(hdr)))
@@ -1264,7 +1267,8 @@ btree_read_branch_header(const btree_config *cfg,
    }
    uint64 table_end =
       sizeof(*hdr) + (uint64)hdr->num_entries * sizeof(hdr->offsets[0]);
-   if (hdr->next_entry < table_end || page_size < hdr->next_entry
+   if (hdr->next_entry < table_end
+       || page_size - hdr->prefix_length < hdr->next_entry
        || hdr->num_entries == 0)
    {
       return STATUS_INVALID_STATE;
@@ -1301,10 +1305,11 @@ btree_read_entry_bounds(const btree_config *cfg,
       return STATUS_INVALID_STATE;
    }
    uint64 offset    = hdr->offsets[idx];
-   uint64 page_size = btree_page_size(cfg);
-   if (offset < hdr->next_entry || page_size <= offset
-       || page_size - offset < min_size)
-   {
+   uint64 page_size = btree_page_size(cfg) - hdr->prefix_length;
+   /* The offset is uint16, and the only callers pass sizeof(leaf_entry) or
+    * sizeof(index_entry). Their positive sizes cannot overflow this uint64
+    * sum. Checking the header endpoint also rejects offsets at/past the end. */
+   if (offset < hdr->next_entry || page_size < offset + min_size) {
       return STATUS_INVALID_STATE;
    }
    *offset_out    = offset;
@@ -1364,12 +1369,33 @@ btree_read_leaf_key(const btree_config *cfg,
    if (entry->key_flags != ONDISK_KEY_DEFAULT_FLAGS
        || entry->key_length == ONDISK_KEY_NEGATIVE_INFINITY
        || entry->key_length == ONDISK_KEY_POSITIVE_INFINITY
-       || entry->key_length > remaining - sizeof(*entry))
+       || entry->key_length > remaining - sizeof(*entry)
+       || (uint64)entry->key_length + hdr->prefix_length
+             > MAX_INLINE_KEY_SIZE(btree_page_size(cfg)))
    {
       return STATUS_INVALID_STATE;
    }
    *entry_out = entry;
    return STATUS_OK;
+}
+
+/* Every nonzero value representable by the type bits is a valid user type.
+ * Together with the allowed-flags check below, rejecting zero therefore
+ * rejects exactly the same bytes as the full user-type interval check. */
+_Static_assert(MESSAGE_TYPE_INVALID == 0,
+               "Leaf message validation requires zero to be invalid");
+_Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE == ONDISK_MESSAGE_TYPE_MASK,
+               "All nonzero on-disk message type values must be valid");
+
+/* Descriptor scratch is needed only for blob messages. Keep that stack frame
+ * out of the ordinary inline-message validation path. */
+static __attribute__((noinline)) platform_status
+btree_read_leaf_blob(cache *cc, const leaf_entry *entry)
+{
+   parsed_blob pblob;
+   slice       descriptor = slice_create(entry->message_length,
+                                   entry->key_and_message + entry->key_length);
+   return blob_parse_descriptor(cc, descriptor, &pblob);
 }
 
 static inline platform_status
@@ -1378,29 +1404,29 @@ btree_read_leaf_message(cache              *cc,
                         const btree_hdr    *hdr,
                         const leaf_entry   *entry)
 {
-   uint64       offset        = (const char *)entry - (const char *)hdr;
-   uint64       remaining     = btree_page_size(cfg) - offset;
+   uint64       offset    = (const char *)entry - (const char *)hdr;
+   uint64       remaining = btree_page_size(cfg) - hdr->prefix_length - offset;
    message_type message_class = ondisk_tuple_message_class(entry);
    if ((entry->flags & ~(ONDISK_MESSAGE_TYPE_MASK | ONDISK_MESSAGE_IS_BLOB))
           != 0
        || message_class == MESSAGE_TYPE_INVALID
-       || message_class > MESSAGE_TYPE_MAX_VALID_USER_TYPE
        || (uint64)entry->key_length + entry->message_length
              > remaining - sizeof(*entry))
    {
       return STATUS_INVALID_STATE;
    }
    if (ondisk_tuple_message_is_blob(entry)) {
-      parsed_blob pblob;
-      slice       descriptor = slice_create(
-         entry->message_length, entry->key_and_message + entry->key_length);
-      platform_status rc = blob_parse_descriptor(cc, descriptor, &pblob);
+      platform_status rc = btree_read_leaf_blob(cc, entry);
       if (!SUCCESS(rc)) {
          return rc;
       }
    }
    return STATUS_OK;
 }
+
+_Static_assert(MAX_INLINE_KEY_SIZE(MAX_PAGE_SIZE)
+                  < ONDISK_KEY_POSITIVE_INFINITY,
+               "Inline keys must exclude both infinity length encodings");
 
 static inline platform_status
 btree_read_leaf_entry(cache              *cc,
@@ -1409,8 +1435,30 @@ btree_read_leaf_entry(cache              *cc,
                       table_index         idx,
                       const leaf_entry  **entry_out)
 {
-   platform_status rc = btree_read_leaf_key(cfg, hdr, idx, entry_out);
-   return SUCCESS(rc) ? btree_read_leaf_message(cc, cfg, hdr, *entry_out) : rc;
+   uint64          offset;
+   uint64          remaining;
+   platform_status rc = btree_read_entry_bounds(
+      cfg, hdr, idx, sizeof(leaf_entry), &offset, &remaining);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   const leaf_entry *entry = (const leaf_entry *)((const char *)hdr + offset);
+   /* Checking the full key plus message below also checks the key's byte
+    * range. Keep key-only reads separate because they do not inspect messages.
+    */
+   /* Supported pages are at most MAX_PAGE_SIZE bytes. The widened full-key
+    * bound therefore rejects both infinity length encodings as well. */
+   if (entry->key_flags != ONDISK_KEY_DEFAULT_FLAGS
+       || (uint64)entry->key_length + hdr->prefix_length
+             > MAX_INLINE_KEY_SIZE(btree_page_size(cfg)))
+   {
+      return STATUS_INVALID_STATE;
+   }
+   rc = btree_read_leaf_message(cc, cfg, hdr, entry);
+   if (SUCCESS(rc)) {
+      *entry_out = entry;
+   }
+   return rc;
 }
 
 static platform_status
@@ -1454,16 +1502,17 @@ btree_find_pivot_checked(const btree_config *cfg,
    return STATUS_OK;
 }
 
-static platform_status
-btree_find_tuple_checked(const btree_config *cfg,
-                         const btree_hdr    *hdr,
-                         key                 target,
-                         bool32             *found,
-                         int64              *idx_out,
-                         const leaf_entry  **entry_out)
+/* The caller initializes *found and selects callback semantics once for the
+ * leaf. Keep all checked-key reads before invoking the user's comparator. */
+static inline platform_status
+btree_find_tuple_callback_checked(const btree_config *cfg,
+                                  const btree_hdr    *hdr,
+                                  key                 target,
+                                  bool32             *found,
+                                  int64              *idx_out,
+                                  const leaf_entry  **entry_out)
 {
    int64 lo = 0, hi = btree_num_entries(hdr);
-   *found = FALSE;
    while (lo < hi) {
       int64             mid = (lo + hi) / 2;
       const leaf_entry *entry;
@@ -1473,6 +1522,68 @@ btree_find_tuple_checked(const btree_config *cfg,
       }
       int cmp =
          btree_key_compare(cfg, target, leaf_entry_key((leaf_entry *)entry));
+      if (cmp == 0) {
+         *found   = TRUE;
+         *idx_out = mid;
+         if (entry_out != NULL) {
+            *entry_out = entry;
+         }
+         return STATUS_OK;
+      }
+      if (cmp > 0) {
+         lo = mid + 1;
+      } else {
+         hi = mid;
+      }
+   }
+   *idx_out = lo - 1;
+   if (entry_out != NULL) {
+      *entry_out = NULL;
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+btree_find_tuple_checked(const btree_config *cfg,
+                         const btree_hdr    *hdr,
+                         key                 target,
+                         bool32             *found,
+                         int64              *idx_out,
+                         const leaf_entry  **entry_out)
+{
+   int64 lo = 0, hi = btree_num_entries(hdr);
+   *found            = FALSE;
+   bool32 compressed = hdr->prefix_length != 0;
+   if (compressed) {
+      int cmp = btree_compare_prefix(cfg, hdr, target);
+      if (cmp != 0) {
+         *idx_out = cmp < 0 ? -1 : hi - 1;
+         if (entry_out != NULL) {
+            *entry_out = NULL;
+         }
+         return STATUS_OK;
+      }
+      target = key_create(target.is_query_key,
+                          key_length(target) - hdr->prefix_length,
+                          (const char *)key_data(target) + hdr->prefix_length);
+   }
+   bool32 lexical = compressed
+                    || (cfg->data_cfg->key_compare_is_lexical
+                        && !key_is_negative_infinity(target)
+                        && !key_is_positive_infinity(target));
+   if (!lexical) {
+      return btree_find_tuple_callback_checked(
+         cfg, hdr, target, found, idx_out, entry_out);
+   }
+   while (lo < hi) {
+      int64             mid = (lo + hi) / 2;
+      const leaf_entry *entry;
+      platform_status   rc = btree_read_leaf_key(cfg, hdr, mid, &entry);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      int cmp = slice_lex_cmp(key_slice(target),
+                              key_slice(leaf_entry_key((leaf_entry *)entry)));
       if (cmp == 0) {
          *found   = TRUE;
          *idx_out = mid;
@@ -2226,8 +2337,8 @@ accumulate_node_ranks(cache              *cc,
          } else {
             entry = btree_get_leaf_entry(cfg, hdr, i);
          }
-         stats->key_bytes =
-            add_unknown(stats->key_bytes, leaf_entry_key_size(entry));
+         stats->key_bytes = add_unknown(
+            stats->key_bytes, leaf_entry_key_size(entry) + hdr->prefix_length);
          stats->message_bytes =
             add_unknown(stats->message_bytes, leaf_entry_message_size(entry));
       }
@@ -3048,7 +3159,11 @@ btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
       } else {
          entry = btree_get_leaf_entry(state->cfg, state->node.hdr, idx);
       }
-      state->found_key = leaf_entry_key((leaf_entry *)entry);
+      state->found_key = state->node.hdr->prefix_length == 0
+                            ? leaf_entry_key((leaf_entry *)entry)
+                            : key_create(FALSE,
+                                         key_length(state->target),
+                                         key_data(state->target));
       state->msg       = leaf_entry_message(state->cc, (leaf_entry *)entry);
    } else {
       btree_node_unget(state->cc, state->cfg, &state->node);
@@ -3099,7 +3214,9 @@ btree_lookup_with_ref(cache              *cc,        // IN
       } else {
          entry = btree_get_leaf_entry(cfg, node->hdr, idx);
       }
-      *found_key = leaf_entry_key((leaf_entry *)entry);
+      *found_key = node->hdr->prefix_length == 0
+                      ? leaf_entry_key((leaf_entry *)entry)
+                      : key_create(FALSE, key_length(target), key_data(target));
       *msg       = leaf_entry_message(cc, (leaf_entry *)entry);
    } else {
       btree_node_unget(cc, cfg, node);
@@ -3332,6 +3449,95 @@ find_key_in_node(btree_iterator *itor,
 }
 
 
+/* Uncompressed leaves return keys directly from the pinned page. Keep their
+ * iterators small and avoid initializing buffers they will never use. */
+typedef struct btree_iterator_prefix_state {
+   key_buffer decoded_key;
+   uint64     prefix_page_addr;
+   // Cache the buffer's logical high-water length, not its allocation size.
+   // Keeping that length above the prefix preserves it when the buffer grows.
+   char  *decoded_data;
+   uint64 decoded_capacity;
+} btree_iterator_prefix_state;
+
+static platform_status
+btree_iterator_ensure_prefix_state(btree_iterator *itor)
+{
+   // Use the page's prefix, not the construction policy, to choose this path:
+   // compressed leaves can be reopened with compression disabled.
+   if (itor->prefix_state == NULL) {
+      itor->prefix_state =
+         TYPED_ZALLOC(PROCESS_PRIVATE_HEAP_ID, itor->prefix_state);
+      if (itor->prefix_state == NULL) {
+         return STATUS_NO_MEMORY;
+      }
+      key_buffer_init(&itor->prefix_state->decoded_key,
+                      PROCESS_PRIVATE_HEAP_ID);
+   }
+   return STATUS_OK;
+}
+
+/* Keep allocation, buffer growth and prefix replacement off the ordinary
+ * per-key path. The suffix copy stays inline, including on compressed leaves.
+ */
+static __attribute__((noinline)) platform_status
+btree_iterator_prepare_decode(btree_iterator *itor, uint64 key_length)
+{
+   platform_status rc = btree_iterator_ensure_prefix_state(itor);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   btree_iterator_prefix_state *state = itor->prefix_state;
+   if (key_buffer_length(&state->decoded_key) < key_length) {
+      rc = key_buffer_resize(&state->decoded_key, key_length);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   state->decoded_data     = key_buffer_data(&state->decoded_key);
+   state->decoded_capacity = key_buffer_length(&state->decoded_key);
+   if (state->prefix_page_addr != itor->curr.addr) {
+      memcpy(state->decoded_data,
+             btree_leaf_prefix(itor->cfg, itor->curr.hdr),
+             itor->curr.hdr->prefix_length);
+      state->prefix_page_addr = itor->curr.addr;
+   }
+   return STATUS_OK;
+}
+
+/* Compare target with a node key without reconstructing compressed keys.
+ * Branch entries retain the same validation as reads of full keys. */
+static inline platform_status
+btree_iterator_compare_node_key(btree_iterator *itor,
+                                btree_hdr      *hdr,
+                                uint64          idx,
+                                key             target,
+                                int            *result)
+{
+   if (itor->page_type != PAGE_TYPE_BRANCH) {
+      key node_key = itor->height ? btree_get_pivot(itor->cfg, hdr, idx)
+                                  : btree_get_tuple_key(itor->cfg, hdr, idx);
+      *result      = btree_key_compare(itor->cfg, target, node_key);
+      return STATUS_OK;
+   }
+
+   if (itor->height) {
+      const index_entry *entry;
+      platform_status    rc = btree_read_index_key(itor->cfg, hdr, idx, &entry);
+      if (SUCCESS(rc)) {
+         *result = btree_key_compare(itor->cfg, target, index_entry_key(entry));
+      }
+      return rc;
+   }
+
+   const leaf_entry *entry;
+   platform_status   rc = btree_read_leaf_key(itor->cfg, hdr, idx, &entry);
+   if (SUCCESS(rc)) {
+      *result = btree_compare_leaf_key(itor->cfg, hdr, target, entry);
+   }
+   return rc;
+}
+
 /*
  * For copied leaves, end_addr is zero while the range continues into another
  * leaf. Only a terminating copy sets end_addr to curr.addr and caches its
@@ -3340,35 +3546,6 @@ find_key_in_node(btree_iterator *itor,
  * endpoint lookup is needed. A split after copying may move max_key to a new
  * leaf that the copy's old next pointer deliberately skips.
  */
-static inline platform_status
-btree_iterator_read_node_key(btree_iterator *itor,
-                             btree_hdr      *hdr,
-                             uint64          idx,
-                             key            *result)
-{
-   if (itor->page_type != PAGE_TYPE_BRANCH) {
-      *result = itor->height ? btree_get_pivot(itor->cfg, hdr, idx)
-                             : btree_get_tuple_key(itor->cfg, hdr, idx);
-      return STATUS_OK;
-   }
-
-   if (itor->height) {
-      const index_entry *entry;
-      platform_status    rc = btree_read_index_key(itor->cfg, hdr, idx, &entry);
-      if (SUCCESS(rc)) {
-         *result = index_entry_key(entry);
-      }
-      return rc;
-   }
-
-   const leaf_entry *entry;
-   platform_status   rc = btree_read_leaf_key(itor->cfg, hdr, idx, &entry);
-   if (SUCCESS(rc)) {
-      *result = leaf_entry_key((leaf_entry *)entry);
-   }
-   return rc;
-}
-
 static inline platform_status
 btree_iterator_set_copy_bounds(btree_iterator *itor)
 {
@@ -3383,14 +3560,14 @@ btree_iterator_set_copy_bounds(btree_iterator *itor)
       return STATUS_OK;
    }
 
-   key             last_key;
-   platform_status rc = btree_iterator_read_node_key(
-      itor, itor->curr.hdr, num_entries - 1, &last_key);
+   int             cmp;
+   platform_status rc = btree_iterator_compare_node_key(
+      itor, itor->curr.hdr, num_entries - 1, itor->max_key, &cmp);
    if (!SUCCESS(rc)) {
       itor->validation_status = rc;
       return rc;
    }
-   if (btree_key_compare(itor->cfg, itor->max_key, last_key) > 0) {
+   if (cmp > 0) {
       itor->end_addr = has_next ? 0 : itor->curr.addr;
       itor->end_idx  = num_entries;
    } else {
@@ -3508,15 +3685,15 @@ btree_iterator_end_key_beyond_curr(btree_iterator *itor, bool32 *result)
       return STATUS_OK;
    }
 
-   key             last_key;
-   platform_status rc = btree_iterator_read_node_key(
-      itor, itor->curr.hdr, num_entries - 1, &last_key);
+   int             cmp;
+   platform_status rc = btree_iterator_compare_node_key(
+      itor, itor->curr.hdr, num_entries - 1, itor->max_key, &cmp);
    if (!SUCCESS(rc)) {
       itor->validation_status = rc;
       return rc;
    }
    *result =
-      btree_key_compare(itor->cfg, itor->max_key, last_key) > 0
+      cmp > 0
       && btree_node_next_addr(itor->cfg, &itor->curr, itor->page_type) != 0;
    return STATUS_OK;
 }
@@ -3639,6 +3816,30 @@ btree_iterator_can_next(iterator *base_itor)
           || (itor->idx < itor->end_idx && itor->curr_min_idx != itor->end_idx);
 }
 
+/* Keep the uncompressed entry-validation path small. Compressed leaves pay
+ * this call after validation; their decode algorithm and buffer ownership are
+ * unchanged. */
+static __attribute__((noinline)) platform_status
+btree_iterator_decode_current(btree_iterator *itor, const leaf_entry *entry)
+{
+   uint64                       prefix_length = itor->curr.hdr->prefix_length;
+   uint64                       key_length = prefix_length + entry->key_length;
+   btree_iterator_prefix_state *state      = itor->prefix_state;
+   platform_status              rc         = STATUS_OK;
+   if (state == NULL || state->decoded_capacity < key_length
+       || state->prefix_page_addr != itor->curr.addr)
+   {
+      rc    = btree_iterator_prepare_decode(itor, key_length);
+      state = itor->prefix_state;
+   }
+   if (SUCCESS(rc)) {
+      btree_copy_key_suffix(state->decoded_data + prefix_length,
+                            entry->key_and_message,
+                            entry->key_length);
+   }
+   return rc;
+}
+
 /*
  * curr() cannot report errors. Every positioning operation therefore reads
  * and checks the entry it is about to expose before returning success.
@@ -3661,6 +3862,9 @@ btree_iterator_check_current(btree_iterator *itor)
          itor->cc, itor->cfg, itor->curr.hdr, itor->idx, &entry);
       if (SUCCESS(rc)) {
          itor->validated_entry = entry;
+         if (itor->curr.hdr->prefix_length != 0) {
+            rc = btree_iterator_decode_current(itor, entry);
+         }
       }
    } else {
       const index_entry *entry;
@@ -3706,7 +3910,12 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
       } else {
          entry = btree_get_leaf_entry(itor->cfg, itor->curr.hdr, itor->idx);
       }
-      *curr_key = leaf_entry_key(entry);
+      *curr_key = itor->curr.hdr->prefix_length == 0
+                     ? leaf_entry_key(entry)
+                     : key_create(FALSE,
+                                  (uint64)itor->curr.hdr->prefix_length
+                                     + entry->key_length,
+                                  itor->prefix_state->decoded_data);
       *data     = leaf_entry_message(itor->cc, entry);
       log_trace_key(*curr_key, "btree_iterator_get_curr");
    } else {
@@ -4303,13 +4512,14 @@ btree_iterator_prev_leaf(btree_iterator *itor)
    itor->idx = btree_num_entries(itor->curr.hdr) - 1;
 
    /* Do a quick check whether this entire leaf is within the range. */
-   key first_key;
-   rc = btree_iterator_read_node_key(itor, itor->curr.hdr, 0, &first_key);
+   int cmp;
+   rc = btree_iterator_compare_node_key(
+      itor, itor->curr.hdr, 0, itor->min_key, &cmp);
    if (!SUCCESS(rc)) {
       itor->validation_status = rc;
       return rc;
    }
-   if (btree_key_compare(cfg, itor->min_key, first_key) < 0) {
+   if (cmp < 0) {
       itor->curr_min_idx = -1;
    } else {
       rc = find_key_in_node(itor,
@@ -4504,16 +4714,14 @@ btree_iterator_prev_leaf_async(btree_iterator_async_state *state, uint64 depth)
    state->itor->idx = btree_num_entries(state->itor->curr.hdr) - 1;
 
    /* Do a quick check whether this entire leaf is within the range. */
-   rc = btree_iterator_read_node_key(
-      state->itor, state->itor->curr.hdr, 0, &state->first_key);
+   int cmp;
+   rc = btree_iterator_compare_node_key(
+      state->itor, state->itor->curr.hdr, 0, state->itor->min_key, &cmp);
    if (!SUCCESS(rc)) {
       state->itor->validation_status = rc;
       async_return(state, rc);
    }
-   if (btree_key_compare(
-          state->itor->cfg, state->itor->min_key, state->first_key)
-       < 0)
-   {
+   if (cmp < 0) {
       state->itor->curr_min_idx = -1;
    } else {
       rc = find_key_in_node(state->itor,
@@ -4866,23 +5074,21 @@ btree_iterator_seek(iterator *base_itor, comparison seek_type, key seek_key)
    uint64 num_entries       = btree_num_entries(itor->curr.hdr);
    bool32 seek_current_node = FALSE;
    if (num_entries != 0) {
-      key             first_key;
-      key             last_key;
-      platform_status rc =
-         btree_iterator_read_node_key(itor, itor->curr.hdr, 0, &first_key);
+      int             first_cmp;
+      int             last_cmp;
+      platform_status rc = btree_iterator_compare_node_key(
+         itor, itor->curr.hdr, 0, seek_key, &first_cmp);
       if (!SUCCESS(rc)) {
          itor->validation_status = rc;
          return rc;
       }
-      rc = btree_iterator_read_node_key(
-         itor, itor->curr.hdr, num_entries - 1, &last_key);
+      rc = btree_iterator_compare_node_key(
+         itor, itor->curr.hdr, num_entries - 1, seek_key, &last_cmp);
       if (!SUCCESS(rc)) {
          itor->validation_status = rc;
          return rc;
       }
-      seek_current_node =
-         btree_key_compare(itor->cfg, seek_key, first_key) >= 0
-         && btree_key_compare(itor->cfg, seek_key, last_key) <= 0;
+      seek_current_node = first_cmp >= 0 && last_cmp <= 0;
    }
 
    if (seek_current_node) {
@@ -5130,6 +5336,11 @@ btree_iterator_deinit(btree_iterator *itor)
    debug_assert(itor != NULL);
    btree_prefetch_cursor_deinit(itor);
    btree_iterator_release_curr(itor);
+   if (itor->prefix_state != NULL) {
+      key_buffer_deinit(&itor->prefix_state->decoded_key);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, itor->prefix_state);
+      itor->prefix_state = NULL;
+   }
    if (itor->node_copy != NULL) {
       platform_free(PROCESS_PRIVATE_HEAP_ID, itor->node_copy);
       itor->node_copy = NULL;
@@ -5216,8 +5427,21 @@ btree_pack_link_node(btree_pack_req *req, uint64 height, uint64 offset)
 
    btree_node        *edge       = &req->edge[height][offset];
    btree_pivot_stats *edge_stats = &req->edge_stats[height][offset];
-   key                pivot = height ? btree_get_pivot(req->cfg, edge->hdr, 0)
-                                     : btree_get_tuple_key(req->cfg, edge->hdr, 0);
+   DECLARE_AUTO_KEY_BUFFER(pivot_buffer, PROCESS_PRIVATE_HEAP_ID);
+   key pivot;
+   if (height) {
+      pivot = btree_get_pivot(req->cfg, edge->hdr, 0);
+   } else {
+      platform_status rc =
+         btree_leaf_full_key(req->cfg,
+                             edge->hdr,
+                             btree_get_leaf_entry(req->cfg, edge->hdr, 0),
+                             &pivot_buffer,
+                             &pivot);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
    btree_node_unlock(req->cc, req->cfg, edge);
    btree_node_unclaim(req->cc, req->cfg, edge);
    // Cannot fully unlock edge yet because the key "pivot" may point into it.
@@ -5349,6 +5573,81 @@ btree_pack_create_next_node(btree_pack_req *req,
    return STATUS_OK;
 }
 
+/* Tiny prefixes can impose reconstruction work without improving page
+ * occupancy. This construction policy is per leaf; readers still accept
+ * previously written leaves with shorter prefixes. */
+#define BTREE_MIN_LEAF_PREFIX_LENGTH (4)
+
+/* Pull a common prefix out only when the uncompressed leaf first fills.
+ * The prefix lives at the page tail so appending offsets never moves it. */
+static bool32
+btree_pack_compress_leaf(btree_pack_req *req, btree_hdr *hdr)
+{
+   if (!req->cfg->data_cfg->key_compare_is_lexical || hdr->prefix_length != 0
+       || hdr->num_entries < 2)
+   {
+      return FALSE;
+   }
+   key    first  = btree_get_tuple_key(req->cfg, hdr, 0);
+   key    last   = btree_get_tuple_key(req->cfg, hdr, hdr->num_entries - 1);
+   uint64 length = MIN(key_length(first), key_length(last));
+   uint64 prefix = 0;
+   while (prefix < length
+          && ((const char *)key_data(first))[prefix]
+                == ((const char *)key_data(last))[prefix])
+   {
+      prefix++;
+   }
+   if (prefix < BTREE_MIN_LEAF_PREFIX_LENGTH) {
+      return FALSE;
+   }
+   char       scratch[MAX_PAGE_SIZE];
+   btree_hdr *packed = (btree_hdr *)scratch;
+   memcpy(packed, hdr, sizeof(*hdr));
+   packed->num_entries   = 0;
+   packed->prefix_length = prefix;
+   packed->next_entry    = btree_page_size(req->cfg) - prefix;
+   memcpy(scratch + packed->next_entry, key_data(first), prefix);
+   for (uint64 i = 0; i < hdr->num_entries; i++) {
+      leaf_entry *entry  = btree_get_leaf_entry(req->cfg, hdr, i);
+      key         full   = leaf_entry_key(entry);
+      key         suffix = key_create(FALSE,
+                              key_length(full) - prefix,
+                              (const char *)key_data(full) + prefix);
+      bool32      fits   = btree_set_leaf_entry(
+         req->cfg, packed, i, suffix, leaf_entry_message(req->cc, entry));
+      platform_assert(fits);
+   }
+   /* The whole page is copied back and may be written to disk. Do not copy
+    * uninitialized stack bytes from the free space between offsets and tuples.
+    * Initialize just that gap; the header, offsets and payload are already set.
+    */
+   uint64 offsets_end =
+      sizeof(*packed) + packed->num_entries * sizeof(packed->offsets[0]);
+   debug_assert(offsets_end <= packed->next_entry);
+   memset(scratch + offsets_end, 0, packed->next_entry - offsets_end);
+   memcpy(hdr, scratch, btree_page_size(req->cfg));
+   return TRUE;
+}
+
+static bool32
+btree_pack_append_leaf(btree_pack_req *req,
+                       btree_hdr      *hdr,
+                       key             full,
+                       message         msg)
+{
+   key suffix = full;
+   if (hdr->prefix_length != 0) {
+      if (btree_compare_prefix(req->cfg, hdr, full) != 0) {
+         return FALSE;
+      }
+      suffix = key_create(FALSE,
+                          key_length(full) - hdr->prefix_length,
+                          (const char *)key_data(full) + hdr->prefix_length);
+   }
+   return btree_set_leaf_entry(req->cfg, hdr, hdr->num_entries, suffix, msg);
+}
+
 static inline platform_status
 btree_pack_loop(btree_pack_req *req,       // IN/OUT
                 key             tuple_key, // IN
@@ -5410,10 +5709,12 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 
    btree_node *leaf = btree_pack_get_current_node(req, 0);
 
-   if (!leaf
-       || !btree_set_leaf_entry(
-          req->cfg, leaf->hdr, btree_num_entries(leaf->hdr), tuple_key, msg))
-   {
+   bool32 appended =
+      leaf != NULL && btree_pack_append_leaf(req, leaf->hdr, tuple_key, msg);
+   if (!appended && leaf != NULL && btree_pack_compress_leaf(req, leaf->hdr)) {
+      appended = btree_pack_append_leaf(req, leaf->hdr, tuple_key, msg);
+   }
+   if (!appended) {
       rc = btree_pack_create_next_node(req, 0, tuple_key, &leaf);
       if (!SUCCESS(rc)) {
          return rc;
@@ -5846,19 +6147,28 @@ btree_print_index_node(platform_log_handle *log_handle,
    return STATUS_OK;
 }
 
-static void
+static platform_status
 btree_print_leaf_entry(platform_log_handle *log_handle,
                        const btree_config  *cfg,
                        cache               *cc,
+                       const btree_hdr     *hdr,
                        leaf_entry          *entry,
                        uint64               entry_num)
 {
    data_config *dcfg = cfg->data_cfg;
+   DECLARE_AUTO_KEY_BUFFER(buffer, PROCESS_PRIVATE_HEAP_ID);
+   key             full_key;
+   platform_status rc =
+      btree_leaf_full_key(cfg, hdr, entry, &buffer, &full_key);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    platform_log(log_handle,
                 "[%2lu]: %s -- %s\n",
                 entry_num,
-                key_string(dcfg, leaf_entry_key(entry)),
+                key_string(dcfg, full_key),
                 message_string(dcfg, leaf_entry_message(cc, entry)));
+   return STATUS_OK;
 }
 
 static platform_status
@@ -5913,7 +6223,11 @@ btree_print_leaf_node(platform_log_handle *log_handle,
       } else {
          entry = btree_get_leaf_entry(cfg, hdr, i);
       }
-      btree_print_leaf_entry(log_handle, cfg, cc, (leaf_entry *)entry, i);
+      rc = btree_print_leaf_entry(
+         log_handle, cfg, cc, hdr, (leaf_entry *)entry, i);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
    platform_log(log_handle, "-------------------\n");
    platform_log(log_handle, "\n");
@@ -6197,11 +6511,14 @@ btree_verify_node(cache        *cc,
                   goto out;
                }
             }
-            if (btree_key_compare(cfg,
-                                  btree_get_tuple_key(cfg, node.hdr, idx),
-                                  btree_get_tuple_key(cfg, node.hdr, idx + 1))
-                >= 0)
-            {
+            key first  = btree_get_tuple_key(cfg, node.hdr, idx);
+            key second = btree_get_tuple_key(cfg, node.hdr, idx + 1);
+            // A user comparator may require full keys even when its ordering
+            // is lexical. Compressed entries contain only suffixes.
+            int cmp = node.hdr->prefix_length != 0
+                         ? slice_lex_cmp(key_slice(first), key_slice(second))
+                         : btree_key_compare(cfg, first, second);
+            if (cmp >= 0) {
                platform_error_log("out of order tuples\n");
                platform_error_log("addr: %lu idx %2u\n", node.addr, idx);
                btree_node_unget(cc, cfg, &node);
@@ -6259,9 +6576,11 @@ btree_verify_node(cache        *cc,
                }
             }
             if (0 < idx
-                && btree_key_compare(cfg,
-                                     btree_get_pivot(cfg, node.hdr, idx),
-                                     btree_get_tuple_key(cfg, child.hdr, 0))
+                && btree_compare_leaf_key(
+                      cfg,
+                      child.hdr,
+                      btree_get_pivot(cfg, node.hdr, idx),
+                      btree_get_leaf_entry(cfg, child.hdr, 0))
                       != 0)
             {
                platform_error_log(
@@ -6295,10 +6614,11 @@ btree_verify_node(cache        *cc,
                }
             }
             if (idx != btree_num_entries(node.hdr) - 1
-                && btree_key_compare(
+                && btree_compare_leaf_key(
                       cfg,
+                      child.hdr,
                       btree_get_pivot(cfg, node.hdr, idx + 1),
-                      btree_get_tuple_key(
+                      btree_get_leaf_entry(
                          cfg, child.hdr, btree_num_entries(child.hdr) - 1))
                       < 0)
             {

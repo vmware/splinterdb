@@ -1,0 +1,104 @@
+[
+  {
+    "threads": 1,
+    "profile": "main",
+    "n": 2,
+    "ops_s": 863308.563602,
+    "drain_ops_s": 850755.9954433531,
+    "close_s": 0.14800000000000002,
+    "cpu_us_op": 1.2655001880142245,
+    "p99_us": 19.712,
+    "p999_us": 39.424,
+    "throughput_change_percent": 0.0,
+    "including_close_change_percent": 0.0,
+    "throughput_samples": [
+      876936.368571,
+      849680.758633
+    ]
+  },
+  {
+    "threads": 1,
+    "profile": "default1024",
+    "n": 2,
+    "ops_s": 860522.29163,
+    "drain_ops_s": 850068.5440743627,
+    "close_s": 0.1235,
+    "cpu_us_op": 1.2658400159540384,
+    "p99_us": 19.456,
+    "p999_us": 40.448,
+    "throughput_change_percent": -0.322743465021913,
+    "including_close_change_percent": -0.08080476337191111,
+    "throughput_samples": [
+      873670.258047,
+      847374.325213
+    ]
+  },
+  {
+    "threads": 1,
+    "profile": "explicit1024",
+    "n": 2,
+    "ops_s": 861241.7480325,
+    "drain_ops_s": 849872.5401746584,
+    "close_s": 0.134,
+    "cpu_us_op": 1.2697030462997385,
+    "p99_us": 18.944,
+    "p999_us": 39.424,
+    "throughput_change_percent": -0.23940635557656575,
+    "including_close_change_percent": -0.10384355484139851,
+    "throughput_samples": [
+      861795.174007,
+      860688.322058
+    ]
+  },
+  {
+    "threads": 8,
+    "profile": "main",
+    "n": 2,
+    "ops_s": 1825187.581733,
+    "drain_ops_s": 1631677.0820216935,
+    "close_s": 1.2255,
+    "cpu_us_op": 2.530393612716999,
+    "p99_us": 60.928000000000004,
+    "p999_us": 221.18399999999997,
+    "throughput_change_percent": 0.0,
+    "including_close_change_percent": 0.0,
+    "throughput_samples": [
+      1823438.76285,
+      1826936.400616
+    ]
+  },
+  {
+    "threads": 8,
+    "profile": "default1024",
+    "n": 2,
+    "ops_s": 1810417.123449,
+    "drain_ops_s": 1598768.8624393507,
+    "close_s": 1.355,
+    "cpu_us_op": 2.5579955291027527,
+    "p99_us": 60.416,
+    "p999_us": 223.232,
+    "throughput_change_percent": -0.8092570008599087,
+    "including_close_change_percent": -2.016834087144781,
+    "throughput_samples": [
+      1815726.316959,
+      1805107.929939
+    ]
+  },
+  {
+    "threads": 8,
+    "profile": "explicit1024",
+    "n": 2,
+    "ops_s": 1824947.9170670002,
+    "drain_ops_s": 1594726.9238756828,
+    "close_s": 1.4655,
+    "cpu_us_op": 2.5807808844351943,
+    "p99_us": 60.416,
+    "p999_us": 219.136,
+    "throughput_change_percent": -0.013130960806351233,
+    "including_close_change_percent": -2.2645509061283375,
+    "throughput_samples": [
+      1831902.910452,
+      1817992.923682
+    ]
+  }
+]

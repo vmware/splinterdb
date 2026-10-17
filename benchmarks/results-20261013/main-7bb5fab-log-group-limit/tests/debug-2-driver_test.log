@@ -1,0 +1,10 @@
+Starting main-merge-log-group-debug-2-driver_test test
+/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/log-group-limit/build-main-7bb5fab/debug/bin/driver_test: splinterdb_build_version f295866a-dirty
+Dispatch test log_test
+
+Started log_test!!
+Malformed log page sequence at page 23994368: group=3 page=0 follows group=1 page=0 (terminated).
+shard_log_iterator_init: record validation failed in group 1 at log page 161742848: Invalid argument; discarding this group and the rest
+Malformed log page sequence at page 162529280: group=1 page=0 follows group=1 page=0.
+shard_log_iterator_init: record validation failed in group 2 at log page 163319808: Input/output error; discarding this group and the rest
+log returned 500000 of 500000 entries

@@ -1,0 +1,21 @@
+prefix-pattern=common key_bytes=64 compression_disabled=false
+kvbench version=main splinter=splinterdb_build_version 7bb5fab3 db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/prefix-disk-common/scratch.db mode=open n=2000000 cache_mib=64 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=5.0 warmup=1.0 rep=3 sabotage=0
+open took 0.041 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=2000000    secs=   0.18 ops/s=   11121947  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.67s ops/cpu-s=2985351 rd=188.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+   found=685880 notfound=0
+== point:uniform@8        T=8  ops=685880     secs=   5.00 ops/s=     137171  lat us p50=62.98 p99=117.76 p99.9=149.50 max=2005.8 mean=58.26
+   cpu=4.52s ops/cpu-s=151608 rd=3526.9 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 271418 ops (+27140 ops/s)
+== range:uniform:1@8      T=8  ops=284082     secs=   5.00 ops/s=      56814  lat us p50=130.05 p99=356.35 p99.9=565.25 max=4520.2 mean=140.73
+   cpu=41.81s ops/cpu-s=6795 rd=14152.1 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=130.05 p99=356.35 mean=139.95  per-tuple=nan ns  deinit mean=0.73 us  tuples/s=56814
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+close took 0.081 s
+== range:uniform:10000@8  T=8  ops=4064       secs=   5.00 ops/s=        813  lat us p50=7929.86 p99=28049.41 p99.9=37224.45 max=43252.8 mean=9847.14
+   cpu=15.58s ops/cpu-s=261 rd=2530641.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=2 swapout=0 majflt=0
+   startup us p50=405.50 p99=1359.87 mean=449.73  per-tuple=941.8 ns  deinit mean=1.21 us  tuples/s=8112826
+   insert/run=5.00s drain(close)=0.08s total=5.08s drain_cpu=0.01s drain_rd=0 drain_wr=274432 wamp=nan db_apparent=3671330816 db_alloc=834437120

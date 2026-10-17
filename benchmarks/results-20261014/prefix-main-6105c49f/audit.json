@@ -1,0 +1,53 @@
+{
+  "source_and_binary_hashes_match": true,
+  "identical_harness": true,
+  "benchmark_subprocesses": 102,
+  "query_invocations": 68,
+  "phase_rows": 223,
+  "errors": 0,
+  "violations": 0,
+  "benchmark_intervals_do_not_overlap": true,
+  "tests_before_benchmarks": true,
+  "tests": {
+    "debug": {
+      "unit_cases": 141,
+      "functional_log_passed": true
+    },
+    "release": {
+      "unit_cases": 141,
+      "functional_log_passed": true
+    }
+  },
+  "iterator_object_sizes": {
+    "main": {
+      "command": [
+        "gdb",
+        "-nx",
+        "-batch",
+        "-ex",
+        "p sizeof(btree_iterator)",
+        "-ex",
+        "p sizeof(core_range_iterator)",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/prefix-main-6105c49f/main/build/release/lib/libsplinterdb.so"
+      ],
+      "btree_iterator": 336,
+      "core_range_iterator": 94592,
+      "output": "$1 = 336\n$2 = 94592\n"
+    },
+    "candidate": {
+      "command": [
+        "gdb",
+        "-nx",
+        "-batch",
+        "-ex",
+        "p sizeof(btree_iterator)",
+        "-ex",
+        "p sizeof(core_range_iterator)",
+        "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/build-main-6105c49f/release/lib/libsplinterdb.so"
+      ],
+      "btree_iterator": 488,
+      "core_range_iterator": 133504,
+      "output": "$1 = 488\n$2 = 133504\n"
+    }
+  }
+}

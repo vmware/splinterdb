@@ -1,0 +1,21 @@
+prefix-pattern=random key_bytes=64 compression_disabled=false
+kvbench version=branch-prefix splinter=splinterdb_build_version 919b61f0-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/main-7bb5fab/prefix-disk-random/scratch.db mode=open n=2000000 cache_mib=64 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=5.0 warmup=1.0 rep=2 sabotage=0
+open took 0.055 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=2000000    secs=   0.17 ops/s=   12003155  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.67s ops/cpu-s=3003427 rd=188.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=1
+phase point:uniform@8: T=8 dist=uniform (fixed duration)
+   found=774224 notfound=0
+== point:uniform@8        T=8  ops=774224     secs=   5.00 ops/s=     154840  lat us p50=52.74 p99=101.38 p99.9=137.22 max=1724.4 mean=51.51
+   cpu=4.91s ops/cpu-s=157581 rd=3529.1 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:1@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:1@8] progress 300061 ops (+30004 ops/s)
+== range:uniform:1@8      T=8  ops=313811     secs=   5.00 ops/s=      62759  lat us p50=119.81 p99=315.39 p99.9=454.66 max=4156.9 mean=127.26
+   cpu=41.92s ops/cpu-s=7487 rd=14140.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=117.76 p99=315.39 mean=126.26  per-tuple=nan ns  deinit mean=0.96 us  tuples/s=62759
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+close took 0.056 s
+== range:uniform:10000@8  T=8  ops=4215       secs=   5.00 ops/s=        843  lat us p50=7405.57 p99=27000.83 p99.9=36175.87 max=39281.4 mean=9492.13
+   cpu=16.15s ops/cpu-s=261 rd=2548938.4 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=364.54 p99=1097.73 mean=400.80  per-tuple=911.0 ns  deinit mean=1.73 us  tuples/s=8415359
+   insert/run=5.00s drain(close)=0.06s total=5.06s drain_cpu=0.01s drain_rd=0 drain_wr=274432 wamp=nan db_apparent=3671592960 db_alloc=833990656

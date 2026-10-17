@@ -1,0 +1,19 @@
+prefix-pattern=common key_bytes=64 compression_disabled=false
+kvbench version=main splinter=splinterdb_build_version 6105c49f db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/prefix-main-6105c49f/databases/repeat-resident-common-disabled-wal0-04-main.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=15.0 warmup=1.0 rep=4 sabotage=0
+open took 0.006 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.01 ops/s=   13440269  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.06s ops/cpu-s=3101978 rd=178.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=1
+phase range:uniform:10000@8: T=8 dist=uniform (fixed duration)
+  [range:uniform:10000@8] progress 47941 ops (+4794 ops/s)
+== range:uniform:10000@8  T=8  ops=65367      secs=  15.00 ops/s=       4358  lat us p50=1458.18 p99=3440.64 p99.9=3637.25 max=3900.8 mean=1835.61
+   cpu=119.98s ops/cpu-s=545 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=9.34 p99=14.46 mean=9.54  per-tuple=187.2 ns  deinit mean=0.66 us  tuples/s=42484835
+phase range:uniform:10000@1: T=1 dist=uniform (fixed duration)
+  [range:uniform:10000@1] progress 6817 ops (+1844459563798729728 ops/s)
+  [range:uniform:10000@1] progress 20581 ops (+1376 ops/s)
+close took 0.063 s
+== range:uniform:10000@1  T=1  ops=20661      secs=  15.00 ops/s=       1377  lat us p50=745.47 p99=860.16 p99.9=1294.34 max=1375.8 mean=725.97
+   cpu=15.00s ops/cpu-s=1377 rd=0.0 B/op wr=0.4 B/op violations=0 errors=0 swapin=11 swapout=0 majflt=0
+   startup us p50=6.08 p99=9.09 mean=6.14  per-tuple=73.7 ns  deinit mean=0.32 us  tuples/s=13440690
+   insert/run=15.00s drain(close)=0.06s total=15.06s drain_cpu=0.01s drain_rd=0 drain_wr=307200 wamp=nan db_apparent=237375488 db_alloc=37285888

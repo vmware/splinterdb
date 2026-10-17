@@ -7,6 +7,9 @@
 
 set -eu -o pipefail
 
+# Run from the source root, regardless of the caller's working directory.
+cd "$(dirname "$0")"
+
 # different tool versions yield different results
 # so we standardize on this version
 TOOL="clang-format-19"
@@ -19,14 +22,21 @@ This tool is typically provided by the clang-format package"
    exit 1
 fi
 
+source_files() {
+   # Keep generated builds and frozen benchmark source snapshots out of both
+   # checking and fixall. Include new files in the maintained source directories.
+   find src include tests examples tools benchmarks \
+      -type d \( -path benchmarks/branch-prefix-history \
+                 -o -path 'benchmarks/results-*' \) -prune -o \
+      -type f \( -name '*.c' -o -name '*.h' \) -print0
+}
+
 if [ "${1:-""}" = "fixall" ]; then
-   # shellcheck disable=SC2046
-   "$TOOL" -i $(find . -path ./.cache -prune -o -name "*.[ch]" -print)
+   source_files | xargs -0 -r "$TOOL" -i
    exit 0
 fi
 
-# shellcheck disable=SC2046
-if "$TOOL"  --Werror --dry-run $(find . -path ./.cache -prune -o -name "*.[ch]" -print); then
+if source_files | xargs -0 -r "$TOOL" --Werror --dry-run; then
    echo Format OK
    exit 0
 else

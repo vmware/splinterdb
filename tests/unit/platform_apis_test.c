@@ -14,6 +14,8 @@
  * -----------------------------------------------------------------------------
  */
 #include <sys/mman.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include "ctest.h" // This is required for all test-case files.
 #include "config.h"
@@ -26,6 +28,17 @@
 #include "platform_spinlock.h"
 #include "platform_mutex.h"
 #include "platform_condvar.h"
+#include "platform_io.h"
+
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+#      include <sanitizer/msan_interface.h>
+#      define PLATFORM_API_TEST_MSAN 1
+#   endif
+#endif
+#ifndef PLATFORM_API_TEST_MSAN
+#   define PLATFORM_API_TEST_MSAN 0
+#endif
 
 /*
  * Global data declaration macro:
@@ -111,6 +124,176 @@ CTEST2(platform_api, test_platform_buffer_init_fails_for_very_large_length)
    ASSERT_FALSE(SUCCESS(rc));
 
    set_log_streams_for_tests(MSG_LEVEL_INFO);
+}
+
+typedef struct async_read_shadow_probe {
+   io_async_state_buffer state;
+   char                 *buffer;
+   uint64                length;
+   uint64                initialized_bytes;
+   bool32                shadow_ok;
+   bool32                data_ok;
+   uint64                callbacks;
+} async_read_shadow_probe;
+
+/* Inspect shadow before touching the data so the unfixed implementation
+ * produces an ordinary assertion failure after resources have been released.
+ * In particular, inspect from the completion callback, not just after wait. */
+static void
+async_read_shadow_check(async_read_shadow_probe *probe)
+{
+   probe->shadow_ok = TRUE;
+#if PLATFORM_API_TEST_MSAN
+   if (probe->initialized_bytes != 0) {
+      probe->shadow_ok =
+         __msan_test_shadow(probe->buffer, probe->initialized_bytes) == -1;
+   }
+   for (uint64 i = probe->initialized_bytes; i < probe->length; i++) {
+      if (__msan_test_shadow(probe->buffer + i, 1) != 0) {
+         probe->shadow_ok = FALSE;
+      }
+   }
+#endif
+   probe->data_ok = probe->shadow_ok;
+   if (probe->shadow_ok) {
+      for (uint64 i = 0; i < probe->initialized_bytes; i++) {
+         if (probe->buffer[i] != 0x5a) {
+            probe->data_ok = FALSE;
+         }
+      }
+   }
+}
+
+static void
+async_read_shadow_callback(void *arg)
+{
+   async_read_shadow_probe *probe = arg;
+   if (io_async_run(probe->state) != ASYNC_STATUS_DONE) {
+      return;
+   }
+   async_read_shadow_check(probe);
+   probe->callbacks++;
+}
+
+static void
+test_async_io_shadow(platform_heap_id hid,
+                     io_async_cmd     cmd,
+                     uint64           file_bytes,
+                     uint64           addr,
+                     uint64           initialized_bytes,
+                     bool32           expect_success,
+                     bool32           allow_submit_failure)
+{
+   char filename[] = "/tmp/splinterdb-async-shadow-XXXXXX";
+   int  fd         = mkstemp(filename);
+   ASSERT_TRUE(fd >= 0);
+   io_config cfg;
+   io_config_init(&cfg,
+                  IO_DEFAULT_PAGE_SIZE,
+                  IO_DEFAULT_EXTENT_SIZE,
+                  O_RDWR,
+                  IO_DEFAULT_PERMS,
+                  IO_DEFAULT_KERNEL_QUEUE_SIZE,
+                  filename);
+   io_handle *io = io_handle_create(&cfg, hid);
+   ASSERT_NOT_NULL(io);
+   ASSERT_EQUAL(0, unlink(filename));
+
+   const uint64  page_size = IO_DEFAULT_PAGE_SIZE;
+   buffer_handle buffer;
+   ASSERT_TRUE(SUCCESS(platform_buffer_init(&buffer, 3 * page_size)));
+   char *bytes = platform_buffer_getaddr(&buffer);
+   memset(bytes, 0x5a, 3 * page_size);
+   ASSERT_TRUE(SUCCESS(io_write(io, bytes, 3 * page_size, 0)));
+   /* Buffered I/O permits EOF partway through an iovec. Creation may extend
+    * the file for a superblock, so establish this length after opening it. */
+   ASSERT_EQUAL(0, ftruncate(fd, file_bytes));
+   ASSERT_EQUAL(0, close(fd));
+
+   async_read_shadow_probe probe = {
+      .buffer            = bytes,
+      .length            = 3 * page_size,
+      .initialized_bytes = initialized_bytes,
+   };
+   ASSERT_TRUE(SUCCESS(io_async_state_init(
+      probe.state, io, cmd, addr, async_read_shadow_callback, &probe)));
+   for (uint64 i = 0; i < 3; i++) {
+      ASSERT_TRUE(SUCCESS(
+         io_async_state_append_page(probe.state, bytes + i * page_size)));
+   }
+   if (cmd == io_async_preadv) {
+      memset(bytes, 0xa5, probe.length);
+   }
+#if PLATFORM_API_TEST_MSAN
+   __msan_poison(bytes, probe.length);
+#endif
+   async_status started = io_async_run(probe.state);
+   io_wait_all(io);
+   if (started == ASYNC_STATUS_DONE) {
+      /* A negative offset can be rejected by submission rather than by a
+       * completion. Neither path may mark destination bytes initialized. */
+      async_read_shadow_check(&probe);
+   }
+   platform_status rc = io_async_state_get_result(probe.state);
+   io_async_state_deinit(probe.state);
+#if PLATFORM_API_TEST_MSAN
+   __msan_unpoison(bytes, probe.length);
+#endif
+   ASSERT_TRUE(SUCCESS(platform_buffer_deinit(&buffer)));
+   io_handle_destroy(io);
+
+   ASSERT_TRUE(probe.shadow_ok);
+   ASSERT_TRUE(probe.data_ok);
+   ASSERT_EQUAL(expect_success, SUCCESS(rc));
+   if (started == ASYNC_STATUS_DONE) {
+      ASSERT_TRUE(allow_submit_failure);
+      ASSERT_EQUAL(0, probe.callbacks);
+   } else {
+      ASSERT_EQUAL(1, probe.callbacks);
+   }
+}
+
+CTEST2(platform_api, test_async_read_initializes_all_iovecs)
+{
+   test_async_io_shadow(data->hid,
+                        io_async_preadv,
+                        3 * IO_DEFAULT_PAGE_SIZE,
+                        0,
+                        3 * IO_DEFAULT_PAGE_SIZE,
+                        TRUE,
+                        FALSE);
+}
+
+CTEST2(platform_api, test_async_short_read_initializes_only_returned_bytes)
+{
+   test_async_io_shadow(data->hid,
+                        io_async_preadv,
+                        IO_DEFAULT_PAGE_SIZE + 37,
+                        0,
+                        IO_DEFAULT_PAGE_SIZE + 37,
+                        FALSE,
+                        FALSE);
+}
+
+CTEST2(platform_api, test_async_eof_read_keeps_buffer_poisoned)
+{
+   test_async_io_shadow(data->hid, io_async_preadv, 0, 0, 0, FALSE, FALSE);
+}
+
+CTEST2(platform_api, test_async_failed_read_keeps_buffer_poisoned)
+{
+   test_async_io_shadow(data->hid,
+                        io_async_preadv,
+                        3 * IO_DEFAULT_PAGE_SIZE,
+                        UINT64_MAX,
+                        0,
+                        FALSE,
+                        TRUE);
+}
+
+CTEST2(platform_api, test_async_write_does_not_initialize_source)
+{
+   test_async_io_shadow(data->hid, io_async_pwritev, 0, 0, 0, TRUE, FALSE);
 }
 
 CTEST_MEMORY_FAULT(platform_api, test_memory_fault_range)

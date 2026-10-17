@@ -1,0 +1,34 @@
+Running 1 CTests, suite name 'superblock', test case 'all'.
+TEST 1/15 superblock:test_format_sets_fresh_state [OK]
+TEST 2/15 superblock:test_rejects_other_experiment_formats superblock_mount: no valid superblock found
+superblock_read_bootstrap: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_read_bootstrap: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_read_bootstrap: no valid superblock found
+[OK]
+TEST 3/15 superblock:test_snapshot_persists_state [OK]
+TEST 4/15 superblock:test_two_log_checkpoint_transitions [OK]
+TEST 5/15 superblock:test_snapshot_preserves_unincorporated_sealed_log [OK]
+TEST 6/15 superblock:test_two_log_checkpoint_torn_begin [OK]
+TEST 7/15 superblock:test_torn_write_falls_back_to_older_generation [OK]
+TEST 8/15 superblock:test_generation_wrap_selects_newest_slot [OK]
+TEST 9/15 superblock:test_both_slots_corrupt_is_not_found superblock_mount: no valid superblock found
+[OK]
+TEST 10/15 superblock:test_mount_rejects_invalid_metadata superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+superblock_mount: no valid superblock found
+[OK]
+TEST 11/15 superblock:test_slot_read_error_falls_back_to_peer [OK]
+TEST 12/15 superblock:test_both_slot_read_errors_are_reported superblock_mount: no readable valid superblock found: Input/output error
+[OK]
+TEST 13/15 superblock:test_read_geometry superblock_read_bootstrap: no valid superblock found
+[OK]
+TEST 14/15 superblock:test_read_bootstrap_allocation_state superblock_read_bootstrap: no valid superblock found
+[OK]
+TEST 15/15 superblock:test_bootstrap_geometry_metadata_budget Device geometry needs 134217728 bytes of cache lookup metadata, which exceeds the configured cache budget of 67108864 bytes.
+Failed to open existing SplinterDB device 'db' with specified configuration: No space left on device
+[OK]
+RESULTS: 15 tests (15 ok, 0 failed, 0 skipped) ran in 31 ms

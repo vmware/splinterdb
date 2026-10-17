@@ -129,6 +129,24 @@ CTEST_TEARDOWN(btree)
    platform_deregister_thread();
 }
 
+CTEST2(btree, test_compressed_suffix_copy)
+{
+   char source[64];
+   char destination[66];
+   for (uint64 i = 0; i < sizeof(source); i++) {
+      source[i] = (char)(i + 1);
+   }
+   for (uint64 length = 0; length <= sizeof(source); length++) {
+      memset(destination, 0x5a, sizeof(destination));
+      btree_copy_key_suffix(destination + 1, source, length);
+      ASSERT_EQUAL(0, memcmp(destination + 1, source, length));
+      ASSERT_EQUAL(0x5a, destination[0]);
+      for (uint64 i = length + 1; i < sizeof(destination); i++) {
+         ASSERT_EQUAL(0x5a, destination[i]);
+      }
+   }
+}
+
 /*
  * Test leaf_hdr APIs.
  */

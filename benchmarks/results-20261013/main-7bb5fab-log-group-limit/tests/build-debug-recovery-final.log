@@ -1,0 +1,2 @@
+Starting main-merge-log-group-recovery-final-debug-build build
+make: *** No rule to make target 'unit/splinterdb_forked_child_test'.  Stop.

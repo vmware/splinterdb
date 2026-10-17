@@ -809,8 +809,9 @@ shard_log_group_reset(shard_log *log, shard_log_group *group, uint64 id)
    group->state        = SHARD_LOG_GROUP_OPEN;
    group->close        = SHARD_LOG_CLOSE_NONE;
    group->next_page_no = 0;
-   group->next         = NULL;
-   group->pool_next    = NULL;
+   __atomic_store_n(&group->estimated_pages, 0, __ATOMIC_RELAXED);
+   group->next      = NULL;
+   group->pool_next = NULL;
    __atomic_store_n(&group->ever_used, FALSE, __ATOMIC_RELAXED);
    uint64 page_size = shard_log_page_size(log->cfg);
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
@@ -1179,6 +1180,7 @@ typedef struct shard_log_prepared_write {
    message           msg;
    merge_accumulator log_blob;
    uint64            entry_size;
+   uint64            blob_pages;
    threadid          owner_tid;
    bool32            log_blob_inited;
    bool32            reserved;
@@ -1296,6 +1298,10 @@ shard_log_write_prepare(log_handle         *logh,
       goto fail;
    }
 
+   if (message_is_blob(msg)) {
+      uint64 bytes      = blob_length(message_slice(msg));
+      state->blob_pages = bytes / page_size + (bytes % page_size != 0);
+   }
    state->tuple_key  = tuple_key;
    state->msg        = msg;
    state->entry_size = entry_size;
@@ -1411,6 +1417,37 @@ shard_log_write_finish(log_write_token *token,
    debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
 
    shard_log_atomic_bool_set_once(&log->has_records);
+
+   if (log->cfg->group_size_pages != UINT64_MAX) {
+      uint64 added =
+         state->blob_pages + (token->internal_offset == sizeof(shard_log_hdr));
+      if (added != 0) {
+         uint64 pages =
+            __atomic_load_n(&group->estimated_pages, __ATOMIC_RELAXED);
+         uint64 next;
+         do {
+            next = added > UINT64_MAX - pages ? UINT64_MAX : pages + added;
+         } while (!__atomic_compare_exchange_n(&group->estimated_pages,
+                                               &pages,
+                                               next,
+                                               FALSE,
+                                               __ATOMIC_RELAXED,
+                                               __ATOMIC_RELAXED));
+         if (next >= log->cfg->group_size_pages) {
+            uint64 target =
+               __atomic_load_n(&log->automatic_target, __ATOMIC_RELAXED);
+            while (target < ticket
+                   && !__atomic_compare_exchange_n(&log->automatic_target,
+                                                   &target,
+                                                   ticket,
+                                                   FALSE,
+                                                   __ATOMIC_SEQ_CST,
+                                                   __ATOMIC_RELAXED))
+            {
+            }
+         }
+      }
+   }
 
    /* Consume the preparation and token before publishing the finished entry. */
    shard_log_prepared_state_deinit(prepared);
@@ -1778,7 +1815,6 @@ shard_log_wait_for_ticket_to_be_durable(shard_log         *log,
    return result;
 }
 
-/* Install a fresh accepting group and return the closed group's ticket. */
 static platform_status
 shard_log_make_durable_begin(log_handle *logh, log_durable_ticket *ticket_out)
 {
@@ -2335,6 +2371,17 @@ shard_log_is_empty(log_handle *logh)
    return !shard_log_atomic_bool_load(&log->has_records);
 }
 
+/* Compare IDs instead of dereferencing the accepting group: durability may
+ * reclaim a group concurrently. Delayed writers can publish an older target,
+ * which must not trigger an unnecessary cut of the successor. */
+static bool32
+shard_log_group_size_reached(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   uint64 target  = __atomic_load_n(&log->automatic_target, __ATOMIC_RELAXED);
+   return target >= __atomic_load_n(&log->accepting.id, __ATOMIC_RELAXED);
+}
+
 static log_ops shard_log_ops = {
    .write_prepare          = shard_log_write_prepare,
    .write_prepared_message = shard_log_write_prepared_message,
@@ -2348,6 +2395,7 @@ static log_ops shard_log_ops = {
    .deinit                 = shard_log_deinit,
    .head                   = shard_log_get_head,
    .is_empty               = shard_log_is_empty,
+   .group_size_reached     = shard_log_group_size_reached,
    .size                   = shard_log_get_size,
 };
 
@@ -2573,15 +2621,16 @@ shard_log_config_init(shard_log_config *log_cfg,
                       data_config      *data_cfg)
 {
    ZERO_CONTENTS(log_cfg);
-   log_cfg->cache_cfg = cache_cfg;
-   log_cfg->data_cfg  = data_cfg;
-   log_cfg->seed      = HASH_SEED;
-   log_cfg->blob_cfg  = (blob_build_config){
-       .extent_batch             = 1,
-       .page_batch               = 2,
-       .subpage_batch            = 3,
-       .alignment                = cache_config_page_size(cache_cfg),
-       .blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE,
+   log_cfg->cache_cfg        = cache_cfg;
+   log_cfg->data_cfg         = data_cfg;
+   log_cfg->seed             = HASH_SEED;
+   log_cfg->group_size_pages = SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES;
+   log_cfg->blob_cfg         = (blob_build_config){
+              .extent_batch             = 1,
+              .page_batch               = 2,
+              .subpage_batch            = 3,
+              .alignment                = cache_config_page_size(cache_cfg),
+              .blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE,
    };
 }
 

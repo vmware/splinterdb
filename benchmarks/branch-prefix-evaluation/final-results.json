@@ -1,0 +1,116 @@
+{
+  "variant": "selected-io-alignment",
+  "main_commit": "6105c49f66a24d3006ba0464d9558b52e692e27c",
+  "original_candidate_commit": "b9cc3ea4ecfd523d799116798285fb2d7fe0bfaa",
+  "method": "Direct paired log-ratio nominal95% intervals; random insertion uses a separate fixed18-pair follow-up; other rows use6 pairs. No pooling/exclusions. Exploratory investigation, not simultaneous equivalence guarantee.",
+  "rows": [
+    {
+      "case": "nonlexical-insert-random",
+      "campaign": "confirmation-aligned-random-insert",
+      "pairs": 18,
+      "metric": "ops_s",
+      "main_rate": 966308.1218151139,
+      "selected_rate": 963804.6558912902,
+      "throughput_percent_change": -0.25907532673139944,
+      "ci95_lower_percent": -0.8444091381787916,
+      "ci95_upper_percent": 0.32971381857912285,
+      "instructions_percent_change": -0.006118950103554397
+    },
+    {
+      "case": "nonlexical-insert-sorted",
+      "campaign": "confirmation-aligned",
+      "pairs": 6,
+      "metric": "ops_s",
+      "main_rate": 2208041.7639800054,
+      "selected_rate": 2224391.347884528,
+      "throughput_percent_change": 0.7404562799143066,
+      "ci95_lower_percent": -2.073395538831085,
+      "ci95_upper_percent": 3.635162143394768,
+      "instructions_percent_change": -0.0055744379729201635
+    },
+    {
+      "case": "nonlexical-overwrite",
+      "campaign": "confirmation-aligned",
+      "pairs": 6,
+      "metric": "ops_s",
+      "main_rate": 947977.3576353488,
+      "selected_rate": 944344.0166328123,
+      "throughput_percent_change": -0.38327297305917046,
+      "ci95_lower_percent": -1.8215523653291001,
+      "ci95_upper_percent": 1.0760767015391774,
+      "instructions_percent_change": -4.954812251908216e-07
+    },
+    {
+      "case": "nonlexical-pack",
+      "campaign": "confirmation-aligned",
+      "pairs": 6,
+      "metric": "tuples_s",
+      "main_rate": 26356687.00889943,
+      "selected_rate": 26122420.0427801,
+      "throughput_percent_change": -0.8888331300523374,
+      "ci95_lower_percent": -1.8300269613948459,
+      "ci95_upper_percent": 0.06138429374658137,
+      "instructions_percent_change": 1.517009780770382
+    },
+    {
+      "case": "nonlexical-hit",
+      "campaign": "confirmation-aligned",
+      "pairs": 6,
+      "metric": "ops_s",
+      "main_rate": 1149069.8485497134,
+      "selected_rate": 1152512.179783677,
+      "throughput_percent_change": 0.2995754556007862,
+      "ci95_lower_percent": -0.883778393040977,
+      "ci95_upper_percent": 1.4970574288662684,
+      "instructions_percent_change": 3.6268361831885825
+    },
+    {
+      "case": "nonlexical-miss",
+      "campaign": "confirmation-aligned",
+      "pairs": 6,
+      "metric": "ops_s",
+      "main_rate": 1162388.4089263137,
+      "selected_rate": 1158815.145688784,
+      "throughput_percent_change": -0.3074069915090386,
+      "ci95_lower_percent": -1.1445082375458548,
+      "ci95_upper_percent": 0.5367827681108192,
+      "instructions_percent_change": 3.4669997671552806
+    },
+    {
+      "case": "nonlexical-scan1",
+      "campaign": "confirmation-aligned",
+      "pairs": 6,
+      "metric": "tuples_s",
+      "main_rate": 970560.7434311935,
+      "selected_rate": 963753.4561061065,
+      "throughput_percent_change": -0.7013767423789227,
+      "ci95_lower_percent": -1.8458814456382755,
+      "ci95_upper_percent": 0.45647320848771517,
+      "instructions_percent_change": 3.6351714885246427
+    },
+    {
+      "case": "nonlexical-scan10000",
+      "campaign": "confirmation-aligned",
+      "pairs": 6,
+      "metric": "tuples_s",
+      "main_rate": 58995302.04966481,
+      "selected_rate": 59525819.231018245,
+      "throughput_percent_change": 0.8992532675005518,
+      "ci95_lower_percent": -0.9010836284964626,
+      "ci95_upper_percent": 2.7322970089179286,
+      "instructions_percent_change": 2.341728181889161
+    },
+    {
+      "case": "nonlexical-scanfull",
+      "campaign": "confirmation-aligned",
+      "pairs": 6,
+      "metric": "tuples_s",
+      "main_rate": 57201881.94928984,
+      "selected_rate": 57428680.975638404,
+      "throughput_percent_change": 0.3964887493555182,
+      "ci95_lower_percent": -0.7305448135359426,
+      "ci95_upper_percent": 1.5363178357994949,
+      "instructions_percent_change": 2.3393281181650307
+    }
+  ]
+}

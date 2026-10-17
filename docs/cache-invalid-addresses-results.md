@@ -199,3 +199,34 @@ correct trailing-name invocation passes in both builds. The old 137-file
 branch-specific `main-7bb5fab` evidence is preserved byte-for-byte at the new
 branch-specific archive path linked above; main's 132-file archive is retained
 at its original path. No benchmarks were rerun as part of this merge check.
+
+
+## Prefix-compression main integration (2026-10-17)
+
+Merged main `8e0f29b89598db1d52aa7090404b475001dbf2eb` into the active
+`robj/cache-invalid-addresses` branch from `c15f1452`. The merge had no conflicts.
+The invalid-address implementation and its tests remain byte-for-byte unchanged
+in `cache.h`, `clockcache.c`, and `writeback_set_test.c`; all other runtime and
+test sources match this main. Main's prefix compression, format-version checks,
+and prefix-page/asynchronous-read MemorySanitizer repairs are included.
+
+GCC debug and release each pass **106 unit cases**: 18 writeback/cache,
+62 public quick, 11 platform API, 12 B-tree, and three focused core
+propagation/version tests. Clang 19 release with MemorySanitizer passes all
+18 writeback/cache, 62 public quick, and 11 platform API cases. This is
+**303 passing unit executions**, plus the passing debug deterministic
+prefetch-admission functional check. Two existing memory-fault-only platform
+tests are skipped in each build because fault injection is disabled (six
+skipped executions). The full maintained-source formatting check and both Git
+whitespace checks pass.
+
+Builds and tests were serialized with the campaign's exclusive machine lock,
+used separate temporary directories, and kept test databases on real ext4
+storage. Source hashes were unchanged throughout validation. Commands, logs,
+counts, compiler settings, binary hashes, and source inventories are in
+[the integration evidence](../benchmarks/results-20261017/cache-invalid-addresses-main-8e0f29b8/README.md).
+
+No benchmarks were rerun for this integration. Earlier performance numbers
+remain specific to their recorded commits; the previously documented
+performance uncertainty and inherited asynchronous allocation-progress stall
+remain unresolved. Existing untracked build directories were preserved.

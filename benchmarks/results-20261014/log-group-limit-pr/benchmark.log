@@ -1,0 +1,14 @@
+Benchmark database storage: ext4 /dev/mapper/snafu-root_crypt[/home/rob/projects/splinterdb] /home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/log-pr-1024-20261014
+Starting log-pr-1024-default-screen benchmark
+t1-r0-0-main
+t1-r0-1-default1024
+t1-r0-2-explicit1024
+t1-r0-3-explicit1024
+t1-r0-4-default1024
+t1-r0-5-main
+t8-r0-0-main
+t8-r0-1-default1024
+t8-r0-2-explicit1024
+t8-r0-3-explicit1024
+t8-r0-4-default1024
+t8-r0-5-main

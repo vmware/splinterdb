@@ -1,0 +1,64 @@
+Checking for mismatched config...No mismatched config found
+Saving config to build-main-8e0f29b8/release/build-config.fb6bc8eeb8390429253883c09491f5bd
+Compiling            src/PackedArray.c                                  [build-main-8e0f29b8/release/obj/src/PackedArray.o]
+Compiling            src/batch_rwlock.c                                 [build-main-8e0f29b8/release/obj/src/batch_rwlock.o]
+Compiling            src/core.c                                         [build-main-8e0f29b8/release/obj/src/core.o]
+Compiling            src/default_data_config.c                          [build-main-8e0f29b8/release/obj/src/default_data_config.o]
+Compiling            src/memtable.c                                     [build-main-8e0f29b8/release/obj/src/memtable.o]
+Compiling            src/merge.c                                        [build-main-8e0f29b8/release/obj/src/merge.o]
+Compiling            src/notification.c                                 [build-main-8e0f29b8/release/obj/src/notification.o]
+Compiling            src/routing_filter.c                               [build-main-8e0f29b8/release/obj/src/routing_filter.o]
+Compiling            src/shard_log.c                                    [build-main-8e0f29b8/release/obj/src/shard_log.o]
+Compiling            src/splinterdb.c                                   [build-main-8e0f29b8/release/obj/src/splinterdb.o]
+Compiling            src/superblock.c                                   [build-main-8e0f29b8/release/obj/src/superblock.o]
+Compiling            src/trunk.c                                        [build-main-8e0f29b8/release/obj/src/trunk.o]
+Compiling            src/allocator.c                                    [build-main-8e0f29b8/release/obj/src/allocator.o]
+Compiling            src/blob.c                                         [build-main-8e0f29b8/release/obj/src/blob.o]
+Compiling            src/blob_build.c                                   [build-main-8e0f29b8/release/obj/src/blob_build.o]
+Compiling            src/btree.c                                        [build-main-8e0f29b8/release/obj/src/btree.o]
+Compiling            src/clockcache.c                                   [build-main-8e0f29b8/release/obj/src/clockcache.o]
+Compiling            src/data_blob_build.c                              [build-main-8e0f29b8/release/obj/src/data_blob_build.o]
+Compiling            src/data_internal.c                                [build-main-8e0f29b8/release/obj/src/data_internal.o]
+Compiling            src/histogram.c                                    [build-main-8e0f29b8/release/obj/src/histogram.o]
+Compiling            src/mini_allocator.c                               [build-main-8e0f29b8/release/obj/src/mini_allocator.o]
+Compiling            src/ondisk_ref.c                                   [build-main-8e0f29b8/release/obj/src/ondisk_ref.o]
+Compiling            src/platform_linux/laio.c                          [build-main-8e0f29b8/release/obj/src/platform_linux/laio.o]
+Compiling            src/platform_linux/platform_assert.c               [build-main-8e0f29b8/release/obj/src/platform_linux/platform_assert.o]
+Compiling            src/platform_linux/platform_buffer.c               [build-main-8e0f29b8/release/obj/src/platform_linux/platform_buffer.o]
+Compiling            src/platform_linux/platform_condvar.c              [build-main-8e0f29b8/release/obj/src/platform_linux/platform_condvar.o]
+Compiling            src/platform_linux/platform_heap.c                 [build-main-8e0f29b8/release/obj/src/platform_linux/platform_heap.o]
+Compiling            src/platform_linux/platform_io.c                   [build-main-8e0f29b8/release/obj/src/platform_linux/platform_io.o]
+Compiling            src/platform_linux/platform_log.c                  [build-main-8e0f29b8/release/obj/src/platform_linux/platform_log.o]
+Compiling            src/platform_linux/platform_mutex.c                [build-main-8e0f29b8/release/obj/src/platform_linux/platform_mutex.o]
+Compiling            src/platform_linux/platform_threads.c              [build-main-8e0f29b8/release/obj/src/platform_linux/platform_threads.o]
+Compiling            src/platform_linux/platform_trace.c                [build-main-8e0f29b8/release/obj/src/platform_linux/platform_trace.o]
+Compiling            src/platform_linux/shmalloc.c                      [build-main-8e0f29b8/release/obj/src/platform_linux/shmalloc.o]
+Compiling            src/rc_allocator.c                                 [build-main-8e0f29b8/release/obj/src/rc_allocator.o]
+Compiling            src/task.c                                         [build-main-8e0f29b8/release/obj/src/task.o]
+Compiling            src/util.c                                         [build-main-8e0f29b8/release/obj/src/util.o]
+Compiling            src/writeback_set.c                                [build-main-8e0f29b8/release/obj/src/writeback_set.o]
+Compiling            tests/unit/main.c                                  [build-main-8e0f29b8/release/obj/tests/unit/main.o]
+Compiling            tests/unit/writeback_set_test.c                    [build-main-8e0f29b8/release/obj/tests/unit/writeback_set_test.o]
+Compiling            tests/unit/btree_test_common.c                     [build-main-8e0f29b8/release/obj/tests/unit/btree_test_common.o]
+Compiling            tests/config.c                                     [build-main-8e0f29b8/release/obj/tests/config.o]
+Compiling            tests/test_data.c                                  [build-main-8e0f29b8/release/obj/tests/test_data.o]
+Compiling            tests/unit/unit_tests_common.c                     [build-main-8e0f29b8/release/obj/tests/unit/unit_tests_common.o]
+Compiling            tests/unit/splinterdb_quick_test.c                 [build-main-8e0f29b8/release/obj/tests/unit/splinterdb_quick_test.o]
+Compiling            tests/test_common.c                                [build-main-8e0f29b8/release/obj/tests/test_common.o]
+Compiling            tests/functional/test_async.c                      [build-main-8e0f29b8/release/obj/tests/functional/test_async.o]
+Compiling            tests/unit/platform_apis_test.c                    [build-main-8e0f29b8/release/obj/tests/unit/platform_apis_test.o]
+Compiling            tests/unit/btree_test.c                            [build-main-8e0f29b8/release/obj/tests/unit/btree_test.o]
+Compiling            tests/unit/splinter_test.c                         [build-main-8e0f29b8/release/obj/tests/unit/splinter_test.o]
+Linking              build-main-8e0f29b8/release/bin/unit/writeback_set_test
+Linking              build-main-8e0f29b8/release/bin/unit/platform_apis_test
+Linking              build-main-8e0f29b8/release/bin/unit/btree_test
+In file included from src/PackedArray.c:296,
+                 from src/PackedArray.c:356:
+src/PackedArray.c: In function ‘__PackedArray_unpack_21’:
+src/PackedArray.c:177: note: ‘-Wmisleading-indentation’ is disabled from this point onwards, since column-tracking was disabled due to the size of the code/headers
+  177 |         PACKEDARRAY_IMPL_UNPACK_CASE_BREAK
+src/PackedArray.c:177: note: adding ‘-flarge-source-files’ will allow for more column-tracking support, at the expense of compilation time and memory
+Linking              build-main-8e0f29b8/release/lib/libsplinterdb.so
+Building archive     build-main-8e0f29b8/release/lib/libsplinterdb.a
+Linking              build-main-8e0f29b8/release/bin/unit/splinterdb_quick_test
+Linking              build-main-8e0f29b8/release/bin/unit/splinter_test

@@ -1712,6 +1712,145 @@ CTEST2(splinter, test_invalid_branch_reference_rejected)
    }
 }
 
+/* A clean mount leaves branch reads lazy; recovery must enumerate them. In
+ * both paths, a persisted old branch version must be rejected before its
+ * pages are interpreted. Restore the version before any owning-tree cleanup,
+ * then prove that the same persisted tree still mounts and returns its tuple.
+ * The B-tree's NULL-cache tests independently enforce the before-page-access
+ * ordering of the version check. */
+CTEST2(splinter, test_persisted_old_branch_version_rejected)
+{
+   allocator        *alp  = (allocator *)&data->al;
+   allocator_config *acfg = allocator_get_config(alp);
+   cache            *cc   = (cache *)data->clock_cache;
+   core_config      *cfg  = &data->system_cfg->splinter_cfg;
+
+   for (bool32 recovering = FALSE; recovering <= TRUE; recovering++) {
+      allocator_root_id root_id = test_generate_allocator_root_id();
+      core_handle       spl;
+      ASSERT_TRUE(SUCCESS(core_mkfs(
+         &spl, cfg, alp, cc, data->io, &data->tasks, root_id, data->hid)));
+      DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+      test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+      merge_accumulator msg;
+      merge_accumulator_init(&msg, data->hid);
+      generate_test_message(&data->gen, 1, &msg);
+      ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                      key_buffer_key(&keybuf),
+                                      merge_accumulator_to_message(&msg),
+                                      NULL)));
+      merge_accumulator_deinit(&msg);
+      ASSERT_TRUE(SUCCESS(core_unmount(&spl, FALSE)));
+
+      superblock_context sb;
+      ASSERT_TRUE(
+         SUCCESS(superblock_context_init(&sb, data->io, acfg, data->hid)));
+      ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+      ASSERT_TRUE(superblock_allocation_state_valid(&sb));
+      superblock_tree_record rec;
+      superblock_get_tree_record(&sb, &rec);
+      ASSERT_NOT_EQUAL(0, rec.root_addr);
+      ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.live_log));
+      ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
+      if (recovering) {
+         /* Keep the durable tree, but require the mount's allocation walk. */
+         superblock_snapshot_tree(
+            &sb, rec.root_addr, rec.first_unincorporated_generation);
+         ASSERT_TRUE(SUCCESS(superblock_make_durable(&sb)));
+      }
+      superblock_context_deinit(&sb);
+
+      page_handle page =
+         test_splinter_claim_page(cc, rec.root_addr, PAGE_TYPE_TRUNK);
+      test_trunk_node_hdr *node =
+         (test_trunk_node_hdr *)page_handle_data(&page);
+      ASSERT_TRUE(node->num_pivots >= 2);
+      uint64 offset = node->pivot_offsets[0];
+      test_splinter_unclaim_page(cc, &page);
+      uint64 page_size = cache_page_size(cc);
+      uint64 page_addr = rec.root_addr + offset - offset % page_size;
+      page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      test_trunk_bundle *bundle =
+         test_splinter_pivot_bundle(&page, offset, page_size);
+      uint64 bundle_offset = (char *)bundle - page_handle_data(&page);
+      ASSERT_TRUE(bundle->num_branches != 0);
+      branch_ref saved_branch = bundle->branches[0];
+      ASSERT_EQUAL(BTREE_BRANCH_FORMAT_VERSION, saved_branch.format_version);
+      /* Version 1 predates the prefix_length field in the branch header. */
+      bundle->branches[0].format_version = 1;
+      test_splinter_unclaim_page(cc, &page);
+      ASSERT_TRUE(SUCCESS(cache_writeback_dirty(cc)));
+      ASSERT_TRUE(SUCCESS(cache_durable_barrier(cc)));
+      ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+
+      platform_status mount_rc = core_mount(
+         &spl, cfg, alp, cc, data->io, &data->tasks, root_id, data->hid);
+      platform_status sync_rc  = STATUS_OK;
+      platform_status async_rc = STATUS_OK;
+      platform_status range_rc = STATUS_OK;
+      if (SUCCESS(mount_rc) && !recovering) {
+         lookup_result result;
+         lookup_result_init(
+            &result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+         sync_rc  = core_lookup(&spl, key_buffer_key(&keybuf), &result);
+         async_rc = async_call_sync_callback(cache_cleanup(cc),
+                                             core_lookup_async,
+                                             &spl,
+                                             key_buffer_key(&keybuf),
+                                             &result);
+         lookup_result_deinit(&result);
+         core_range_iterator itor;
+         range_rc = core_range_iterator_init(&spl,
+                                             &itor,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY,
+                                             less_than,
+                                             POSITIVE_INFINITY_KEY,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY);
+         if (SUCCESS(range_rc)) {
+            core_range_iterator_deinit(&itor);
+         }
+      }
+
+      /* Restore the reference before cleanup, even if rejection regresses. */
+      page   = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      bundle = (test_trunk_bundle *)(page_handle_data(&page) + bundle_offset);
+      bundle->branches[0] = saved_branch;
+      test_splinter_unclaim_page(cc, &page);
+      ASSERT_TRUE(SUCCESS(cache_writeback_dirty(cc)));
+      ASSERT_TRUE(SUCCESS(cache_durable_barrier(cc)));
+      if (SUCCESS(mount_rc)) {
+         ASSERT_TRUE(SUCCESS(core_unmount(&spl, FALSE)));
+      }
+      ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+      ASSERT_TRUE(SUCCESS(core_mount(
+         &spl, cfg, alp, cc, data->io, &data->tasks, root_id, data->hid)));
+      lookup_result result;
+      lookup_result_init(
+         &result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      ASSERT_TRUE(SUCCESS(core_lookup(&spl, key_buffer_key(&keybuf), &result)));
+      verify_tuple(
+         &spl,
+         &data->gen,
+         1,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&result)),
+         TRUE);
+      lookup_result_deinit(&result);
+      core_destroy(&spl);
+
+      if (recovering) {
+         ASSERT_TRUE(STATUS_IS_EQ(mount_rc, STATUS_INVALID_STATE));
+      } else {
+         ASSERT_TRUE(SUCCESS(mount_rc));
+         ASSERT_TRUE(STATUS_IS_EQ(sync_rc, STATUS_INVALID_STATE));
+         ASSERT_TRUE(STATUS_IS_EQ(async_rc, STATUS_INVALID_STATE));
+         ASSERT_TRUE(STATUS_IS_EQ(range_rc, STATUS_INVALID_STATE));
+      }
+   }
+}
+
 /* Persisted pivot statistics are sizing hints, but they still feed arithmetic
  * during writes.  Reject the impossible zero-tuple/nonzero-byte state before
  * it can reach leaf splitting (where it used to cause a division by zero). */
@@ -2133,6 +2272,8 @@ CTEST2(splinter, test_logged_large_insert_shares_blob_extents)
    cache     *cc                          = (cache *)data->clock_cache;
    data->system_cfg->splinter_cfg.use_log = TRUE;
    data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = UINT64_MAX;
+   // This test inspects both records in their mutable staging buffer.
+   data->system_cfg->log_cfg.group_size_pages = UINT64_MAX;
 
    core_handle     spl;
    platform_status rc = core_mkfs(&spl,
@@ -5779,6 +5920,179 @@ test_lookup_by_range(void         *datap,
                   num_ranges);
 
    return rc;
+}
+
+/* Automatic completion failures are logged without failing a visible insert.
+ * The next barrier still retries the undurable prefix. */
+CTEST2(splinter, test_automatic_log_barrier_reports_failure_and_retries)
+{
+   allocator *al                          = (allocator *)&data->al;
+   data->system_cfg->splinter_cfg.use_log = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = UINT64_MAX;
+   data->system_cfg->log_cfg.group_size_pages               = 1;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &data->system_cfg->splinter_cfg,
+                                 al,
+                                 (cache *)data->clock_cache,
+                                 data->io,
+                                 &data->tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   checkpoint_barrier_fault fault = {0};
+   checkpoint_barrier_fault_install(&fault, data->io);
+   checkpoint_barrier_fault_arm(&fault, 0);
+   platform_status rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_EQUAL(1, fault.barriers);
+   ASSERT_EQUAL(0, ((shard_log *)spl.log)->durable_ticket);
+   checkpoint_barrier_fault_uninstall(&fault);
+   lookup_result result;
+   lookup_result_init(&result, data->system_cfg->data_cfg, 0, 0, NULL);
+   ASSERT_TRUE(SUCCESS(core_lookup(&spl, key_buffer_key(&keybuf), &result)));
+   ASSERT_TRUE(lookup_result_found(&result));
+   lookup_result_deinit(&result);
+   rc = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(((shard_log *)spl.log)->durable_ticket >= 2);
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+}
+static platform_status
+automatic_barrier_reject_begin(log_handle *log, log_durable_ticket *ticket)
+{
+   *ticket = 0;
+   return STATUS_NO_MEMORY;
+}
+
+/* A rejected submission neither fails the visible insert nor leaks its insert
+ * epoch/guard. With the oversized group still current, the next insert retries.
+ */
+CTEST2(splinter, test_automatic_log_barrier_submission_failure_retries)
+{
+   data->system_cfg->splinter_cfg.use_log                   = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = UINT64_MAX;
+   data->system_cfg->log_cfg.group_size_pages               = 1;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &data->system_cfg->splinter_cfg,
+                                 (allocator *)&data->al,
+                                 (cache *)data->clock_cache,
+                                 data->io,
+                                 &data->tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   const log_ops *saved_ops     = spl.log->ops;
+   log_ops        fault_ops     = *saved_ops;
+   fault_ops.make_durable_begin = automatic_barrier_reject_begin;
+   spl.log->ops                 = &fault_ops;
+   platform_status rejected     = core_insert(
+      &spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg), NULL);
+   spl.log->ops = saved_ops;
+   ASSERT_TRUE(SUCCESS(rejected));
+   ASSERT_FALSE(spl.automatic_barrier_submitting);
+   ASSERT_EQUAL(1, ((shard_log *)spl.log)->handle_refs);
+   ASSERT_EQUAL(0, ((shard_log *)spl.log)->durable_ticket);
+   ASSERT_TRUE(log_group_size_reached(spl.log));
+   ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                   key_buffer_key(&keybuf),
+                                   merge_accumulator_to_message(&msg),
+                                   NULL)));
+   ASSERT_TRUE(((shard_log *)spl.log)->durable_ticket >= 1);
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+}
+
+/* Hold the first automatic barrier in the device while two insert threads
+ * cross successive thresholds. Neither insert may wait for that completion.
+ * This also proves the short submission guard is released before durability. */
+CTEST2(splinter, test_automatic_log_barrier_insert_does_not_wait)
+{
+   data->system_cfg->splinter_cfg.use_log                   = TRUE;
+   data->system_cfg->splinter_cfg.checkpoint_log_size_bytes = UINT64_MAX;
+   data->system_cfg->splinter_cfg.queue_scale_percent       = UINT64_MAX;
+   data->system_cfg->log_cfg.group_size_pages               = 1;
+   task_system_config cfg                       = data->system_cfg->task_cfg;
+   cfg.num_background_threads[TASK_TYPE_NORMAL] = 1;
+   task_system tasks;
+   ASSERT_TRUE(SUCCESS(test_init_task_system(&tasks, data->hid, &cfg)));
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &data->system_cfg->splinter_cfg,
+                                 (allocator *)&data->al,
+                                 (cache *)data->clock_cache,
+                                 data->io,
+                                 &tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   generate_test_message(&data->gen, 1, &msg);
+   checkpoint_barrier_fault_install(&data->checkpoint_fault, data->io);
+   checkpoint_barrier_fault_block(&data->checkpoint_fault, 0);
+   core_durable_barrier_insert_args args[2] = {0};
+   platform_thread                  threads[2];
+   bool32                           completed[2] = {0};
+   bool32                           blocked      = FALSE;
+   splinterdb_notification          manual;
+   splinterdb_notification_init_polling(&manual, NULL);
+   for (uint64 i = 0; i < ARRAY_SIZE(args); i++) {
+      args[i] = (core_durable_barrier_insert_args){
+         .spl       = &spl,
+         .tuple_key = key_buffer_key(&keybuf),
+         .msg       = merge_accumulator_to_message(&msg),
+      };
+      platform_assert_status_ok(
+         platform_thread_create(&threads[i],
+                                FALSE,
+                                core_durable_barrier_insert_thread,
+                                &args[i],
+                                data->hid));
+      completed[i] = core_durable_barrier_test_wait(&args[i].done);
+      if (i == 0) {
+         blocked = core_durable_barrier_test_wait(
+            &data->checkpoint_fault.block_entered);
+         platform_assert_status_ok(core_durable_barrier_async(&spl, &manual));
+      }
+   }
+   uint64 accepting =
+      __atomic_load_n(&((shard_log *)spl.log)->accepting.id, __ATOMIC_ACQUIRE);
+   checkpoint_barrier_fault_release(&data->checkpoint_fault);
+   for (uint64 i = 0; i < ARRAY_SIZE(args); i++) {
+      platform_assert_status_ok(platform_thread_join(&threads[i]));
+   }
+   platform_assert_status_ok(task_perform_until_quiescent(&tasks));
+   checkpoint_barrier_fault_uninstall(&data->checkpoint_fault);
+   uint64 durable = __atomic_load_n(&((shard_log *)spl.log)->durable_ticket,
+                                    __ATOMIC_ACQUIRE);
+   merge_accumulator_deinit(&msg);
+   core_destroy(&spl);
+   task_system_deinit(&tasks);
+   int manual_status = -1;
+   ASSERT_TRUE(splinterdb_notification_poll(&manual, &manual_status));
+   ASSERT_EQUAL(0, manual_status);
+   splinterdb_notification_deinit(&manual);
+   ASSERT_TRUE(blocked);
+   for (uint64 i = 0; i < ARRAY_SIZE(args); i++) {
+      ASSERT_TRUE(completed[i]);
+      ASSERT_TRUE(SUCCESS(args[i].rc));
+   }
+   ASSERT_EQUAL(3, accepting);
+   ASSERT_EQUAL(2, durable);
 }
 
 static const cache_ops *core_read_saved_ops;

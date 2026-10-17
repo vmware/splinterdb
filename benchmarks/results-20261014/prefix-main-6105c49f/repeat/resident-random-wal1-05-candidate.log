@@ -1,0 +1,12 @@
+prefix-pattern=random key_bytes=64 compression_disabled=false
+kvbench version=candidate splinter=splinterdb_build_version 97e5c0e3-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/prefix-main-6105c49f/databases/repeat-resident-random-wal1-05-candidate.db mode=open n=200000 cache_mib=128 disk_gib=8 log=1 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=15.0 warmup=1.0 rep=5 sabotage=0
+open took 0.008 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.02 ops/s=   12248375  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.07s ops/cpu-s=2714994 rd=178.6 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase ow:uniform@8: T=8 dist=uniform (fixed duration)
+  [ow:uniform@8] progress 8224016 ops (+822348 ops/s)
+close took 0.116 s
+== ow:uniform@8           T=8  ops=12140167   secs=  15.00 ops/s=     809334  lat us p50=1.39 p99=153.60 p99.9=1327.10 max=331558.5 mean=9.74
+   cpu=50.00s ops/cpu-s=242808 rd=155.8 B/op wr=431.4 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   insert/run=15.00s drain(close)=0.12s total=15.12s drain_cpu=0.03s drain_rd=270336 drain_wr=18898944 wamp=2.640 db_apparent=8589934592 db_alloc=4508598272

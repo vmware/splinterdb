@@ -176,6 +176,7 @@ typedef struct log_ops {
    log_head_fn                   head;
    log_is_empty_fn               is_empty;
    log_size_fn                   size;
+   bool32 (*group_size_reached)(log_handle *log);
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -234,6 +235,15 @@ log_write_finish(log_write_token *token,
                    "log write token is absent or has already been consumed");
    token->log->ops->write_finish(token, memtable_generation, leaf_generation);
    platform_assert(token->log == NULL);
+}
+
+/* Best-effort policy hint. The caller protects the log lifetime; no record
+ * reservation is needed. Raw log_write() only appends: the database schedules
+ * automatic durability after releasing its insert epoch. */
+static inline bool32
+log_group_size_reached(log_handle *log)
+{
+   return log->ops->group_size_reached(log);
 }
 
 /* Convenience for callers whose three phases are adjacent. */

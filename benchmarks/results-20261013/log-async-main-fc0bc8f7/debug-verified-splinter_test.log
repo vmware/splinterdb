@@ -1,0 +1,4 @@
+Starting log-async-fc0-debug-verified-splinter_test test
+Running 1 CTests, suite name 'splinter', test case 'test_automatic_log_barrier_insert_does_not_wait'.
+TEST 1/1 splinter:test_automatic_log_barrier_insert_does_not_wait [OK]
+RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 130 ms

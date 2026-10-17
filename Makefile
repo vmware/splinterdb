@@ -561,6 +561,7 @@ $(BINDIR)/$(UNITDIR)/superblock_test: $(COMMON_TESTOBJ)                         
                                       $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)                        \
+                                         $(PLATFORM_IO_SYS)                 \
                                          $(COMMON_UNIT_TESTOBJ)             \
                                          $(OBJDIR)/$(TESTS_DIR)/config.o    \
                                          $(PLATFORM_SYS)

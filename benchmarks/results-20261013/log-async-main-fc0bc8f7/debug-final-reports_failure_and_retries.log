@@ -1,0 +1,5 @@
+Starting log-async-fc0-debug-reports_failure_and_retries test
+Running 1 CTests, suite name 'splinter', test case 'test_automatic_log_barrier_reports_failure_and_retries'.
+TEST 1/1 splinter:test_automatic_log_barrier_reports_failure_and_retries WARNING: fire-and-forget durable barrier failed: Input/output error; recent writes may not be durable. A later barrier can retry.
+[OK]
+RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 123 ms

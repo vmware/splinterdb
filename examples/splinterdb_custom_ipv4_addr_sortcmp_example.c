@@ -140,6 +140,8 @@ main()
    // up-front. Every insert will invoke this method to insert the new key
    // in custom-sorted order.
    splinter_data_cfg.key_compare = custom_key_compare;
+   // IP address order differs from bytewise lexical order.
+   splinter_data_cfg.key_compare_is_lexical = FALSE;
 
    // Basic configuration of a SplinterDB instance
    splinterdb_config splinterdb_cfg;

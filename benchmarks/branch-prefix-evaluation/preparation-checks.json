@@ -1,0 +1,38 @@
+{
+  "commands": [
+    {
+      "command": [
+        "bash",
+        "-n",
+        "format-check.sh"
+      ],
+      "returncode": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "./format-check.sh"
+      ],
+      "returncode": 0,
+      "output": "Format OK\n"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "output": ""
+    }
+  ],
+  "validated_source_sha256": {
+    "tests/unit/splinter_test.c": "b8a8e05363eda8ab711f6543760d7ff0ad55378d077672da29b58a6ef2e342da",
+    "src/btree.c": "0c0cb6f104387df0118ba4588c40e0ac3c54cc589d6ada0ab8ae80fd1fc4ede3",
+    "src/platform_linux/platform_io.h": "aed5d9cefd9add9bd87c8a866c6e6f26992a1be327097d6d92b087ec5f1c841b",
+    "src/platform_linux/laio.c": "53dc4334861d8f228c1d1a06cc3096c1a8f9ccce712b0bfcdbeb7921d2d73290",
+    "tests/unit/splinterdb_quick_test.c": "5c881a35687d7869cdb0b27a507de25baf553ee93a365100c3ea6ac204bdec0a",
+    "benchmarks/btree_prefix_bench.c": "35a8e826c6a454169df149273b52427833ef08fde058e5f5f79974153c273685"
+  },
+  "passed": true
+}

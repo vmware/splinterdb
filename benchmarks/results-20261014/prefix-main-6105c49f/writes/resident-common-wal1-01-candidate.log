@@ -1,0 +1,11 @@
+prefix-pattern=common key_bytes=64 compression_disabled=false
+kvbench version=candidate splinter=splinterdb_build_version 97e5c0e3-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/prefix-main-6105c49f/databases/writes-resident-common-wal1-01-candidate.db mode=open n=200000 cache_mib=128 disk_gib=8 log=1 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=8.0 warmup=1.0 rep=1 sabotage=0
+open took 0.012 s
+phase warm: T=8 dist=uniform (fixed count)
+== warm                   T=8  ops=200000     secs=   0.03 ops/s=    7526439  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.09s ops/cpu-s=2123683 rd=123.5 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase ow:uniform@8: T=8 dist=uniform (fixed duration)
+close took 0.152 s
+== ow:uniform@8           T=8  ops=6454461    secs=   8.00 ops/s=     806782  lat us p50=1.36 p99=190.46 p99.9=925.70 max=286187.7 mean=9.87
+   cpu=24.36s ops/cpu-s=264908 rd=89.4 B/op wr=352.9 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   insert/run=8.00s drain(close)=0.15s total=8.15s drain_cpu=0.05s drain_rd=581632 drain_wr=31731712 wamp=2.182 db_apparent=8589934592 db_alloc=2504220672
