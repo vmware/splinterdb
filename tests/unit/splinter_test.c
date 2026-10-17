@@ -1712,6 +1712,145 @@ CTEST2(splinter, test_invalid_branch_reference_rejected)
    }
 }
 
+/* A clean mount leaves branch reads lazy; recovery must enumerate them. In
+ * both paths, a persisted old branch version must be rejected before its
+ * pages are interpreted. Restore the version before any owning-tree cleanup,
+ * then prove that the same persisted tree still mounts and returns its tuple.
+ * The B-tree's NULL-cache tests independently enforce the before-page-access
+ * ordering of the version check. */
+CTEST2(splinter, test_persisted_old_branch_version_rejected)
+{
+   allocator        *alp  = (allocator *)&data->al;
+   allocator_config *acfg = allocator_get_config(alp);
+   cache            *cc   = (cache *)data->clock_cache;
+   core_config      *cfg  = &data->system_cfg->splinter_cfg;
+
+   for (bool32 recovering = FALSE; recovering <= TRUE; recovering++) {
+      allocator_root_id root_id = test_generate_allocator_root_id();
+      core_handle       spl;
+      ASSERT_TRUE(SUCCESS(core_mkfs(
+         &spl, cfg, alp, cc, data->io, &data->tasks, root_id, data->hid)));
+      DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+      test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+      merge_accumulator msg;
+      merge_accumulator_init(&msg, data->hid);
+      generate_test_message(&data->gen, 1, &msg);
+      ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                      key_buffer_key(&keybuf),
+                                      merge_accumulator_to_message(&msg),
+                                      NULL)));
+      merge_accumulator_deinit(&msg);
+      ASSERT_TRUE(SUCCESS(core_unmount(&spl, FALSE)));
+
+      superblock_context sb;
+      ASSERT_TRUE(
+         SUCCESS(superblock_context_init(&sb, data->io, acfg, data->hid)));
+      ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+      ASSERT_TRUE(superblock_allocation_state_valid(&sb));
+      superblock_tree_record rec;
+      superblock_get_tree_record(&sb, &rec);
+      ASSERT_NOT_EQUAL(0, rec.root_addr);
+      ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.live_log));
+      ASSERT_TRUE(SUPERBLOCK_NO_LOG(rec.sealed_log));
+      if (recovering) {
+         /* Keep the durable tree, but require the mount's allocation walk. */
+         superblock_snapshot_tree(
+            &sb, rec.root_addr, rec.first_unincorporated_generation);
+         ASSERT_TRUE(SUCCESS(superblock_make_durable(&sb)));
+      }
+      superblock_context_deinit(&sb);
+
+      page_handle page =
+         test_splinter_claim_page(cc, rec.root_addr, PAGE_TYPE_TRUNK);
+      test_trunk_node_hdr *node =
+         (test_trunk_node_hdr *)page_handle_data(&page);
+      ASSERT_TRUE(node->num_pivots >= 2);
+      uint64 offset = node->pivot_offsets[0];
+      test_splinter_unclaim_page(cc, &page);
+      uint64 page_size = cache_page_size(cc);
+      uint64 page_addr = rec.root_addr + offset - offset % page_size;
+      page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      test_trunk_bundle *bundle =
+         test_splinter_pivot_bundle(&page, offset, page_size);
+      uint64 bundle_offset = (char *)bundle - page_handle_data(&page);
+      ASSERT_TRUE(bundle->num_branches != 0);
+      branch_ref saved_branch = bundle->branches[0];
+      ASSERT_EQUAL(BTREE_BRANCH_FORMAT_VERSION, saved_branch.format_version);
+      /* Version 1 predates the prefix_length field in the branch header. */
+      bundle->branches[0].format_version = 1;
+      test_splinter_unclaim_page(cc, &page);
+      ASSERT_TRUE(SUCCESS(cache_writeback_dirty(cc)));
+      ASSERT_TRUE(SUCCESS(cache_durable_barrier(cc)));
+      ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+
+      platform_status mount_rc = core_mount(
+         &spl, cfg, alp, cc, data->io, &data->tasks, root_id, data->hid);
+      platform_status sync_rc  = STATUS_OK;
+      platform_status async_rc = STATUS_OK;
+      platform_status range_rc = STATUS_OK;
+      if (SUCCESS(mount_rc) && !recovering) {
+         lookup_result result;
+         lookup_result_init(
+            &result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+         sync_rc  = core_lookup(&spl, key_buffer_key(&keybuf), &result);
+         async_rc = async_call_sync_callback(cache_cleanup(cc),
+                                             core_lookup_async,
+                                             &spl,
+                                             key_buffer_key(&keybuf),
+                                             &result);
+         lookup_result_deinit(&result);
+         core_range_iterator itor;
+         range_rc = core_range_iterator_init(&spl,
+                                             &itor,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY,
+                                             less_than,
+                                             POSITIVE_INFINITY_KEY,
+                                             greater_than_or_equal,
+                                             NEGATIVE_INFINITY_KEY);
+         if (SUCCESS(range_rc)) {
+            core_range_iterator_deinit(&itor);
+         }
+      }
+
+      /* Restore the reference before cleanup, even if rejection regresses. */
+      page   = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_TRUNK);
+      bundle = (test_trunk_bundle *)(page_handle_data(&page) + bundle_offset);
+      bundle->branches[0] = saved_branch;
+      test_splinter_unclaim_page(cc, &page);
+      ASSERT_TRUE(SUCCESS(cache_writeback_dirty(cc)));
+      ASSERT_TRUE(SUCCESS(cache_durable_barrier(cc)));
+      if (SUCCESS(mount_rc)) {
+         ASSERT_TRUE(SUCCESS(core_unmount(&spl, FALSE)));
+      }
+      ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+      ASSERT_TRUE(SUCCESS(core_mount(
+         &spl, cfg, alp, cc, data->io, &data->tasks, root_id, data->hid)));
+      lookup_result result;
+      lookup_result_init(
+         &result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      ASSERT_TRUE(SUCCESS(core_lookup(&spl, key_buffer_key(&keybuf), &result)));
+      verify_tuple(
+         &spl,
+         &data->gen,
+         1,
+         key_buffer_key(&keybuf),
+         merge_accumulator_to_message(lookup_result_accumulator(&result)),
+         TRUE);
+      lookup_result_deinit(&result);
+      core_destroy(&spl);
+
+      if (recovering) {
+         ASSERT_TRUE(STATUS_IS_EQ(mount_rc, STATUS_INVALID_STATE));
+      } else {
+         ASSERT_TRUE(SUCCESS(mount_rc));
+         ASSERT_TRUE(STATUS_IS_EQ(sync_rc, STATUS_INVALID_STATE));
+         ASSERT_TRUE(STATUS_IS_EQ(async_rc, STATUS_INVALID_STATE));
+         ASSERT_TRUE(STATUS_IS_EQ(range_rc, STATUS_INVALID_STATE));
+      }
+   }
+}
+
 /* Persisted pivot statistics are sizing hints, but they still feed arithmetic
  * during writes.  Reject the impossible zero-tuple/nonzero-byte state before
  * it can reach leaf splitting (where it used to cause a division by zero). */

@@ -1,5 +1,20 @@
 # Branch leaf prefix experiment
 
+The [final B-tree evaluation](../benchmarks/branch-prefix-evaluation/README.md)
+records the implementation in `5fc43c31` against main `6105c49f` and supersedes
+the performance assessments below. All nine resident nonlexical throughput
+estimates are within 0.9% of main; every nominal 95% interval has its lower
+endpoint above -2.1%. The remaining lexical compression costs are explicit in
+that report. The selected CPU evaluation is complete; there is no apparent
+nonlexical performance blocker in the measured workloads.
+
+Persisted branch version 1 is rejected before branch-page interpretation.
+A clean mount remains lazy and rejects when an affected branch is accessed;
+recovery rejects during mount when rebuilding allocation state. The persisted
+version regression, existing early-rejection tests, and current-version
+controls passed 42 executions across release, debug, and ASan/UBSan builds.
+This confirms rejection, without adding format migration or an eager tree walk.
+
 `data_config.key_compare_is_lexical` opts construction into prefix compression.
 It promises unsigned-byte lexicographic ordering for stored keys and query
 keys, including the rule that a shorter equal prefix sorts first. The default
@@ -71,9 +86,13 @@ allocation statistics and filesystem allocation after close. Report load plus
 drain, point throughput, short/long range throughput and space together: saved
 leaf bytes can trade off against rebuilding and key reconstruction.
 
-# Measurements
+# Historical measurements
 
-The latest [performance confirmation](../benchmarks/results-20261015/prefix-confirmation/README.md)
+These sections retain earlier implementation and measurement states. Their
+merge concerns and references to the "current" source describe those dated
+states, not the final B-tree evaluation linked above.
+
+The [2026-10-15 performance confirmation](../benchmarks/results-20261015/prefix-confirmation/README.md)
 records the applied decode-buffer and validation optimizations, longer paired
 experiments, and the completed write-stall investigation. All planned controls
 are complete, and origin/main remains `6105c49f`, already included in this branch.
