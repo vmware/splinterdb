@@ -513,6 +513,8 @@ typedef struct laio_async_state {
 _Static_assert(
    sizeof(laio_async_state) <= IO_ASYNC_STATE_BUFFER_SIZE,
    "laio_async_read_state is to large for IO_ASYNC_STATE_BUFFER_SIZE");
+_Static_assert(_Alignof(laio_async_state) <= _Alignof(io_async_state_buffer),
+               "io_async_state_buffer has insufficient alignment");
 
 static void
 laio_async_state_deinit(io_async_state *ios)

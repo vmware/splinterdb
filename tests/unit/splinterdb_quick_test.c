@@ -1672,6 +1672,8 @@ prefix_test_malformed_leaf_entries(core_handle *core, trunk_branch_info *branch)
       AT_PREFIX_RESERVATION,
       TRUNCATED_HEADER,
       INVALID_KEY_FLAGS,
+      INVALID_MESSAGE_TYPE,
+      INVALID_MESSAGE_FLAGS,
       EXCESSIVE_FULL_KEY,
       NEGATIVE_INFINITY_LENGTH,
       POSITIVE_INFINITY_LENGTH,
@@ -1726,6 +1728,12 @@ prefix_test_malformed_leaf_entries(core_handle *core, trunk_branch_info *branch)
             break;
          case INVALID_KEY_FLAGS:
             entry->key_flags = ONDISK_KEY_DEFAULT_FLAGS ^ 0x80;
+            break;
+         case INVALID_MESSAGE_TYPE:
+            entry->flags &= ~ONDISK_MESSAGE_TYPE_MASK;
+            break;
+         case INVALID_MESSAGE_FLAGS:
+            entry->flags |= 0x80;
             break;
          case EXCESSIVE_FULL_KEY:
             entry->key_length =
@@ -3267,6 +3275,267 @@ CTEST2(splinterdb_quick, test_write_api_old_result_respects_trunk_delete_shadow)
    assert_lookup_result_not_found(&old_result);
 
    splinterdb_lookup_result_deinit(&old_result);
+}
+
+static slice
+nonlexical_branch_test_key(char buffer[16], uint64 ordinal)
+{
+   memset(buffer, 0, 16);
+   buffer[0] = (uint8)(255 - (ordinal & 255));
+   for (uint64 i = 0; i < 8; i++) {
+      buffer[8 + i] = (uint8)(ordinal >> (56 - 8 * i));
+   }
+   return slice_create(16, buffer);
+}
+
+static int
+nonlexical_branch_test_compare(const data_config *cfg,
+                               user_key           first,
+                               user_key           second)
+{
+   platform_assert(slice_length(first.key) == 16);
+   platform_assert(slice_length(second.key) == 16);
+   /* Ignore the reversed leading byte and order by the encoded ordinal. */
+   return slice_lex_cmp(
+      slice_create(8, (const char *)slice_data(first.key) + 8),
+      slice_create(8, (const char *)slice_data(second.key) + 8));
+}
+
+static void
+nonlexical_branch_check_result(lookup_result *result, uint64 expected)
+{
+   ASSERT_TRUE(lookup_result_found(result));
+   message value =
+      merge_accumulator_to_message(lookup_result_accumulator(result));
+   ASSERT_EQUAL(sizeof(expected), message_length(value));
+   ASSERT_EQUAL(0, memcmp(message_data(value), &expected, sizeof(expected)));
+}
+
+static uint32
+nonlexical_branch_test_hash(const data_config *cfg, user_key k, uint32 seed)
+{
+   platform_assert(slice_length(k.key) == 16);
+   return platform_hash32((const char *)slice_data(k.key) + 8, 8, seed);
+}
+
+/* Check real packed branches with a comparator whose order differs from byte
+ * order. Direct B-tree misses deliberately bypass core routing filters, so
+ * both lookup APIs must actually search and reject an absent leaf key. */
+CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
+{
+   enum { COUNT = 1024 };
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->default_data_cfg.super.key_compare = nonlexical_branch_test_compare;
+   data->default_data_cfg.super.key_hash    = nonlexical_branch_test_hash;
+   data->default_data_cfg.super.key_compare_is_lexical = FALSE;
+   ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+
+   char  keybuf[16], otherbuf[16];
+   slice first  = nonlexical_branch_test_key(keybuf, 0);
+   slice second = nonlexical_branch_test_key(otherbuf, 2);
+   ASSERT_TRUE(slice_lex_cmp(first, second) > 0);
+   ASSERT_TRUE(nonlexical_branch_test_compare(&data->default_data_cfg.super,
+                                              (user_key){.key = first},
+                                              (user_key){.key = second})
+               < 0);
+   for (uint64 i = 0; i < COUNT; i++) {
+      uint64 ordinal = (i * 419) % COUNT;
+      ASSERT_EQUAL(
+         0,
+         splinterdb_insert(data->kvsb,
+                           nonlexical_branch_test_key(keybuf, 2 * ordinal),
+                           slice_create(sizeof(ordinal), &ordinal),
+                           NULL));
+   }
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   ASSERT_TRUE(SUCCESS(core_checkpoint(core, 0)));
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+   core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+
+   core_range_iterator probe;
+   ASSERT_TRUE(SUCCESS(core_range_iterator_init(core,
+                                                &probe,
+                                                greater_than_or_equal,
+                                                NEGATIVE_INFINITY_KEY,
+                                                less_than,
+                                                POSITIVE_INFINITY_KEY,
+                                                greater_than_or_equal,
+                                                NEGATIVE_INFINITY_KEY)));
+   bool32        visited[COUNT] = {0};
+   lookup_result result;
+   lookup_result_init(
+      &result, core->cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   for (uint64 branch = 0; branch < probe.num_branches; branch++) {
+      if (!probe.btree_itor_initialized[branch]
+          || probe.btree_itor[branch].page_type != PAGE_TYPE_BRANCH)
+      {
+         continue;
+      }
+      btree_iterator *bt = &probe.btree_itor[branch];
+      iterator       *it = &bt->super;
+      ASSERT_TRUE(SUCCESS(
+         iterator_seek(it, greater_than_or_equal, NEGATIVE_INFINITY_KEY)));
+      uint64 previous = 0;
+      bool32 initial  = TRUE;
+      while (iterator_can_curr(it)) {
+         key     stored;
+         message value;
+         iterator_curr(it, &stored, &value);
+         ASSERT_EQUAL(16, key_length(stored));
+         uint64 ordinal = 0;
+         for (uint64 i = 8; i < 16; i++) {
+            ordinal = (ordinal << 8) | ((const uint8 *)key_data(stored))[i];
+         }
+         ASSERT_EQUAL(0, ordinal % 2);
+         ASSERT_TRUE(ordinal / 2 < COUNT);
+         ASSERT_TRUE(initial || previous < ordinal);
+         initial              = FALSE;
+         previous             = ordinal;
+         visited[ordinal / 2] = TRUE;
+         slice target         = nonlexical_branch_test_key(keybuf, ordinal);
+         ASSERT_EQUAL(0, slice_lex_cmp(key_slice(stored), target));
+         ASSERT_TRUE(SUCCESS(btree_lookup(core->cc,
+                                          core->cfg.btree_cfg,
+                                          bt->root_addr,
+                                          probe.branch[branch].format_version,
+                                          PAGE_TYPE_BRANCH,
+                                          key_create_from_slice(TRUE, target),
+                                          &result)));
+         nonlexical_branch_check_result(&result, ordinal / 2);
+         ASSERT_TRUE(SUCCESS(
+            async_call_sync_callback(cache_cleanup(core->cc),
+                                     btree_lookup_async,
+                                     core->cc,
+                                     core->cfg.btree_cfg,
+                                     bt->root_addr,
+                                     probe.branch[branch].format_version,
+                                     PAGE_TYPE_BRANCH,
+                                     key_create_from_slice(TRUE, target),
+                                     &result)));
+         nonlexical_branch_check_result(&result, ordinal / 2);
+
+         target = nonlexical_branch_test_key(keybuf, ordinal + 1);
+         ASSERT_TRUE(SUCCESS(btree_lookup(core->cc,
+                                          core->cfg.btree_cfg,
+                                          bt->root_addr,
+                                          probe.branch[branch].format_version,
+                                          PAGE_TYPE_BRANCH,
+                                          key_create_from_slice(TRUE, target),
+                                          &result)));
+         ASSERT_FALSE(lookup_result_found(&result));
+         ASSERT_TRUE(SUCCESS(
+            async_call_sync_callback(cache_cleanup(core->cc),
+                                     btree_lookup_async,
+                                     core->cc,
+                                     core->cfg.btree_cfg,
+                                     bt->root_addr,
+                                     probe.branch[branch].format_version,
+                                     PAGE_TYPE_BRANCH,
+                                     key_create_from_slice(TRUE, target),
+                                     &result)));
+         ASSERT_FALSE(lookup_result_found(&result));
+         ASSERT_TRUE(SUCCESS(iterator_next(it)));
+      }
+
+      /* A corrupt first-probe key extent must be rejected before passing its
+       * invalid length to the custom comparator. Restore before assertions
+       * and normal tree destruction. The fixture is single-threaded. */
+      ASSERT_TRUE(SUCCESS(
+         iterator_seek(it, greater_than_or_equal, NEGATIVE_INFINITY_KEY)));
+      ASSERT_TRUE(iterator_can_curr(it));
+      leaf_entry *entry = btree_get_leaf_entry(
+         core->cfg.btree_cfg, bt->curr.hdr, bt->curr.hdr->num_entries / 2);
+      ASSERT_EQUAL(sizeof(keybuf), entry->key_length);
+      memcpy(keybuf, entry->key_and_message, sizeof(keybuf));
+      key query =
+         key_create_from_slice(TRUE, slice_create(sizeof(keybuf), keybuf));
+      uint16 saved_length = entry->key_length;
+      entry->key_length   = UINT16_MAX;
+      platform_status sync_rc =
+         btree_lookup(core->cc,
+                      core->cfg.btree_cfg,
+                      bt->root_addr,
+                      probe.branch[branch].format_version,
+                      PAGE_TYPE_BRANCH,
+                      query,
+                      &result);
+      bool32          sync_found = lookup_result_found(&result);
+      platform_status async_rc =
+         async_call_sync_callback(cache_cleanup(core->cc),
+                                  btree_lookup_async,
+                                  core->cc,
+                                  core->cfg.btree_cfg,
+                                  bt->root_addr,
+                                  probe.branch[branch].format_version,
+                                  PAGE_TYPE_BRANCH,
+                                  query,
+                                  &result);
+      bool32 async_found = lookup_result_found(&result);
+      entry->key_length  = saved_length;
+      ASSERT_TRUE(STATUS_IS_EQ(sync_rc, STATUS_INVALID_STATE));
+      ASSERT_TRUE(STATUS_IS_EQ(async_rc, STATUS_INVALID_STATE));
+      ASSERT_FALSE(sync_found);
+      ASSERT_FALSE(async_found);
+   }
+   lookup_result_deinit(&result);
+   core_range_iterator_deinit(&probe);
+   for (uint64 i = 0; i < COUNT; i++) {
+      ASSERT_TRUE(
+         visited[i], "key %lu was not checked in an immutable branch", i);
+   }
+
+   for (bool32 reverse = FALSE; reverse <= TRUE; reverse++) {
+      splinterdb_iterator *it;
+      ASSERT_EQUAL(0,
+                   splinterdb_iterator_init(data->kvsb,
+                                            &it,
+                                            reverse ? less_than_or_equal
+                                                    : greater_than_or_equal,
+                                            NULL_SLICE));
+      for (uint64 i = 0; i < COUNT; i++) {
+         uint64 expected = reverse ? COUNT - 1 - i : i;
+         slice  k, v;
+         ASSERT_TRUE(splinterdb_iterator_valid(it));
+         splinterdb_iterator_get_current(it, &k, &v);
+         ASSERT_EQUAL(
+            0,
+            slice_lex_cmp(k, nonlexical_branch_test_key(keybuf, 2 * expected)));
+         ASSERT_EQUAL(sizeof(expected), slice_length(v));
+         ASSERT_EQUAL(0, memcmp(slice_data(v), &expected, sizeof(expected)));
+         if (reverse) {
+            splinterdb_iterator_prev(it);
+         } else {
+            splinterdb_iterator_next(it);
+         }
+      }
+      ASSERT_FALSE(splinterdb_iterator_valid(it));
+      ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+      splinterdb_iterator_deinit(it);
+
+      for (uint64 i = 0; i < COUNT; i += 31) {
+         uint64 expected = i + !reverse;
+         ASSERT_EQUAL(0,
+                      splinterdb_iterator_init(
+                         data->kvsb,
+                         &it,
+                         reverse ? less_than_or_equal : greater_than_or_equal,
+                         nonlexical_branch_test_key(keybuf, 2 * i + 1)));
+         if (expected < COUNT) {
+            slice k, v;
+            ASSERT_TRUE(splinterdb_iterator_valid(it));
+            splinterdb_iterator_get_current(it, &k, &v);
+            ASSERT_EQUAL(
+               0,
+               slice_lex_cmp(k,
+                             nonlexical_branch_test_key(keybuf, 2 * expected)));
+         } else {
+            ASSERT_FALSE(splinterdb_iterator_valid(it));
+         }
+         ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+         splinterdb_iterator_deinit(it);
+      }
+   }
 }
 
 CTEST2(splinterdb_quick, test_iterator_custom_comparator)
