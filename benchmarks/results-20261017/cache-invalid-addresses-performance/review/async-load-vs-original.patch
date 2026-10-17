@@ -1,0 +1,78 @@
+--- a/src/clockcache.c
++++ b/src/clockcache.c
+@@ -391,25 +391,37 @@
+  * structures, and lookup_no indexes cc->lookup directly. Keep these checks in
+  * production and centralize them here so every lookup-table user is covered.
+  */
++/* Keep diagnostic formatting out of the normal cache lookup path. */
++static void __attribute__((cold, noinline))
++clockcache_report_invalid_address(const clockcache *cc, uint64 addr)
++{
++   uint64 page_size = clockcache_config_page_size(cc->cfg);
++   if (addr % page_size != 0) {
++      platform_error_log(
++         "Unaligned cache page address %lu (page size %lu)\n", addr, page_size);
++   } else {
++      uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
++      platform_error_log("Cache page address %lu is outside lookup capacity "
++                         "%lu\n",
++                         addr,
++                         lookup_capacity * page_size);
++   }
++}
++
+ static inline bool32
+ clockcache_try_lookup_number(const clockcache *cc,
+                              uint64            addr,
+                              uint64           *lookup_no)
+ {
+    uint64 page_size = clockcache_config_page_size(cc->cfg);
+-   if (addr % page_size != 0) {
+-      platform_error_log(
+-         "Unaligned cache page address %lu (page size %lu)\n", addr, page_size);
++   if (UNLIKELY(addr % page_size != 0)) {
++      clockcache_report_invalid_address(cc, addr);
+       return FALSE;
+    }
+-
+    *lookup_no             = clockcache_divide_by_page_size(cc, addr);
+    uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
+-   if (*lookup_no >= lookup_capacity) {
+-      platform_error_log("Cache page address %lu is outside lookup capacity "
+-                         "%lu\n",
+-                         addr,
+-                         lookup_capacity * page_size);
++   if (UNLIKELY(*lookup_no >= lookup_capacity)) {
++      clockcache_report_invalid_address(cc, addr);
+       return FALSE;
+    }
+    return TRUE;
+@@ -2631,6 +2643,15 @@
+ {
+    async_begin(state, depth);
+ 
++   /* A miss must be allocated before it can reserve a cache entry or issue I/O.
++    * Resident hits inherit allocation validity from their existing mapping.
++    */
++   if (!allocator_page_valid(state->cc->al, state->addr)) {
++      state->result_status = STATUS_BAD_PARAM;
++      state->succeeded     = TRUE;
++      async_return(state);
++   }
++
+    state->entry_number =
+       clockcache_acquire_entry_for_load(state->cc, state->addr, state->type);
+    if (state->entry_number == CC_UNMAPPED_ENTRY) {
+@@ -2729,12 +2750,6 @@
+    if (state->entry_number != CC_UNMAPPED_ENTRY) {
+       async_await_subroutine(state, clockcache_get_in_cache_async);
+    } else {
+-      /* As in the synchronous path, cached mappings are already allocated. */
+-      if (!allocator_page_valid(state->cc->al, state->addr)) {
+-         state->result_status = STATUS_BAD_PARAM;
+-         state->succeeded     = TRUE;
+-         async_return(state);
+-      }
+       async_await_subroutine(state, clockcache_get_from_disk_async);
+    }
+    async_return(state);

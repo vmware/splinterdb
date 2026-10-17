@@ -1,0 +1,179 @@
+{
+  "auditor_sha256": "ee84fcba713d458f3d589ff4a89c01765dac4eb83c48cfff465623c4586fad4e",
+  "same_binary_verified": true,
+  "campaign_lock_intervals_nonoverlapping": true,
+  "campaigns": [
+    {
+      "campaign": "insert-mask-final-fixed20m",
+      "directory": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/insert-mask-final-fixed20m",
+      "arguments": {
+        "mode": "insert",
+        "name": "mask-final-fixed20m",
+        "profiles": [
+          "main",
+          "original",
+          "async-mask"
+        ],
+        "seconds": 5,
+        "records": 20000000,
+        "fixed_records": true,
+        "insert_diagnostics": true,
+        "quota_mode": "fixed",
+        "precondition_records": 100000000,
+        "blocks": 3,
+        "rotate_blocks": true,
+        "precondition_seconds": 15,
+        "cpus": "0-11",
+        "min_free_gib": 6,
+        "wal": [
+          0,
+          1
+        ]
+      },
+      "validation": {
+        "complete": false,
+        "expected_measured_runs": 36,
+        "measured_runs": 0,
+        "excluded_preconditions": 1,
+        "total_measured_inserts": 0,
+        "pending_runs": [
+          "wal0-00-main",
+          "wal0-01-original",
+          "wal0-02-async-mask",
+          "wal0-03-async-mask",
+          "wal0-04-original",
+          "wal0-05-main",
+          "wal0-06-original",
+          "wal0-07-async-mask",
+          "wal0-08-main",
+          "wal0-09-main",
+          "wal0-10-async-mask",
+          "wal0-11-original",
+          "wal0-12-async-mask",
+          "wal0-13-main",
+          "wal0-14-original",
+          "wal0-15-original",
+          "wal0-16-main",
+          "wal0-17-async-mask",
+          "wal1-precondition",
+          "wal1-00-main",
+          "wal1-01-original",
+          "wal1-02-async-mask",
+          "wal1-03-async-mask",
+          "wal1-04-original",
+          "wal1-05-main",
+          "wal1-06-original",
+          "wal1-07-async-mask",
+          "wal1-08-main",
+          "wal1-09-main",
+          "wal1-10-async-mask",
+          "wal1-11-original",
+          "wal1-12-async-mask",
+          "wal1-13-main",
+          "wal1-14-original",
+          "wal1-15-original",
+          "wal1-16-main",
+          "wal1-17-async-mask"
+        ],
+        "complete_blocks": {
+          "0": [],
+          "1": []
+        },
+        "manifest_sha256": "d47c56b216a00a9a0dce2d2460568d1781fe05f6da1a19c3a7296dd055c4081a",
+        "driver_sha256": "3bca43da47b568d9ef9331e5c3a6ac12b920df76509eabd3b80ac006b0fd8905",
+        "driver_source_sha256": "c6314c4b205561f55bca66411060644c63e30b3cd15277eff4bad79ddb844092",
+        "runner_sha256": "97cd6b805ea568ee13051f01fc64c0d069f15b7eca930d66b8cf0643ce89c4f8",
+        "build_manifest_sha256": "376cabc1725dfd7f44ec4f2b94d0a026d3a2c1ed9687a085ca47e53f83d42686",
+        "source_file_hashes_checked": {
+          "async-mask": 177,
+          "main": 177,
+          "original": 177
+        },
+        "library_hashes": {
+          "async-mask": "c7b04dabd8a600500ead9095a04e0a572baf904e256f077043c7191abdd8d228",
+          "main": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6",
+          "original": "e0c680239539a36a9a9f927888963508c39992c7366250a3a2c7c8b8224ad3e2"
+        },
+        "lock_acquired": 1792229091.8670254,
+        "finished": null,
+        "checks": [
+          "Exact command/matrix/order and fixed-quota preconditions",
+          "Harness, runner, build, parent driver, source and library hashes",
+          "Raw log/CSV hashes, successful count/error/close, aggregate CSV identities",
+          "Shared reservation identity or per-worker fixed count identity",
+          "Monotonic raw boundaries, zero-work workers, reconstructed wall/CPU metrics",
+          "Serial processes inside recorded shared-lock interval"
+        ]
+      },
+      "samples": [],
+      "excluded_precondition_samples": [
+        {
+          "name": "wal0-precondition",
+          "profile": "main",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": -1,
+          "inserted": 43085473,
+          "diagnostic_window_wall_s": 15.034105818,
+          "diagnostic_window_cpu_s": 124.949655334,
+          "diagnostic_join_wall_s": 0.003379253,
+          "diagnostic_join_cpu_s": 0.02172618,
+          "diagnostic_body_wall_s": 15.037485071,
+          "diagnostic_body_cpu_s": 124.971381514,
+          "diagnostic_close_wall_s": 0.282745921,
+          "diagnostic_close_cpu_s": 0.245597567,
+          "diagnostic_drain_wall_s": 15.320357206,
+          "diagnostic_drain_cpu_s": 125.217105062,
+          "body_cpu_us_op": 2.900545655237439,
+          "drain_cpu_us_op": 2.9062488199212764,
+          "productive_wall_s": 15.037442431,
+          "productive_end_to_stop_s": -0.003336613,
+          "worker_completion_spread_s": 0.003334169,
+          "exact_body_ops_s": 2865204.7065430465,
+          "exact_drain_ops_s": 2812302.11676306,
+          "productive_ops_s": 2865212.831084786,
+          "worker_completed": [
+            5342780,
+            5384663,
+            5351485,
+            6273657,
+            5590420,
+            4997774,
+            5142161,
+            5002533
+          ],
+          "worker_productive_finish_s": [
+            15.034109844,
+            15.034110244,
+            15.034109764,
+            15.034109088,
+            15.034109665,
+            15.034108262,
+            15.03410921,
+            15.037442431
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 274.572046,
+          "max_deregister_ms": 0.006952,
+          "quota_next_record": 0,
+          "log_sha256": "be38ad9a3b4085887f82d04f1ca9a52376c8bc38e8ed0bd6c6a4f0c75546ea74",
+          "service_max_ms": 1236.295555
+        }
+      ],
+      "summaries": [],
+      "comparisons": []
+    }
+  ],
+  "uncertainty_method": "Arithmetic mirror-pair means within complete blocks; pointwise Student t intervals on block log ratios (or raw second differences). One block has no confidence interval. All samples retained; no multiple-comparison adjustment.",
+  "limitations": [
+    "No exhaustive database readback; uniqueness follows disjoint ID reservation and unchanged bijective key generation, with successful exact-count checks.",
+    "Shared quotas change worker/key assignment and add reservation/control overhead. Compare profiles within each mode; a fixed/shared difference is not solely a quota-tail effect.",
+    "Productive throughput ends at the final insert completion and excludes polling, deregistration and close; it supplements exact body/drain rates.",
+    "Excluded timed preconditions use fixed quotas and may finish their last operation after stop request, producing a negative productive_end_to_stop_s.",
+    "Before/after hardware snapshots retained in the hashed source manifests are not timed frequency measurements. DVFS, variable SMT placement and background-task distribution remain confounders.",
+    "Three blocks and thermal carryover can give broad or optimistic uncertainty. Fixed-record startup tests do not establish steady-state or tail neutrality.",
+    "Small smoke runs validate bookkeeping and zero-work workers; their throughput is not performance evidence.",
+    "This audit checks recorded lock intervals and serial jobs, not unrecorded external machine activity."
+  ]
+}

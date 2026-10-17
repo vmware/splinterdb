@@ -1,0 +1,7 @@
+kvbench version=main splinter=splinterdb_build_version invalid-address-perf-main db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/resident-baseline/fixture.db mode=create n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=5.0 warmup=1.0 rep=-1 sabotage=0
+create took 0.008 s
+phase load:random@1: T=1 dist=random (fixed count)
+close took 0.113 s
+== load:random@1          T=1  ops=200000     secs=   0.20 ops/s=    1023186  lat us p50=0.54 p99=2.72 p99.9=5.31 max=3420.8 mean=0.94
+   cpu=0.20s ops/cpu-s=1023840 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   insert/run=0.20s drain(close)=0.11s total=0.31s drain_cpu=0.02s drain_rd=0 drain_wr=27025408 wamp=1.090 db_apparent=159256576 db_alloc=27181056

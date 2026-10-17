@@ -230,3 +230,19 @@ No benchmarks were rerun for this integration. Earlier performance numbers
 remain specific to their recorded commits; the previously documented
 performance uncertainty and inherited asynchronous allocation-progress stall
 remain unresolved. Existing untracked build directories were preserved.
+
+## Cache performance investigation and optimization (2026-10-17)
+
+The selected `async-mask` implementation keeps invalid-address rejection while moving diagnostic formatting out of ordinary lookup paths, placing async miss allocation validation in the existing disk-load coroutine, and replacing the hot alignment remainder with a mask. Initialization now asserts the already required power-of-two page-size invariant before shift/division setup. Synchronous allocation validation remains inline; error, retry, callback and handle-ownership contracts are preserved.
+
+The exact source passes **124 selected unit executions** across GCC release/debug and Clang 19 MemorySanitizer, plus debug prefetch admission and exported/target formatting. All 172 validated source-file hashes match the applied branch. One- and six-worker bounded real-I/O async churn also pass identity, status, geometry and completion checks. These checks do not constitute full CI.
+
+Comparisons use main `8e0f29b8`, the unoptimized invalid-address branch `da575726`, and the selected source. Across eight resident cache read/hit cases, the largest selected/main mean loss is 1.08%; independent async access improves 2.03% at one worker and 1.94% at eight workers versus the unoptimized branch. In the 32-page blocking probe, independent access improves 8.10% versus main and 6.67% versus the unoptimized branch. Some intervals still extend beyond a 3% loss; no universal neutrality claim is made.
+
+Single-worker resident database point queries are −1.51% [−3.61%, +0.64%] versus main; 10,000-row ranges are −0.03% [−0.52%, +0.45%].
+
+Resident claim/lock/write throughput ranges from −0.16% to +0.40% versus main across one/eight workers and disjoint/shared pages; all four pointwise intervals exclude a 3% loss. These 72 checked measurements do not establish database insertion neutrality.
+
+Exact-source fixed-count insertion shows −4.09% throughput through close without WAL versus main, with a wide [−24.51%, +21.84%] interval, and −1.28% with WAL. The no-WAL loss remains indeterminate. Earlier −9.71% async-load results and subsequent non-reproduction are retained; shared quotas did not causally explain the reversal. Valid nonblocking misses improve 17.84% versus the unoptimized branch but remain 29.83% slower than main (3.47 extra CPU ns/op): allocator membership must be checked before BUSY to preserve the new error semantics. That implementation cost remains open to optimization; production miss frequency was not measured.
+
+The inherited asynchronous cache admission/batch-reservation progress limitation remains unresolved; bounded churn does not prove progress across all cache-pressure and worker-lifecycle interleavings. Experiments were serialized, used real ext4 storage and retained raw samples, hashes, failures and uncertainty. Full results, exact source/library identities, methods and reproduction artifacts are in [the performance evaluation](../benchmarks/results-20261017/cache-invalid-addresses-performance/README.md).

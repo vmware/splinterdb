@@ -1,0 +1,16 @@
+
+.cache/invalid-address-perf-20261017/builds/original/release/lib/libsplinterdb.so:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+0000000000050410 <clockcache_validate_page_virtual>:
+   50410:	jmp    e4b0 <clockcache_validate_page@plt>
+
+Disassembly of section .fini:

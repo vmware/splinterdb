@@ -1,0 +1,14 @@
+{
+  "based_on": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-directory/benchmarks/cache_lookup_benchmark.c",
+  "based_on_sha256": "47b1d39efee0ce0314934af9521643f0180db5295a27eb903b045790a99021b8",
+  "based_on_commit": "03dde401b9422819f2d5a2bfad995f858fccb9f7",
+  "harness_sha256": "7e0c4d2f29e71a00600af0b18bd154227256056a93d5bbaa2d5d2f8f3ca0f680",
+  "changes": [
+    "per-API specialized blocking/nonblocking/async workers",
+    "valid allocated/nonresident nonblocking miss mode",
+    "phase storage IO, process CPU and fault counters",
+    "async completion wait count"
+  ],
+  "builds_run_by_author": false,
+  "benchmarks_run_by_author": false
+}

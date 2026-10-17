@@ -1,0 +1,17 @@
+kvbench version=original splinter=splinterdb_build_version invalid-address-perf-original db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/resident-mask-final-single/04-original.db mode=open n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=8.0 warmup=3.0 rep=4 sabotage=0
+open took 0.007 s
+phase warm@1: T=1 dist=uniform (fixed count)
+== warm@1                 T=1  ops=200000     secs=   0.08 ops/s=    2482065  lat us p50=nan p99=nan p99.9=nan max=0.0 mean=nan
+   cpu=0.06s ops/cpu-s=3377751 rd=128.8 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase point:uniform@1: T=1 dist=uniform (fixed duration)
+  [point:uniform@1] progress 11238128 ops (+1123301 ops/s)
+   found=8471978 notfound=0
+== point:uniform@1        T=1  ops=8471978    secs=   8.00 ops/s=    1058976  lat us p50=0.89 p99=1.30 p99.9=1.81 max=114.6 mean=0.91
+   cpu=8.00s ops/cpu-s=1059078 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+phase range:uniform:10000@1: T=1 dist=uniform (fixed duration)
+  [range:uniform:10000@1] progress 7298 ops (+1844564954759002880 ops/s)
+close took 0.112 s
+== range:uniform:10000@1  T=1  ops=5856       secs=   8.00 ops/s=        732  lat us p50=1392.64 p99=1622.02 p99.9=2195.46 max=2348.9 mean=1366.09
+   cpu=8.00s ops/cpu-s=732 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
+   startup us p50=12.93 p99=23.81 mean=13.08  per-tuple=138.5 ns  deinit mean=0.67 us  tuples/s=7149227
+   insert/run=8.00s drain(close)=0.11s total=8.11s drain_cpu=0.01s drain_rd=0 drain_wr=307200 wamp=nan db_apparent=159256576 db_alloc=26931200

@@ -1,0 +1,22 @@
+diff --git a/src/clockcache.c b/src/clockcache.c
+index e97f385f..92733d18 100644
+--- a/src/clockcache.c
++++ b/src/clockcache.c
+@@ -397,7 +397,7 @@ clockcache_try_lookup_number(const clockcache *cc,
+                              uint64           *lookup_no)
+ {
+    uint64 page_size = clockcache_config_page_size(cc->cfg);
+-   if (addr % page_size != 0) {
++   if (UNLIKELY(addr % page_size != 0)) {
+       platform_error_log(
+          "Unaligned cache page address %lu (page size %lu)\n", addr, page_size);
+       return FALSE;
+@@ -405,7 +405,7 @@ clockcache_try_lookup_number(const clockcache *cc,
+ 
+    *lookup_no             = clockcache_divide_by_page_size(cc, addr);
+    uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
+-   if (*lookup_no >= lookup_capacity) {
++   if (UNLIKELY(*lookup_no >= lookup_capacity)) {
+       platform_error_log("Cache page address %lu is outside lookup capacity "
+                          "%lu\n",
+                          addr,

@@ -1,0 +1,17 @@
+{
+  "name": "debug-writeback",
+  "command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/debug/bin/unit/writeback_set_test"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/validation-async-load/debug-writeback",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/debug/lib",
+    "MSAN_OPTIONS": "halt_on_error=1:exit_code=86"
+  },
+  "queued": 1792224510.1580145,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792224510.1580243,
+  "returncode": 0,
+  "finished": 1792224512.328692,
+  "log_sha256": "5096db872771dfd2b7d7436e6aa63d397d73fd32449b348f474faf7250340d65"
+}

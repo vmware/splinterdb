@@ -1,0 +1,18 @@
+{
+  "reviewer": "invalid_codegen",
+  "scope": "Independent read-only review of frozen async-mask against async-load; no source edits, builds, tests, or workloads. Validation runner prepared separately.",
+  "clockcache_sha256": "7f370079f60ccb1b86744a209c20dd09d0b729d512bdf3e022e04b51d23a777a",
+  "parent_clockcache_sha256": "a26ce40399a60f76f8559eb82703f688bf0bd71662ce93d9ad4232f7451c107e",
+  "all_manifest_source_hashes_match": true,
+  "conclusion": "No correctness blocker. Exactly the hot alignment check becomes a mask and config initialization gains a release-active power-of-two assertion before clz and division.",
+  "diff_findings": [
+    "clockcache_try_lookup_number at src/clockcache.c:417 replaces addr % page_size with addr & (page_size - 1), preserving alignment-before-bounds ordering and identical failure helper.",
+    "clockcache_config_init at src/clockcache.c:4363 asserts IS_POWER_OF_2 before any config initialization, clz or page-capacity division. The existing shift-based lookup already requires this invariant.",
+    "Cold diagnostic modulo, lookup bound calculation, allocator membership checks, async state/retry/resume ownership, and prefetch semantics are byte-identical to async-load.",
+    "All other source files and frozen source metadata match their recorded hashes."
+  ],
+  "contract_review": "review/async-mask-contract-review.json",
+  "async_correctness_review": "review/async-load-independent-correctness-review.json",
+  "unsupported_config": "Public page_size zero defaults to 4096; other sizes are rejected by I/O config validation before cache initialization. Internal direct unsupported geometry now asserts instead of reaching incorrect shifts or undefined clz/division.",
+  "validation": "Prepared validation-async-mask/validate.py for unchanged 118 selected unit executions plus existing low-cost I/O/public configuration rejection tests in all three modes (124 total), format and debug prefetch admission. Not launched."
+}

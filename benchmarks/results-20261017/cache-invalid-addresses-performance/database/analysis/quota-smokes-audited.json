@@ -1,0 +1,627 @@
+{
+  "auditor_sha256": "ee84fcba713d458f3d589ff4a89c01765dac4eb83c48cfff465623c4586fad4e",
+  "same_binary_verified": true,
+  "campaign_lock_intervals_nonoverlapping": true,
+  "campaigns": [
+    {
+      "campaign": "insert-quota-smoke-fixed",
+      "directory": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/insert-quota-smoke-fixed",
+      "arguments": {
+        "mode": "insert",
+        "name": "quota-smoke-fixed",
+        "profiles": [
+          "async-load"
+        ],
+        "seconds": 5,
+        "records": 65539,
+        "fixed_records": true,
+        "insert_diagnostics": true,
+        "quota_mode": "fixed",
+        "precondition_records": 100000000,
+        "blocks": 1,
+        "rotate_blocks": false,
+        "precondition_seconds": 0,
+        "cpus": "0-11",
+        "min_free_gib": 6,
+        "wal": [
+          0
+        ]
+      },
+      "validation": {
+        "complete": true,
+        "expected_measured_runs": 2,
+        "measured_runs": 2,
+        "excluded_preconditions": 0,
+        "total_measured_inserts": 131078,
+        "pending_runs": [],
+        "complete_blocks": {
+          "0": [
+            0
+          ]
+        },
+        "manifest_sha256": "50fc0628afe5ea0abc67533e2a32cdaab39d053dc5961f374da078e2ba3310d6",
+        "driver_sha256": "3bca43da47b568d9ef9331e5c3a6ac12b920df76509eabd3b80ac006b0fd8905",
+        "driver_source_sha256": "c6314c4b205561f55bca66411060644c63e30b3cd15277eff4bad79ddb844092",
+        "runner_sha256": "97cd6b805ea568ee13051f01fc64c0d069f15b7eca930d66b8cf0643ce89c4f8",
+        "build_manifest_sha256": "376cabc1725dfd7f44ec4f2b94d0a026d3a2c1ed9687a085ca47e53f83d42686",
+        "source_file_hashes_checked": {
+          "async-load": 177,
+          "main": 177
+        },
+        "library_hashes": {
+          "async-load": "a3cde96521c0fdd52e21e528877daac3166dd83bf5b8de462437e1c5f7f9e152",
+          "main": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6"
+        },
+        "lock_acquired": 1792227456.9968019,
+        "finished": 1792227457.6630583,
+        "checks": [
+          "Exact command/matrix/order and fixed-quota preconditions",
+          "Harness, runner, build, parent driver, source and library hashes",
+          "Raw log/CSV hashes, successful count/error/close, aggregate CSV identities",
+          "Shared reservation identity or per-worker fixed count identity",
+          "Monotonic raw boundaries, zero-work workers, reconstructed wall/CPU metrics",
+          "Serial processes inside recorded shared-lock interval"
+        ]
+      },
+      "samples": [
+        {
+          "name": "wal0-00-async-load",
+          "profile": "async-load",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 0,
+          "inserted": 65539,
+          "diagnostic_window_wall_s": 0.100271382,
+          "diagnostic_window_cpu_s": 0.060844718,
+          "diagnostic_join_wall_s": 5.7067e-05,
+          "diagnostic_join_cpu_s": 5.6752e-05,
+          "diagnostic_body_wall_s": 0.100328449,
+          "diagnostic_body_cpu_s": 0.06090147,
+          "diagnostic_close_wall_s": 0.124445266,
+          "diagnostic_close_cpu_s": 0.012568657,
+          "diagnostic_drain_wall_s": 0.224856881,
+          "diagnostic_drain_cpu_s": 0.073553246,
+          "body_cpu_us_op": 0.9292401470879934,
+          "drain_cpu_us_op": 1.12228209157906,
+          "productive_wall_s": 0.009388241,
+          "productive_end_to_stop_s": 0.090883141,
+          "worker_completion_spread_s": 0.00279653,
+          "exact_body_ops_s": 653244.4252178164,
+          "exact_drain_ops_s": 291469.84387816,
+          "productive_ops_s": 6980966.935126612,
+          "worker_completed": [
+            8193,
+            8193,
+            8193,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192
+          ],
+          "worker_productive_finish_s": [
+            0.009146706,
+            0.009102254,
+            0.007855197,
+            0.007059297,
+            0.006591711,
+            0.009388241,
+            0.006972046,
+            0.009029191
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.000769,
+          "max_deregister_ms": 0.000705,
+          "quota_next_record": 0,
+          "log_sha256": "dd971b16fd306c59d51dea29e7739e50cb5f671027b5a847e15610dd4bd61339",
+          "service_max_ms": 0.202004
+        },
+        {
+          "name": "wal0-01-async-load",
+          "profile": "async-load",
+          "phase": "insert-wal0-fixed@8",
+          "wal": 0,
+          "quota_mode": "fixed",
+          "block": 0,
+          "inserted": 65539,
+          "diagnostic_window_wall_s": 0.10029257,
+          "diagnostic_window_cpu_s": 0.060619576,
+          "diagnostic_join_wall_s": 6.0376e-05,
+          "diagnostic_join_cpu_s": 5.9534e-05,
+          "diagnostic_body_wall_s": 0.100352946,
+          "diagnostic_body_cpu_s": 0.06067911,
+          "diagnostic_close_wall_s": 0.091316665,
+          "diagnostic_close_cpu_s": 0.012980709,
+          "diagnostic_drain_wall_s": 0.191747331,
+          "diagnostic_drain_cpu_s": 0.073737535,
+          "body_cpu_us_op": 0.9258473580616122,
+          "drain_cpu_us_op": 1.1250939898381118,
+          "productive_wall_s": 0.009405409,
+          "productive_end_to_stop_s": 0.090887161,
+          "worker_completion_spread_s": 0.003217528,
+          "exact_body_ops_s": 653084.9627473817,
+          "exact_drain_ops_s": 341798.7601610997,
+          "productive_ops_s": 6968224.348351039,
+          "worker_completed": [
+            8193,
+            8193,
+            8193,
+            8192,
+            8192,
+            8192,
+            8192,
+            8192
+          ],
+          "worker_productive_finish_s": [
+            0.009118721,
+            0.009182579,
+            0.008103814,
+            0.006187881,
+            0.008170197,
+            0.008182407,
+            0.009405409,
+            0.009275077
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.000829,
+          "max_deregister_ms": 0.00062,
+          "quota_next_record": 0,
+          "log_sha256": "192b5f45a83d801f8c482bd86338a1f71b3cc3807e2c6a26a8261e9ae9cb0f30",
+          "service_max_ms": 0.126646
+        }
+      ],
+      "excluded_precondition_samples": [],
+      "summaries": [
+        {
+          "wal": 0,
+          "quota_mode": "fixed",
+          "profile": "async-load",
+          "samples": 2,
+          "all_expected_samples_present": true,
+          "complete_comparison_blocks": [
+            0
+          ],
+          "inserted_total": 131078,
+          "exact_body_ops_s_mean": 653164.6939825991,
+          "exact_drain_ops_s_mean": 316634.30201962986,
+          "productive_ops_s_mean": 6974595.6417388255,
+          "body_cpu_us_op_mean": 0.9275437525748028,
+          "drain_cpu_us_op_mean": 1.1236880407085859,
+          "worker_completion_spread_s_mean": 0.003007029,
+          "productive_end_to_stop_s_mean": 0.090885151,
+          "diagnostic_join_wall_s_mean": 5.8721500000000004e-05,
+          "diagnostic_close_wall_s_mean": 0.10788096550000001,
+          "productive_wall_s_mean": 0.009396825000000001,
+          "diagnostic_body_wall_s_mean": 0.10034069749999999,
+          "diagnostic_drain_wall_s_mean": 0.208302106,
+          "diagnostic_body_cpu_s_mean": 0.06079029,
+          "diagnostic_drain_cpu_s_mean": 0.0736453905,
+          "pooled_body_ops_s": 653164.6842498778,
+          "pooled_drain_ops_s": 314634.3609219198,
+          "pooled_productive_ops_s": 6974589.8215620695,
+          "max_deregister_ms": 0.000705,
+          "zero_work_worker_observations": 0
+        }
+      ],
+      "comparisons": []
+    },
+    {
+      "campaign": "insert-quota-smoke-shared",
+      "directory": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/insert-quota-smoke-shared",
+      "arguments": {
+        "mode": "insert",
+        "name": "quota-smoke-shared",
+        "profiles": [
+          "async-load"
+        ],
+        "seconds": 5,
+        "records": 65539,
+        "fixed_records": true,
+        "insert_diagnostics": true,
+        "quota_mode": "shared",
+        "precondition_records": 100000000,
+        "blocks": 1,
+        "rotate_blocks": false,
+        "precondition_seconds": 0,
+        "cpus": "0-11",
+        "min_free_gib": 6,
+        "wal": [
+          0
+        ]
+      },
+      "validation": {
+        "complete": true,
+        "expected_measured_runs": 2,
+        "measured_runs": 2,
+        "excluded_preconditions": 0,
+        "total_measured_inserts": 131078,
+        "pending_runs": [],
+        "complete_blocks": {
+          "0": [
+            0
+          ]
+        },
+        "manifest_sha256": "1815c1a79536007b2d9fd2d75f02629c7abf5b25ecc50f7555849155ed55ebc2",
+        "driver_sha256": "3bca43da47b568d9ef9331e5c3a6ac12b920df76509eabd3b80ac006b0fd8905",
+        "driver_source_sha256": "c6314c4b205561f55bca66411060644c63e30b3cd15277eff4bad79ddb844092",
+        "runner_sha256": "97cd6b805ea568ee13051f01fc64c0d069f15b7eca930d66b8cf0643ce89c4f8",
+        "build_manifest_sha256": "376cabc1725dfd7f44ec4f2b94d0a026d3a2c1ed9687a085ca47e53f83d42686",
+        "source_file_hashes_checked": {
+          "async-load": 177,
+          "main": 177
+        },
+        "library_hashes": {
+          "async-load": "a3cde96521c0fdd52e21e528877daac3166dd83bf5b8de462437e1c5f7f9e152",
+          "main": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6"
+        },
+        "lock_acquired": 1792227457.7028632,
+        "finished": 1792227458.350785,
+        "checks": [
+          "Exact command/matrix/order and fixed-quota preconditions",
+          "Harness, runner, build, parent driver, source and library hashes",
+          "Raw log/CSV hashes, successful count/error/close, aggregate CSV identities",
+          "Shared reservation identity or per-worker fixed count identity",
+          "Monotonic raw boundaries, zero-work workers, reconstructed wall/CPU metrics",
+          "Serial processes inside recorded shared-lock interval"
+        ]
+      },
+      "samples": [
+        {
+          "name": "wal0-00-async-load",
+          "profile": "async-load",
+          "phase": "insert-wal0-shared@8",
+          "wal": 0,
+          "quota_mode": "shared",
+          "block": 0,
+          "inserted": 65539,
+          "diagnostic_window_wall_s": 0.100263404,
+          "diagnostic_window_cpu_s": 0.105539719,
+          "diagnostic_join_wall_s": 3.4672e-05,
+          "diagnostic_join_cpu_s": 3.4001e-05,
+          "diagnostic_body_wall_s": 0.100298076,
+          "diagnostic_body_cpu_s": 0.10557372,
+          "diagnostic_close_wall_s": 0.114824588,
+          "diagnostic_close_cpu_s": 0.012601187,
+          "diagnostic_drain_wall_s": 0.215198056,
+          "diagnostic_drain_cpu_s": 0.118250312,
+          "body_cpu_us_op": 1.6108533850074003,
+          "drain_cpu_us_op": 1.804273974274859,
+          "productive_wall_s": 0.015394997,
+          "productive_end_to_stop_s": 0.084868407,
+          "worker_completion_spread_s": 0.000753626,
+          "exact_body_ops_s": 653442.2454923263,
+          "exact_drain_ops_s": 304552.00766311755,
+          "productive_ops_s": 4257162.245630837,
+          "worker_completed": [
+            4096,
+            10240,
+            4096,
+            10240,
+            10240,
+            9216,
+            8192,
+            9219
+          ],
+          "worker_productive_finish_s": [
+            0.015058035,
+            0.015319384,
+            0.014895607,
+            0.01520602,
+            0.015394997,
+            0.015023284,
+            0.015088502,
+            0.014641371
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.000875,
+          "max_deregister_ms": 0.001097,
+          "quota_next_record": 74752,
+          "log_sha256": "b42525627bd8f31a154d762ea10e86a7fe1ccf6bc36a4366df8a9715336ef4b0",
+          "service_max_ms": 7.98777
+        },
+        {
+          "name": "wal0-01-async-load",
+          "profile": "async-load",
+          "phase": "insert-wal0-shared@8",
+          "wal": 0,
+          "quota_mode": "shared",
+          "block": 0,
+          "inserted": 65539,
+          "diagnostic_window_wall_s": 0.10024635,
+          "diagnostic_window_cpu_s": 0.063314298,
+          "diagnostic_join_wall_s": 3.8479e-05,
+          "diagnostic_join_cpu_s": 3.7875e-05,
+          "diagnostic_body_wall_s": 0.100284829,
+          "diagnostic_body_cpu_s": 0.063352173,
+          "diagnostic_close_wall_s": 0.092831598,
+          "diagnostic_close_cpu_s": 0.01165874,
+          "diagnostic_drain_wall_s": 0.193194677,
+          "diagnostic_drain_cpu_s": 0.075089174,
+          "body_cpu_us_op": 0.9666331955019148,
+          "drain_cpu_us_op": 1.1457174201620408,
+          "productive_wall_s": 0.008767052,
+          "productive_end_to_stop_s": 0.091479298,
+          "worker_completion_spread_s": 0.000805759,
+          "exact_body_ops_s": 653528.5611346059,
+          "exact_drain_ops_s": 339238.1250752576,
+          "productive_ops_s": 7475602.973496679,
+          "worker_completed": [
+            8195,
+            9216,
+            9216,
+            9216,
+            8192,
+            7168,
+            7168,
+            7168
+          ],
+          "worker_productive_finish_s": [
+            0.007961293,
+            0.008527352,
+            0.008762689,
+            0.008767052,
+            0.008709663,
+            0.008369933,
+            0.008215554,
+            0.008281724
+          ],
+          "zero_work_workers": 0,
+          "max_last_insert_ms": 0.001031,
+          "max_deregister_ms": 0.000983,
+          "quota_next_record": 74752,
+          "log_sha256": "96e4478fed51f01395fcbdb3d890dae1f707d5065d19ee77940d366209efeaa6",
+          "service_max_ms": 0.848958
+        }
+      ],
+      "excluded_precondition_samples": [],
+      "summaries": [
+        {
+          "wal": 0,
+          "quota_mode": "shared",
+          "profile": "async-load",
+          "samples": 2,
+          "all_expected_samples_present": true,
+          "complete_comparison_blocks": [
+            0
+          ],
+          "inserted_total": 131078,
+          "exact_body_ops_s_mean": 653485.4033134661,
+          "exact_drain_ops_s_mean": 321895.06636918755,
+          "productive_ops_s_mean": 5866382.609563759,
+          "body_cpu_us_op_mean": 1.2887432902546576,
+          "drain_cpu_us_op_mean": 1.47499569721845,
+          "worker_completion_spread_s_mean": 0.0007796925,
+          "productive_end_to_stop_s_mean": 0.08817385250000001,
+          "diagnostic_join_wall_s_mean": 3.65755e-05,
+          "diagnostic_close_wall_s_mean": 0.10382809300000001,
+          "productive_wall_s_mean": 0.012081024499999999,
+          "diagnostic_body_wall_s_mean": 0.1002914525,
+          "diagnostic_drain_wall_s_mean": 0.2041963665,
+          "diagnostic_body_cpu_s_mean": 0.0844629465,
+          "diagnostic_drain_cpu_s_mean": 0.096669743,
+          "pooled_body_ops_s": 653485.400463215,
+          "pooled_drain_ops_s": 320960.6572504805,
+          "pooled_productive_ops_s": 5424953.819106981,
+          "max_deregister_ms": 0.001097,
+          "zero_work_worker_observations": 0
+        }
+      ],
+      "comparisons": []
+    },
+    {
+      "campaign": "insert-quota-smoke-shared3",
+      "directory": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/insert-quota-smoke-shared3",
+      "arguments": {
+        "mode": "insert",
+        "name": "quota-smoke-shared3",
+        "profiles": [
+          "async-load"
+        ],
+        "seconds": 5,
+        "records": 3,
+        "fixed_records": true,
+        "insert_diagnostics": true,
+        "quota_mode": "shared",
+        "precondition_records": 100000000,
+        "blocks": 1,
+        "rotate_blocks": false,
+        "precondition_seconds": 0,
+        "cpus": "0-11",
+        "min_free_gib": 6,
+        "wal": [
+          0
+        ]
+      },
+      "validation": {
+        "complete": true,
+        "expected_measured_runs": 2,
+        "measured_runs": 2,
+        "excluded_preconditions": 0,
+        "total_measured_inserts": 6,
+        "pending_runs": [],
+        "complete_blocks": {
+          "0": [
+            0
+          ]
+        },
+        "manifest_sha256": "acaf302c53279c9b2ec5b18d08dcfa8564a537accd534c454a9671fc9efa8edc",
+        "driver_sha256": "3bca43da47b568d9ef9331e5c3a6ac12b920df76509eabd3b80ac006b0fd8905",
+        "driver_source_sha256": "c6314c4b205561f55bca66411060644c63e30b3cd15277eff4bad79ddb844092",
+        "runner_sha256": "97cd6b805ea568ee13051f01fc64c0d069f15b7eca930d66b8cf0643ce89c4f8",
+        "build_manifest_sha256": "376cabc1725dfd7f44ec4f2b94d0a026d3a2c1ed9687a085ca47e53f83d42686",
+        "source_file_hashes_checked": {
+          "async-load": 177,
+          "main": 177
+        },
+        "library_hashes": {
+          "async-load": "a3cde96521c0fdd52e21e528877daac3166dd83bf5b8de462437e1c5f7f9e152",
+          "main": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6"
+        },
+        "lock_acquired": 1792227458.3929405,
+        "finished": 1792227458.9287572,
+        "checks": [
+          "Exact command/matrix/order and fixed-quota preconditions",
+          "Harness, runner, build, parent driver, source and library hashes",
+          "Raw log/CSV hashes, successful count/error/close, aggregate CSV identities",
+          "Shared reservation identity or per-worker fixed count identity",
+          "Monotonic raw boundaries, zero-work workers, reconstructed wall/CPU metrics",
+          "Serial processes inside recorded shared-lock interval"
+        ]
+      },
+      "samples": [
+        {
+          "name": "wal0-00-async-load",
+          "profile": "async-load",
+          "phase": "insert-wal0-shared@8",
+          "wal": 0,
+          "quota_mode": "shared",
+          "block": 0,
+          "inserted": 3,
+          "diagnostic_window_wall_s": 0.100266554,
+          "diagnostic_window_cpu_s": 0.001082296,
+          "diagnostic_join_wall_s": 3.0289e-05,
+          "diagnostic_join_cpu_s": 2.9638e-05,
+          "diagnostic_body_wall_s": 0.100296843,
+          "diagnostic_body_cpu_s": 0.001111934,
+          "diagnostic_close_wall_s": 0.090078028,
+          "diagnostic_close_cpu_s": 0.003509196,
+          "diagnostic_drain_wall_s": 0.190452875,
+          "diagnostic_drain_cpu_s": 0.004699143,
+          "body_cpu_us_op": 370.64466666666664,
+          "drain_cpu_us_op": 1566.381,
+          "productive_wall_s": 5.6141e-05,
+          "productive_end_to_stop_s": 0.100210413,
+          "worker_completion_spread_s": 0.0,
+          "exact_body_ops_s": 29.911210664925914,
+          "exact_drain_ops_s": 15.751928134453209,
+          "productive_ops_s": 53436.882136050306,
+          "worker_completed": [
+            0,
+            3,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "worker_productive_finish_s": [
+            null,
+            5.6141e-05,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "zero_work_workers": 7,
+          "max_last_insert_ms": 0.000364,
+          "max_deregister_ms": 0.002818,
+          "quota_next_record": 9216,
+          "log_sha256": "3be391e14df8cf70cbf5efc87ea38b96f9d099ee044bef449ee3fadbe4e2ccd9",
+          "service_max_ms": 0.024498
+        },
+        {
+          "name": "wal0-01-async-load",
+          "profile": "async-load",
+          "phase": "insert-wal0-shared@8",
+          "wal": 0,
+          "quota_mode": "shared",
+          "block": 0,
+          "inserted": 3,
+          "diagnostic_window_wall_s": 0.100249509,
+          "diagnostic_window_cpu_s": 0.000837754,
+          "diagnostic_join_wall_s": 3.2913e-05,
+          "diagnostic_join_cpu_s": 3.2236e-05,
+          "diagnostic_body_wall_s": 0.100282422,
+          "diagnostic_body_cpu_s": 0.00086999,
+          "diagnostic_close_wall_s": 0.087870226,
+          "diagnostic_close_cpu_s": 0.003547846,
+          "diagnostic_drain_wall_s": 0.188248031,
+          "diagnostic_drain_cpu_s": 0.004513224,
+          "body_cpu_us_op": 289.99666666666667,
+          "drain_cpu_us_op": 1504.4080000000001,
+          "productive_wall_s": 0.000137956,
+          "productive_end_to_stop_s": 0.100111553,
+          "worker_completion_spread_s": 0.0,
+          "exact_body_ops_s": 29.915512012663598,
+          "exact_drain_ops_s": 15.936421667008032,
+          "productive_ops_s": 21746.063962422802,
+          "worker_completed": [
+            0,
+            3,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "worker_productive_finish_s": [
+            null,
+            0.000137956,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ],
+          "zero_work_workers": 7,
+          "max_last_insert_ms": 0.000283,
+          "max_deregister_ms": 0.005153,
+          "quota_next_record": 9216,
+          "log_sha256": "216f1783e29277f4f60836964a3c22a450aebe0d07fb69aa665c56e3aaade5c8",
+          "service_max_ms": 0.047738
+        }
+      ],
+      "excluded_precondition_samples": [],
+      "summaries": [
+        {
+          "wal": 0,
+          "quota_mode": "shared",
+          "profile": "async-load",
+          "samples": 2,
+          "all_expected_samples_present": true,
+          "complete_comparison_blocks": [
+            0
+          ],
+          "inserted_total": 6,
+          "exact_body_ops_s_mean": 29.913361338794758,
+          "exact_drain_ops_s_mean": 15.844174900730621,
+          "productive_ops_s_mean": 37591.473049236556,
+          "body_cpu_us_op_mean": 330.3206666666666,
+          "drain_cpu_us_op_mean": 1535.3945,
+          "worker_completion_spread_s_mean": 0.0,
+          "productive_end_to_stop_s_mean": 0.10016098300000001,
+          "diagnostic_join_wall_s_mean": 3.1601e-05,
+          "diagnostic_close_wall_s_mean": 0.088974127,
+          "productive_wall_s_mean": 9.70485e-05,
+          "diagnostic_body_wall_s_mean": 0.1002896325,
+          "diagnostic_drain_wall_s_mean": 0.189350453,
+          "diagnostic_body_cpu_s_mean": 0.000990962,
+          "diagnostic_drain_cpu_s_mean": 0.0046061834999999995,
+          "pooled_body_ops_s": 29.913361184168263,
+          "pooled_drain_ops_s": 15.843637828529515,
+          "pooled_productive_ops_s": 30912.378862115333,
+          "max_deregister_ms": 0.005153,
+          "zero_work_worker_observations": 14
+        }
+      ],
+      "comparisons": []
+    }
+  ],
+  "uncertainty_method": "Arithmetic mirror-pair means within complete blocks; pointwise Student t intervals on block log ratios (or raw second differences). One block has no confidence interval. All samples retained; no multiple-comparison adjustment.",
+  "limitations": [
+    "No exhaustive database readback; uniqueness follows disjoint ID reservation and unchanged bijective key generation, with successful exact-count checks.",
+    "Shared quotas change worker/key assignment and add reservation/control overhead. Compare profiles within each mode; a fixed/shared difference is not solely a quota-tail effect.",
+    "Productive throughput ends at the final insert completion and excludes polling, deregistration and close; it supplements exact body/drain rates.",
+    "Excluded timed preconditions use fixed quotas and may finish their last operation after stop request, producing a negative productive_end_to_stop_s.",
+    "Before/after hardware snapshots retained in the hashed source manifests are not timed frequency measurements. DVFS, variable SMT placement and background-task distribution remain confounders.",
+    "Three blocks and thermal carryover can give broad or optimistic uncertainty. Fixed-record startup tests do not establish steady-state or tail neutrality.",
+    "Small smoke runs validate bookkeeping and zero-work workers; their throughput is not performance evidence.",
+    "This audit checks recorded lock intervals and serial jobs, not unrecorded external machine activity."
+  ]
+}

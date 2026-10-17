@@ -1,0 +1,16 @@
+{
+  "name": "sequential-release-quick",
+  "command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/sequential/release/bin/unit/splinterdb_quick_test"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/sequential-release-quick",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/sequential/release/lib"
+  },
+  "queued": 1792223738.7701685,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792223738.7701957,
+  "returncode": 0,
+  "finished": 1792223753.4961467,
+  "log_sha256": "42bcd8081992401d8ac1fbec5a7f08e8209b3ed3791520951d7e3834856e04fc"
+}

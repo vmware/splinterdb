@@ -1,0 +1,21 @@
+{
+  "name": "build-main",
+  "command": [
+    "make",
+    "-j6",
+    "CC=cc",
+    "LD=cc",
+    "BUILD_MODE=release",
+    "BUILD_ROOT=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/main",
+    "GIT_VERSION=invalid-address-perf-main",
+    "libs"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/main",
+  "environment_overrides": null,
+  "queued": 1792221752.5139937,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792221752.5140414,
+  "returncode": 0,
+  "finished": 1792221758.5909448,
+  "log_sha256": "29fe60ec2d24971af5c52de8f48cc61c94788976307c7ae58d9121c065208a5c"
+}

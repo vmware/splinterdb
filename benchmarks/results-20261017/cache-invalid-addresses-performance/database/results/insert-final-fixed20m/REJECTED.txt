@@ -1,0 +1,1 @@
+Canceled while queued, before acquiring the machine lock or starting any workload. The requested 15-second precondition could reach the 20M-record cap and violate the precondition parser. Requeued as insert-final-fixed20m-retry with a 3-second precondition. No samples from this directory.

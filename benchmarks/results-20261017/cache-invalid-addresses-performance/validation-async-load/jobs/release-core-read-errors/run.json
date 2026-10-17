@@ -1,0 +1,18 @@
+{
+  "name": "release-core-read-errors",
+  "command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/release/bin/unit/splinter_test",
+    "test_cache_read_errors_reach_core_operations"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/validation-async-load/release-core-read-errors",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/release/lib",
+    "MSAN_OPTIONS": "halt_on_error=1:exit_code=86"
+  },
+  "queued": 1792224508.2699642,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792224508.269975,
+  "returncode": 0,
+  "finished": 1792224508.384768,
+  "log_sha256": "b47e03c49c0535231cf4a7ffaf89bd9b8005855d0ec98518ee9c41e381db1321"
+}

@@ -1,0 +1,28 @@
+version=splinterdb_build_version invalid-address-perf-original records=20000000 key=16 value=16 cache_mib=256 disk_gib=8 inserters=8 readers=0 memtable_bg=1 normal_bg=3 memtable_mib=8 queue_scale=100 log=0 checkpoints=disabled direct=1 query_range=inserted seed=42 report_ms=100 barrier_ms=0 target_insert_ops_s=0 id_base=0 mode=create quota_mode=shared quota_batch=1024
+Splinter task system created 1 background thread of type 'TASK_TYPE_MEMTABLE'.
+Splinter task system created 3 background threads of type 'TASK_TYPE_NORMAL'.
+worker=0 kind=insert tid=5 os_tid=446
+worker=5 kind=insert tid=6 os_tid=451
+worker=1 kind=insert tid=7 os_tid=447
+worker=2 kind=insert tid=8 os_tid=448
+start_monotonic_ns=2088457299350581 main_address=0x55c163732300
+worker=7 kind=insert tid=9 os_tid=453
+worker=4 kind=insert tid=10 os_tid=450
+worker=6 kind=insert tid=11 os_tid=452
+worker=3 kind=insert tid=12 os_tid=449
+load_end reason=complete inserted=20000000 elapsed_s=8.215 error=0 barrier_count=0 barrier_avg_ms=0.000 barrier_max_ms=0.000
+close_s=0.174 close_rc=0
+diagnostic_stage name=worker_start wall_ns=2088457299374693 cpu_ns=8889242
+diagnostic_stage name=stop_request wall_ns=2088465514305274 cpu_ns=63713440423
+diagnostic_stage name=workers_joined wall_ns=2088465514337533 cpu_ns=63713471779
+diagnostic_stage name=before_close wall_ns=2088465514418664 cpu_ns=63713552879
+diagnostic_stage name=after_close wall_ns=2088465688263967 cpu_ns=63771184871
+diagnostic_quota mode=shared batch=1024 next_record=20008960 target_records=20000000 completed_records=20000000 productive_end_ns=2088465427384939
+diagnostic_worker index=0 completed=2318336 last_start_ns=2088465417053425 last_end_ns=2088465417054421 loop_exit_ns=2088465417054585 deregister_start_ns=2088465417054644 deregister_end_ns=2088465417055207
+diagnostic_worker index=1 completed=2459648 last_start_ns=2088465416698267 last_end_ns=2088465416700760 loop_exit_ns=2088465416700954 deregister_start_ns=2088465416700990 deregister_end_ns=2088465416701508
+diagnostic_worker index=2 completed=2269440 last_start_ns=2088465416526360 last_end_ns=2088465416527602 loop_exit_ns=2088465416527715 deregister_start_ns=2088465416527762 deregister_end_ns=2088465416528357
+diagnostic_worker index=3 completed=2824192 last_start_ns=2088465416305386 last_end_ns=2088465416306916 loop_exit_ns=2088465416307082 deregister_start_ns=2088465416307133 deregister_end_ns=2088465416310378
+diagnostic_worker index=4 completed=2884608 last_start_ns=2088465417016101 last_end_ns=2088465417017073 loop_exit_ns=2088465417017250 deregister_start_ns=2088465417017279 deregister_end_ns=2088465417017823
+diagnostic_worker index=5 completed=2722816 last_start_ns=2088465427384032 last_end_ns=2088465427384939 loop_exit_ns=2088465427385098 deregister_start_ns=2088465427385131 deregister_end_ns=2088465427385515
+diagnostic_worker index=6 completed=2248704 last_start_ns=2088465416672375 last_end_ns=2088465416674047 loop_exit_ns=2088465416674236 deregister_start_ns=2088465416674300 deregister_end_ns=2088465416674856
+diagnostic_worker index=7 completed=2272256 last_start_ns=2088465416817842 last_end_ns=2088465416818961 loop_exit_ns=2088465416819124 deregister_start_ns=2088465416819182 deregister_end_ns=2088465416819749

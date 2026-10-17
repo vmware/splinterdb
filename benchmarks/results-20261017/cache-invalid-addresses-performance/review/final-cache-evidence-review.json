@@ -1,0 +1,416 @@
+{
+  "source_sha256": "a26ce40399a60f76f8559eb82703f688bf0bd71662ce93d9ad4232f7451c107e",
+  "review_scope": "Independent raw-data arithmetic and acceptance-claim audit; no workloads or production edits. Reviewer also prepared the harness/variant, so independent means recomputation, not independent authorship.",
+  "suites": {
+    "final-hits": {
+      "rows": 144,
+      "checked_raw_jobs_including_preconditions": 152,
+      "report_sha256": "13575978685347ccea9d4b12a9fea39bdcda4cd064784a9e5cbd43c31b19634e",
+      "manifest_sha256": "d1e1fed292788d3c410a8e5d1b464b052a4b7005c0bddecebeaac3ec615bc107",
+      "results_sha256": "f2109f2e89a58a2ed5936742f9285e6ec33ae42bc0b24eda15d23f0024d196d8",
+      "thermal_flagged_samples": 144,
+      "sample_exclusions": 0,
+      "cases": [
+        {
+          "api": "blocking",
+          "threads": 1,
+          "mode": "independent",
+          "instructions_per_op": {
+            "main": 276.40334957617415,
+            "original": 280.403350230796,
+            "async-load": 280.40335045343386
+          },
+          "block0_to_block2_throughput_percent": {
+            "main": -0.21231509298222928,
+            "original": -0.044235118794877515,
+            "async-load": 0.9392961771534036
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 57.43847664505407,
+            "original": 57.58935955507807,
+            "async-load": 57.62543591021708
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": -0.3193208586735879,
+              "ci95_low_pct": -1.9457401938459882,
+              "ci95_high_pct": 1.3340757833394543,
+              "block_deltas_pct": [
+                -1.0785958739496615,
+                0.061980625388402544,
+                0.0630179830643618
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": -0.06167216471615146,
+              "ci95_low_pct": -1.317612390547143,
+              "ci95_high_pct": 1.2102525330056408,
+              "block_deltas_pct": [
+                -0.4696329075733363,
+                -0.22250449169451958,
+                0.5097126164088417
+              ]
+            }
+          },
+          "instruction_delta_vs_main": 4.000000877259708,
+          "instruction_delta_vs_original": 2.2263787968768156e-07
+        },
+        {
+          "api": "blocking",
+          "threads": 1,
+          "mode": "dependent",
+          "instructions_per_op": {
+            "main": 251.52837700464812,
+            "original": 255.5283758202266,
+            "async-load": 255.5283762557226
+          },
+          "block0_to_block2_throughput_percent": {
+            "main": 3.1403724487104823,
+            "original": 2.3205616675851415,
+            "async-load": 3.567652385096287
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 99.46699999240387,
+            "original": 100.0106431392074,
+            "async-load": 99.66225307934108
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": -0.21217650312221092,
+              "ci95_low_pct": -3.4438036944038046,
+              "ci95_high_pct": 3.127609612216184,
+              "block_deltas_pct": [
+                -1.1679403097215824,
+                1.3074820621328476,
+                -0.7585084337765724
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": 0.34777407816085876,
+              "ci95_low_pct": -1.7435881325125722,
+              "ci95_high_pct": 2.4836503903886142,
+              "block_deltas_pct": [
+                -0.5991944781713943,
+                1.0374102194215862,
+                0.6123100313730978
+              ]
+            }
+          },
+          "instruction_delta_vs_main": 3.9999992510744846,
+          "instruction_delta_vs_original": 4.354960196906177e-07
+        },
+        {
+          "api": "blocking",
+          "threads": 8,
+          "mode": "independent",
+          "instructions_per_op": null,
+          "block0_to_block2_throughput_percent": {
+            "main": -2.8535312944361735,
+            "original": -2.1053263578711623,
+            "async-load": -1.065311326836127
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 84.58096926097157,
+            "original": 85.47112051373519,
+            "async-load": 85.84016365493974
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": -1.4775663176722358,
+              "ci95_low_pct": -3.8068104539560923,
+              "ci95_high_pct": 0.9080786747638727,
+              "block_deltas_pct": [
+                -2.54625656669506,
+                -1.1249381020035254,
+                -0.7523804511052168
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": -0.4348883648860092,
+              "ci95_low_pct": -1.896476705320106,
+              "ci95_high_pct": 1.0484753451286082,
+              "block_deltas_pct": [
+                -1.1162235248757257,
+                -0.11921705551957151,
+                -0.06570044702586264
+              ]
+            }
+          }
+        },
+        {
+          "api": "blocking",
+          "threads": 8,
+          "mode": "dependent",
+          "instructions_per_op": null,
+          "block0_to_block2_throughput_percent": {
+            "main": -0.5967913793063051,
+            "original": -0.8425036461512048,
+            "async-load": -1.2046949555602038
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 140.14951199124377,
+            "original": 140.44827223432702,
+            "async-load": 140.34510457206778
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": -0.14976826082346884,
+              "ci95_low_pct": -1.2290940973762232,
+              "ci95_high_pct": 0.9413519827037319,
+              "block_deltas_pct": [
+                0.3375029181037492,
+                -0.5087812688486348,
+                -0.2761143655098053
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": 0.06558002828485679,
+              "ci95_low_pct": -0.39619527770342244,
+              "ci95_high_pct": 0.5294961805371428,
+              "block_deltas_pct": [
+                0.22890219041467041,
+                0.10538732522555883,
+                -0.13720262928981208
+              ]
+            }
+          }
+        },
+        {
+          "api": "async",
+          "threads": 1,
+          "mode": "independent",
+          "instructions_per_op": {
+            "main": 360.41995585792836,
+            "original": 368.4199552032791,
+            "async-load": 359.4199556842551
+          },
+          "block0_to_block2_throughput_percent": {
+            "main": 1.074113179112124,
+            "original": 3.6375851531589065,
+            "async-load": 1.9414336042985925
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 64.36733959175213,
+            "original": 64.29815193869065,
+            "async-load": 63.8949560285124
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": 0.6824327805477298,
+              "ci95_low_pct": -5.981829269844592,
+              "ci95_high_pct": 7.819075737007335,
+              "block_deltas_pct": [
+                -1.3107345981063556,
+                3.8987858877862713,
+                -0.4638786333349576
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": 0.6194056621839948,
+              "ci95_low_pct": -2.0116834303417352,
+              "ci95_high_pct": 3.3211422569339994,
+              "block_deltas_pct": [
+                1.0579228976546506,
+                1.4077287777072733,
+                -0.5960094300250018
+              ]
+            }
+          },
+          "instruction_delta_vs_main": -1.000000173673243,
+          "instruction_delta_vs_original": -8.999999519023959
+        },
+        {
+          "api": "async",
+          "threads": 1,
+          "mode": "dependent",
+          "instructions_per_op": {
+            "main": 343.4356010201979,
+            "original": 351.43560117391104,
+            "async-load": 342.43560188403745
+          },
+          "block0_to_block2_throughput_percent": {
+            "main": -1.8889900193398979,
+            "original": -0.46240095657150704,
+            "async-load": -0.3331107621580398
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 101.80026355714439,
+            "original": 102.36698558596686,
+            "async-load": 101.37088888987863
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": 0.40676382736067623,
+              "ci95_low_pct": -5.8742280024725595,
+              "ci95_high_pct": 7.106884844973303,
+              "block_deltas_pct": [
+                1.0556415635243344,
+                -2.425884076647966,
+                2.658217834636889
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": 0.9754134503460978,
+              "ci95_low_pct": -0.17083735190124613,
+              "ci95_high_pct": 2.1348256461862563,
+              "block_deltas_pct": [
+                1.1752968942610797,
+                0.44635986938972305,
+                1.3067143076908705
+              ]
+            }
+          },
+          "instruction_delta_vs_main": -0.9999991361604543,
+          "instruction_delta_vs_original": -8.999999289873585
+        },
+        {
+          "api": "async",
+          "threads": 8,
+          "mode": "independent",
+          "instructions_per_op": null,
+          "block0_to_block2_throughput_percent": {
+            "main": -3.730397897783033,
+            "original": -4.968447241739105,
+            "async-load": -4.155849689578561
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 98.35429893097384,
+            "original": 100.14016874709066,
+            "async-load": 98.1078385787076
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": 0.2526366318276315,
+              "ci95_low_pct": -0.773407466820538,
+              "ci95_high_pct": 1.289290451776255,
+              "block_deltas_pct": [
+                0.6780751679776431,
+                -0.15158675795484688,
+                0.23314066591892946
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": 2.059202164585878,
+              "ci95_low_pct": 0.8140680106889395,
+              "ci95_high_pct": 3.3197147184600517,
+              "block_deltas_pct": [
+                1.4785946660794025,
+                2.355181395381245,
+                2.3463197029638394
+              ]
+            }
+          }
+        },
+        {
+          "api": "async",
+          "threads": 8,
+          "mode": "dependent",
+          "instructions_per_op": null,
+          "block0_to_block2_throughput_percent": {
+            "main": -0.4846862594610424,
+            "original": -0.5011192902942607,
+            "async-load": 0.36109243379169875
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 144.08477796358144,
+            "original": 144.9377039360936,
+            "async-load": 143.8821027083429
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": 0.13675707167518444,
+              "ci95_low_pct": -0.9203738850883691,
+              "ci95_high_pct": 1.2051670966343702,
+              "block_deltas_pct": [
+                -0.319827733073641,
+                0.20457371753790365,
+                0.5273520895508588
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": 0.7287502448094966,
+              "ci95_low_pct": -0.5514447402187257,
+              "ci95_high_pct": 2.025425099207468,
+              "block_deltas_pct": [
+                0.4579795778175466,
+                0.40244145359966677,
+                1.3285024133727674
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "final-misses": {
+      "rows": 18,
+      "checked_raw_jobs_including_preconditions": 19,
+      "report_sha256": "cdf42e815d399b128929582041a70b18858cd421509e2fd42a7ebd26110bd5d7",
+      "manifest_sha256": "6d2ff2fe123deb056aa3c07573e957cc150a4dba0284099ab8c486aaa98eba81",
+      "results_sha256": "2711519c8781aab023201ff9a5d283fe8e8874126c0f953b0bda43f6b333a5a5",
+      "thermal_flagged_samples": 18,
+      "sample_exclusions": 0,
+      "cases": [
+        {
+          "api": "nonblocking",
+          "threads": 1,
+          "mode": "miss",
+          "instructions_per_op": {
+            "main": 93.21875443489554,
+            "original": 152.21875758314744,
+            "async-load": 152.2187574810758
+          },
+          "block0_to_block2_throughput_percent": {
+            "main": -1.8737698025133365,
+            "original": -2.0753942879910503,
+            "async-load": -1.1034869647797207
+          },
+          "mean_worker_cpu_ns_per_op": {
+            "main": 8.047063142033814,
+            "original": 13.569690421976677,
+            "async-load": 13.5431789845016
+          },
+          "comparisons": {
+            "main": {
+              "geometric_delta_pct": -40.58319244460696,
+              "ci95_low_pct": -41.48340145491024,
+              "ci95_high_pct": -39.66913477798428,
+              "block_deltas_pct": [
+                -40.65280976140181,
+                -40.90758333253587,
+                -40.18693919838822
+              ]
+            },
+            "original": {
+              "geometric_delta_pct": 0.19570594712751843,
+              "ci95_low_pct": -1.8851702757908224,
+              "ci95_high_pct": 2.3207146000493384,
+              "block_deltas_pct": [
+                0.09747556512349487,
+                -0.5941527304712868,
+                1.0909487461421952
+              ]
+            }
+          },
+          "instruction_delta_vs_main": 59.00000304618027,
+          "instruction_delta_vs_original": -1.020716240418551e-07
+        }
+      ]
+    }
+  },
+  "accepted_claims": [
+    "Single-worker async hits retire nine fewer instructions per operation than original and one fewer than main, for both independent and dependent access.",
+    "Single-worker blocking hits retain four extra instructions per operation versus main and match original.",
+    "Valid evicted nonblocking misses match original instruction count; the previous extra wrapper overhead is gone.",
+    "Across eight measured resident scenarios, candidate/main block-geometric throughput estimates range from -1.48% to +0.68%; no measured mean loss exceeds 3%.",
+    "Do not generalize resident results to all cache operations: valid evicted nonblocking misses remain about 40.58% slower than main because this branch verifies allocation membership before BUSY."
+  ],
+  "material_limits": [
+    "Only three block ratios per scenario; four of eight candidate/main resident 95% intervals extend below -3%, including both single-worker async intervals near -6%. This does not establish every loss is below 3%.",
+    "All 144 hit samples and all 18 miss samples have thermal-throttle-counter increases during the complete process interval. These include setup/warmup/timing/teardown; they do not locate throttling specifically in the measured phase. No measured samples were excluded.",
+    "Eight-worker async independent block0-to-block2 throughput falls 3.73% main, 4.97% original, 4.16% candidate. Blocking 1 dependent rises 3.14%, 2.32%, 3.57% respectively. Balanced ordering limits but cannot eliminate shared machine trends.",
+    "Hardware counters are enabled only for one-worker runs; instruction deltas are directly measured there, not at eight workers.",
+    "Worker CPU time and hardware cycles are diagnostic; no frequency normalization is justified. Raw hardware/telemetry/results must remain available.",
+    "Miss result is a perpetual no-prefetch allocated-evicted rejection path; production uses it mainly for metadata prefetch cursors. Report absolute nanoseconds and required semantics, without claiming the path is performance-neutral versus main."
+  ],
+  "acceptance_assessment": "Evidence supports removing candidate wrapper overhead and reducing async hit instructions without an apparent >3% mean resident regression in this tested configuration. It does not prove universal <3% regression or thermal stability; miss validation cost remains explicit."
+}

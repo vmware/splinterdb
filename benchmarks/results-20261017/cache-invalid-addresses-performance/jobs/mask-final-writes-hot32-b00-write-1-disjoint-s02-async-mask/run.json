@@ -1,0 +1,29 @@
+{
+  "name": "mask-final-writes-hot32-b00-write-1-disjoint-s02-async-mask",
+  "command": [
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/harness/controlled-writes/cache_api_probe",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/mask-final-writes-hot32-b00-write-1-disjoint-s02-async-mask/cache.db",
+    "64",
+    "1",
+    "4",
+    "disjoint",
+    "write"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/scratch/mask-final-writes-hot32-b00-write-1-disjoint-s02-async-mask",
+  "environment_overrides": {
+    "LD_LIBRARY_PATH": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/release/lib",
+    "CACHE_PROBE_CONTROL_CPU": "12",
+    "CACHE_PROBE_WORKER_CPUS": "2",
+    "CACHE_PROBE_WARMUP_SECONDS": "2",
+    "CACHE_PROBE_PERF": "1",
+    "CACHE_PROBE_DISK_RATIO": "16",
+    "CACHE_PROBE_ADDRESS_LAYOUT": "spread",
+    "CACHE_PROBE_WORKING_PAGES": "32"
+  },
+  "queued": 1792230612.8124483,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792230612.8124561,
+  "returncode": 0,
+  "finished": 1792230618.94276,
+  "log_sha256": "b09ceed9a9024c0783ea77c790e2632ece7b35fe21864c729c43be06a6af06f0"
+}

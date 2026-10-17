@@ -1,0 +1,8 @@
+{
+  "source_version": "v3b deterministic registration and post-snapshot diagnostics",
+  "parent_source": "../controlled/cache_api_probe.c",
+  "parent_sha256": "92f50d2ca40c470027294dbd08bef9b6f8dc9b6845fdd044cff3f5e90e0b4c24",
+  "source_sha256": "6a2fbbe58fdd0a7e734e0795540a8e71058932a9167e35f085a202801dbe9025",
+  "runner_sha256": "c717ffacf6e81669cc4d61527b64eb2eef11b56b7c444e4db75313b5241780c8",
+  "prepared_only": true
+}

@@ -1,0 +1,32 @@
+{
+  "status": "source only; not built or run",
+  "parents": {
+    "controlled-final": {
+      "build_probe.py": "04cec657fc5afc3a9d348c5316ea2946f80868ee240e3cec454974726265b920",
+      "cache_api_probe": "44e670cb89560c5f226633b6486da992d9cd4c8581806df5a701a3a7a3f38349",
+      "cache_api_probe.c": "6a2fbbe58fdd0a7e734e0795540a8e71058932a9167e35f085a202801dbe9025",
+      "cache_api_probe.json": "53c7c2ba492635eb955c1f7e7dd095a25f18b2d8e31c55cf41cc2881d790b1a4",
+      "cache_api_probe.o": "0c97bf8061c4b2a282dd85a63b9fa3901a8b14c96d79e609d3d266530c4494a6",
+      "run_controlled.py": "b4ee56784a4410be110a116719777050bc7024a70afea69cdbe57eefe34f2c09"
+    },
+    "controlled-hotset-setup": {
+      "cache_api_probe.c": "51d199f57c8bff07971adbf569a7852314995e622271e8af54c6a0c1ae265aed",
+      "run_controlled.py": "8d4a4a4bf8a6b0f6ee8b0ec1623b07e51364633f5e8c35aa8e1ad35854628bc2"
+    }
+  },
+  "files_sha256": {
+    "cache_api_probe.c": "0bee78d7cf79c83ed3b7e1c572b2ebdd5a418114c54e4545e2e35ca50088fe61",
+    "run_controlled.py": "81fb1255c110f0d7880dc32569f5a27ab301999d56385891dc8f8e7d368effae",
+    "build_probe.py": "04cec657fc5afc3a9d348c5316ea2946f80868ee240e3cec454974726265b920",
+    "cache_api_probe.c.patch": "a76bc48fa2798cff9b9868103f80ffaf1d44ad59e5e0ef3231316438de14e8ad",
+    "run_controlled.py.patch": "7e793a666796d056d33aad22cafec4276a147ca2f450fdbf8da40409aa9aeda0",
+    "README.md": "c236ed741b2da64a4d7caf51e9697b33afe69deb12405c56a607cca3353d389e"
+  },
+  "static_checks": [
+    "Python runner/build script AST parsed without execution",
+    "CSV format/header both contain 39 columns",
+    "Interleaved partition bounds/completeness checked for 32,33,34,35,63,64,65,12288 pages and 1,6,8 workers"
+  ],
+  "scope": "Resident MEMTABLE mutation ownership cycles only; no page allocation, split, B-tree edits, writeback or eviction in measured interval; not a database insertion neutrality claim",
+  "review": "Independent source review by invalid_codegen found no ownership/timing correctness blocker; no compile or workload yet."
+}

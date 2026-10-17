@@ -1,0 +1,17 @@
+{
+  "name": "build-cache-write-probe-retry",
+  "command": [
+    "/usr/bin/python3",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/harness/controlled-writes/build_probe.py",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/async-mask",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/release/lib/libsplinterdb.so"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017",
+  "environment_overrides": null,
+  "queued": 1792230477.8222752,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792230477.8223011,
+  "returncode": 0,
+  "finished": 1792230478.2377007,
+  "log_sha256": "6412e9c5f731f6cb64432ada5dee3167b18420648841a91b3eb1bf10333121a9"
+}

@@ -1,0 +1,153 @@
+{
+  "main": {
+    "clockcache_get": {
+      "address": "0000000000053fd0",
+      "bytes": 1311,
+      "division_sites": [
+        "5400d:\tdiv    %r14",
+        "54266:\tdivq   0x140(%rcx)",
+        "543d7:\tdivq   0x140(%rcx)"
+      ]
+    },
+    "clockcache_get_internal_async.constprop.0": {
+      "address": "000000000009cc20",
+      "bytes": 342,
+      "division_sites": [
+        "9cc7f:\tdiv    %rdi"
+      ]
+    },
+    "clockcache_try_get_read.constprop.0": {
+      "address": "00000000000aa320",
+      "bytes": 348,
+      "division_sites": [
+        "aa366:\tdivq   0x140(%rsi)",
+        "aa3e1:\tdivq   0x140(%r9)"
+      ]
+    },
+    "clockcache_unget": {
+      "address": "00000000000529d0",
+      "bytes": 176,
+      "division_sites": [
+        "52a04:\tdivq   0x140(%rsi)"
+      ]
+    }
+  },
+  "mask-main": {
+    "clockcache_get": {
+      "address": "0000000000053fd0",
+      "bytes": 1295,
+      "division_sites": [
+        "54256:\tdivq   0x140(%rcx)",
+        "543c7:\tdivq   0x140(%rcx)"
+      ]
+    },
+    "clockcache_get_internal_async.constprop.0": {
+      "address": "000000000009cc20",
+      "bytes": 342,
+      "division_sites": []
+    },
+    "clockcache_try_get_read.constprop.0": {
+      "address": "00000000000aa320",
+      "bytes": 348,
+      "division_sites": [
+        "aa366:\tdivq   0x140(%rsi)",
+        "aa3e1:\tdivq   0x140(%r9)"
+      ]
+    },
+    "clockcache_unget": {
+      "address": "00000000000529a0",
+      "bytes": 176,
+      "division_sites": [
+        "529d4:\tdivq   0x140(%rsi)"
+      ]
+    }
+  },
+  "original": {
+    "clockcache_get": {
+      "address": "0000000000053c70",
+      "bytes": 1706,
+      "division_sites": [
+        "53ca9:\tdiv    %r8",
+        "53e88:\tdiv    %r8",
+        "53eeb:\tdiv    %r9",
+        "54072:\tdivq   0x140(%rcx)",
+        "54145:\tdivq   0x140(%rcx)"
+      ]
+    },
+    "clockcache_get_internal_async.constprop.0": {
+      "address": "00000000000aada0",
+      "bytes": 725,
+      "division_sites": [
+        "aae09:\tdiv    %rsi",
+        "aaea4:\tdiv    %r9"
+      ]
+    },
+    "clockcache_try_get_read.constprop.0": {
+      "address": "00000000000aa4f0",
+      "bytes": 348,
+      "division_sites": [
+        "aa536:\tdivq   0x140(%rsi)",
+        "aa5b1:\tdivq   0x140(%r9)"
+      ]
+    },
+    "clockcache_unget": {
+      "address": "0000000000050fe0",
+      "bytes": 176,
+      "division_sites": [
+        "51014:\tdivq   0x140(%rsi)"
+      ]
+    }
+  },
+  "mask-original": {
+    "clockcache_get": {
+      "address": "0000000000053c60",
+      "bytes": 1706,
+      "division_sites": [
+        "53ed3:\tdiv    %r9",
+        "54065:\tdivq   0x140(%rcx)",
+        "54135:\tdivq   0x140(%rcx)"
+      ]
+    },
+    "clockcache_get_internal_async.constprop.0": {
+      "address": "00000000000aad60",
+      "bytes": 725,
+      "division_sites": [
+        "aae64:\tdiv    %r9"
+      ]
+    },
+    "clockcache_try_get_read.constprop.0": {
+      "address": "00000000000aa4b0",
+      "bytes": 348,
+      "division_sites": [
+        "aa4f6:\tdivq   0x140(%rsi)",
+        "aa571:\tdivq   0x140(%r9)"
+      ]
+    },
+    "clockcache_unget": {
+      "address": "0000000000050fe0",
+      "bytes": 176,
+      "division_sites": [
+        "51014:\tdivq   0x140(%rsi)"
+      ]
+    }
+  },
+  "analysis": {
+    "alignment_check": "Both mask variants use lea -1(page_size), test addr,mask, conditional branch; no integer divide executes in the address-validation/lookup portion of a normal resident hit.",
+    "remaining_hit_divisions": "Reference-count stripe indexing in clockcache_try_get_read and clockcache_unget still divides by cfg->cacheline_capacity. Those divisions predate the invalid-address branch and are unaffected. Do not report a division-free full get/unget operation.",
+    "register_frames": {
+      "sync_main_and_mask_main": "six callee-saved pushes, 0x38 frame; register renaming but same lifetime shape",
+      "sync_original_and_mask_original": "six callee-saved pushes, 0x38 frame; masks preserve layout and blocking spill location",
+      "async_main_and_mask_main": "one callee-saved push, no explicit frame allocation",
+      "async_original_and_mask_original": "four callee-saved pushes, 8-byte frame; membership logic remains inlined so mask does not eliminate extra saved registers"
+    },
+    "mask_original_hot_code_difference": "Same control flow after address validation. Removing xor edx,edx and div is balanced in code size/instruction count by mask creation and register movement; latency improvement is the reason to test this variant.",
+    "nonblocking_miss_comparison": [
+      "Main performs alignment and lookup bounds validation, sees UNMAPPED, and directly returns STATUS_BUSY for blocking==FALSE.",
+      "The invalid-address branch must additionally establish allocation membership before deciding STATUS_BUSY versus STATUS_BAD_PARAM, even when the caller requests no disk I/O.",
+      "That added work includes virtual allocator configuration access, its alignment/bounds/extent-zero checks, and reference-count lookup. No such work runs on valid resident hits.",
+      "For blocking misses, both main and original already validate allocator membership once: main in acquire_entry_for_load, branch before invoking disk-load helper. The branch changes ordering and error propagation rather than adding a second successful validation.",
+      "A pure nonblocking miss benchmark therefore measures deliberately stronger semantics and should be distinguished from resident-hit regressions. No claim of avoidable overhead or required optimization follows without workload evidence."
+    ],
+    "validation": "Existing binary disassembly and source review only; no benchmark or executable run."
+  }
+}

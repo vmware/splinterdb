@@ -1,0 +1,13 @@
+{
+  "status": "Proposed only; not applied, compiled, or executed. Frozen async-mask source and target branch unchanged.",
+  "purpose": "Extend existing public creation rejection coverage with 4095/4097 byte pages; verifies ordinary error return before internal cache power-of-two assertion. Existing invalid-power cases remain.",
+  "existing_coverage": [
+    "test_io_init_invalid_page_size: 2048 and 8192 rejected by I/O initialization",
+    "test_splinterdb_create_invalid_page_size: 2048 and 8192 rejected by public database creation"
+  ],
+  "public_zero_semantics": "Zero selects default 4096 and must not be tested as invalid.",
+  "patch": "review/nonpower-page-size-test-proposal.patch",
+  "source_file_sha256": "e851344911b8c835578ccd9ae777b79369d339a375cca1468a12c70f03a9efe3",
+  "proposal_sha256": "efd41135c04cc625c83ddaae035683cf57eb5538752b1864d117d2b36adbb79f",
+  "validation_runner": "validation-async-mask/validate.py uses unchanged existing tests only."
+}

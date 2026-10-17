@@ -1,0 +1,23 @@
+{
+  "name": "sequential-release-test-build",
+  "command": [
+    "make",
+    "-j6",
+    "CC=cc",
+    "LD=cc",
+    "BUILD_MODE=release",
+    "BUILD_ROOT=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/sequential",
+    "GIT_VERSION=invalid-address-perf-sequential",
+    "unit/writeback_set_test",
+    "unit/splinterdb_quick_test",
+    "unit/splinter_test"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/sequential",
+  "environment_overrides": null,
+  "queued": 1792223734.873502,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792223734.8735259,
+  "returncode": 0,
+  "finished": 1792223736.9932861,
+  "log_sha256": "2d51d7e745969080e494c68abf31d9e5e534e0b12098462f2360a95044465ee4"
+}

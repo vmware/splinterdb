@@ -1,0 +1,19 @@
+--- async-load/src/clockcache.c
++++ async-mask/src/clockcache.c
+@@ -414,7 +414,7 @@
+                              uint64           *lookup_no)
+ {
+    uint64 page_size = clockcache_config_page_size(cc->cfg);
+-   if (UNLIKELY(addr % page_size != 0)) {
++   if (UNLIKELY((addr & (page_size - 1)) != 0)) {
+       clockcache_report_invalid_address(cc, addr);
+       return FALSE;
+    }
+@@ -4360,6 +4360,7 @@
+                        uint64             use_stats)
+ {
+    int rc;
++   platform_assert(IS_POWER_OF_2(io_cfg->page_size));
+    ZERO_CONTENTS(cache_cfg);
+ 
+    cache_cfg->super.ops     = &clockcache_config_ops;

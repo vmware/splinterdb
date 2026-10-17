@@ -1,0 +1,16 @@
+{
+  "name": "quota-driver-build",
+  "command": [
+    "python3",
+    "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/prepare_quota.py",
+    "--build"
+  ],
+  "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017",
+  "environment_overrides": null,
+  "queued": 1792227446.0465178,
+  "machine_lock": "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/machine.lock",
+  "started": 1792227451.8375542,
+  "returncode": 0,
+  "finished": 1792227452.2027507,
+  "log_sha256": "6869cee44caa0c37e922697038d7d35c53cc5ff8d08ea255af4c84fe5bd1964f"
+}

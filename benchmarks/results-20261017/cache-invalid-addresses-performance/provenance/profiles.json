@@ -1,0 +1,533 @@
+{
+  "baseline_profile": "main",
+  "identity_note": "An uncommitted variant has no commit identity. Its base commit, normalized patch and complete source hash inventory identify the exact source. Library hashes describe files present when packaging; raw run manifests retain historical measured hashes.",
+  "libraries": {
+    "async-load/debug/lib/libsplinterdb.so": {
+      "bytes": 2142136,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/debug/lib/libsplinterdb.so",
+      "sha256": "1e007157660286a4a209e5911b4ecbb026b32a5f11e41ae490df09fb82e2ac50"
+    },
+    "async-load/release-msan/lib/libsplinterdb.so": {
+      "bytes": 5826800,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/release-msan/lib/libsplinterdb.so",
+      "sha256": "bfda9e14308f0d3680c93b98699d07bf1c2c371fb62f71432ead384d1146a8bd"
+    },
+    "async-load/release/lib/libsplinterdb.so": {
+      "bytes": 4303072,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-load/release/lib/libsplinterdb.so",
+      "sha256": "a3cde96521c0fdd52e21e528877daac3166dd83bf5b8de462437e1c5f7f9e152"
+    },
+    "async-mask/debug/lib/libsplinterdb.so": {
+      "bytes": 2142152,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/debug/lib/libsplinterdb.so",
+      "sha256": "b275a60becf665deaa770f7216b4780316589e1d48274610d9f837f20429d9aa"
+    },
+    "async-mask/release-msan/lib/libsplinterdb.so": {
+      "bytes": 5826640,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/release-msan/lib/libsplinterdb.so",
+      "sha256": "fac9531b0da4ec4b24ad6474b96bd43a23d60b3efe3f2c9f75c1406a399a5ca3"
+    },
+    "async-mask/release/lib/libsplinterdb.so": {
+      "bytes": 4303072,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/async-mask/release/lib/libsplinterdb.so",
+      "sha256": "c7b04dabd8a600500ead9095a04e0a572baf904e256f077043c7191abdd8d228"
+    },
+    "candidate/debug/lib/libsplinterdb.so": {
+      "bytes": 2142296,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/candidate/debug/lib/libsplinterdb.so",
+      "sha256": "02400b20382cea124a24fcd2c98171a018e23e9179bc03df5e41ecbd69af867c"
+    },
+    "candidate/release-msan/lib/libsplinterdb.so": {
+      "bytes": 5826968,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/candidate/release-msan/lib/libsplinterdb.so",
+      "sha256": "5fb91ad3141bf8f3f7117d3c90296c49193c164b9683b832526284953823ee66"
+    },
+    "candidate/release/lib/libsplinterdb.so": {
+      "bytes": 4302160,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/candidate/release/lib/libsplinterdb.so",
+      "sha256": "77aef3f90d765108d96edf0edc441a742b952f061530494a23ad967bf617f9cd"
+    },
+    "cold/release/lib/libsplinterdb.so": {
+      "bytes": 4304192,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/cold/release/lib/libsplinterdb.so",
+      "sha256": "befe07ba0820c36d901b7ba43b816e1a32f4d1a09dfc81821a9bf8b8d73ed017"
+    },
+    "hints/release/lib/libsplinterdb.so": {
+      "bytes": 4296568,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/hints/release/lib/libsplinterdb.so",
+      "sha256": "c57fb386d47e9161afa2cca56066b6cdf75733d7fcaf0d26ee2f175f55fd34d1"
+    },
+    "isolated-miss/release/lib/libsplinterdb.so": {
+      "bytes": 4297416,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/isolated-miss/release/lib/libsplinterdb.so",
+      "sha256": "36ce1f073f513f9eba7c8e5b977e16b658c3a42e60ced80681f54cca01b88dfa"
+    },
+    "main/release/lib/libsplinterdb.so": {
+      "bytes": 4281920,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/main/release/lib/libsplinterdb.so",
+      "sha256": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6"
+    },
+    "mask-main/release/lib/libsplinterdb.so": {
+      "bytes": 4281824,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/mask-main/release/lib/libsplinterdb.so",
+      "sha256": "a0ad6ee5eda9d11ae50c4bd02e4c575e44ef758888b047507f3ba05aeb41e54d"
+    },
+    "mask-original/release/lib/libsplinterdb.so": {
+      "bytes": 4296576,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/mask-original/release/lib/libsplinterdb.so",
+      "sha256": "8022e6a1982bb208b5b152ea49c9209d244e17fd12a235a2e25dfb02caa03d32"
+    },
+    "miss-only/release/lib/libsplinterdb.so": {
+      "bytes": 4296080,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/miss-only/release/lib/libsplinterdb.so",
+      "sha256": "7992949b6c5768502246a5fa8e4fe7af4fca47d152a6303951ea3fdebd3cd4ff"
+    },
+    "original/release/lib/libsplinterdb.so": {
+      "bytes": 4296880,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/original/release/lib/libsplinterdb.so",
+      "sha256": "e0c680239539a36a9a9f927888963508c39992c7366250a3a2c7c8b8224ad3e2"
+    },
+    "outlined/release/lib/libsplinterdb.so": {
+      "bytes": 4303904,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/lib/libsplinterdb.so",
+      "sha256": "dd53c678258b687b2df8a7a973a80c600092c683bb1851fb6c10bb853975cef8"
+    },
+    "sequential/release/lib/libsplinterdb.so": {
+      "bytes": 4302168,
+      "copied": false,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/sequential/release/lib/libsplinterdb.so",
+      "sha256": "dfe5df947638f98c5cb2460dc680cf0c342afc4fc04f10238ae2c201cacd09d1"
+    }
+  },
+  "patches": [
+    {
+      "empty": false,
+      "from": "main",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "main",
+        "original"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/main-to-original.patch",
+      "sha256": "c08da83abd17a578aa312f5c09589013fdc1d32814af0aba41a1a2fad8ca7a53",
+      "to": "original"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "async-load"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-async-load.patch",
+      "sha256": "d97f293139469b0c703d7d7442b6adaab0b13de0f01b8b1a65a7ab440975ab4e",
+      "to": "async-load"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "async-mask"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-async-mask.patch",
+      "sha256": "6022cb6d64102afa419a8fa58ee54eb8b16f14bb1938fed57d0f605d096d4b9c",
+      "to": "async-mask"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "candidate"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-candidate.patch",
+      "sha256": "7064fc392c6301f037ccb9033ed0808b975d9e040cee5c7105ea485872b4ff99",
+      "to": "candidate"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "cold"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-cold.patch",
+      "sha256": "d437b293de71390168adc6ca5a4abcf8beb7b8477b7e4a688b68952825c2ff78",
+      "to": "cold"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "hints"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-hints.patch",
+      "sha256": "b304b64ed766a5eb560f58347c2988fbde4409db8d1d76d5b88feb50b5c178b2",
+      "to": "hints"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "isolated-miss"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-isolated-miss.patch",
+      "sha256": "20de6a1c9027cc7e7b621cc2b5d7b8a6e287702d34b8ddb17d1f40463fbc735f",
+      "to": "isolated-miss"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "mask-main"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-mask-main.patch",
+      "sha256": "65afd618b92952591f2089f613b6bb50fdac1fa6da395bca18dd4c0cf61167c4",
+      "to": "mask-main"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "mask-original"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-mask-original.patch",
+      "sha256": "122cef2a397dd651d678ebbe76a5f78347c71a78c04b76f90e1df20106156ce7",
+      "to": "mask-original"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "miss-only"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-miss-only.patch",
+      "sha256": "7f9b60cac781297eb7c25f0d145688934516106b852aac9aed1a3899d8003c88",
+      "to": "miss-only"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "outlined"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-outlined.patch",
+      "sha256": "7f1a767580ce31a0147a2a1e17206cdd0be6cc6a5752eb2d75c665dae3ceac7a",
+      "to": "outlined"
+    },
+    {
+      "empty": false,
+      "from": "original",
+      "generation_command": [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--no-index",
+        "--binary",
+        "--no-renames",
+        "--",
+        "original",
+        "sequential"
+      ],
+      "generation_cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources",
+      "path": "patches/original-to-sequential.patch",
+      "sha256": "748a0716f1611999ff403f96def9aedbf2a785d67834d99d2ac33a1ace836b4c",
+      "to": "sequential"
+    }
+  ],
+  "selected_profile": "async-mask",
+  "sources": {
+    "async-load": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "a26ce40399a60f76f8559eb82703f688bf0bd71662ce93d9ad4232f7451c107e",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": "async-load-source.json",
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/async-load",
+      "patch": "patches/original-to-async-load.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/async-load.json",
+      "source_inventory_sha256": "6d446a266e1a1eaaea791a0fa360ca4c0c9a667ef81c5b93891147730f214d29"
+    },
+    "async-mask": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "7f370079f60ccb1b86744a209c20dd09d0b729d512bdf3e022e04b51d23a777a",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": "async-mask-source.json",
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/async-mask",
+      "patch": "patches/original-to-async-mask.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/async-mask.json",
+      "source_inventory_sha256": "3f08ca8ef1b1b3c4943d4dbc19b3d851e94ba1a5af6fc296e4a3ef08513b4f8d"
+    },
+    "candidate": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "214f333f0efe4fa3422a9d71fba16999b3d8aba9219a1528ef992e1ba95f4d24",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": "candidate-source.json",
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/candidate",
+      "patch": "patches/original-to-candidate.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/candidate.json",
+      "source_inventory_sha256": "a95487acef81e1cabac6da9b22f5fca63c3fce41bb8a05bc7fb1dde0212209b7"
+    },
+    "cold": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "eede8b40b6cf48acf353b56de92ca57baf2fc10e931072e998b83a0bc74cc415",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": null,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/cold",
+      "patch": "patches/original-to-cold.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/cold.json",
+      "source_inventory_sha256": "7d95e010b51dd5ab9d2aee40f7e9fc64d8cbf80347a5e1a0458f70bb98538943"
+    },
+    "hints": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "3d4eddf1a46b7f236a877bcb53ec93886c407bbbc924289971058161270e3608",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": null,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/hints",
+      "patch": "patches/original-to-hints.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/hints.json",
+      "source_inventory_sha256": "45f0b0760a9510d04b35ad40dfa2b3b16c43df332a331274bbdc784971e65ea8"
+    },
+    "isolated-miss": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "1b87360764eac20c6461170fc8bc355d651290647cefff55f8e84f664b78bd96",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": null,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/isolated-miss",
+      "patch": "patches/original-to-isolated-miss.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/isolated-miss.json",
+      "source_inventory_sha256": "98925bbedb8b4aa93bb8b7eada5dcaf22b6a001459eb9ce5b12a65aec5f65b72"
+    },
+    "main": {
+      "base_commit": null,
+      "clockcache_sha256": "e0ef2e19a8280849df4ee80d9b8a54a0faaf56a13faefe7a91d54f5b7269f933",
+      "commit": "8e0f29b89598db1d52aa7090404b475001dbf2eb",
+      "commit_is_variant_identity": true,
+      "file_count": 177,
+      "metadata": "main-source.json",
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/main",
+      "source_inventory": "provenance/source-hashes/main.json",
+      "source_inventory_sha256": "92a2d35a713d5b8d7cafcebaaca11b2519a45f627ce92fd29ac5c70b209a5bd0"
+    },
+    "mask-main": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "0b070e8a4cf52b60df0ed412aec3854188f99e627d8cc1c0be0e2c282afea30f",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": null,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/mask-main",
+      "patch": "patches/original-to-mask-main.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/mask-main.json",
+      "source_inventory_sha256": "07b0780016cff22045798e86936f2068968e8a77c0f03496cec75be9f9ff081a"
+    },
+    "mask-original": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "a025a6beb1df2d28cbc0a1a046c1e8a2cfc91ad0c544718b32969f5c36eaa562",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": null,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/mask-original",
+      "patch": "patches/original-to-mask-original.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/mask-original.json",
+      "source_inventory_sha256": "6a306b6a1ce4f13390414589ccec3e8342dd9322dd96ab564493df94dc419b54"
+    },
+    "miss-only": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "3278fa762ea478e67865639f7cca8366515c8059cbc667056da8d2f01f9033b4",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": null,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/miss-only",
+      "patch": "patches/original-to-miss-only.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/miss-only.json",
+      "source_inventory_sha256": "f2ca3e83717491f636fce7e1d5e385462129db93234915631cbc89989ac56ee7"
+    },
+    "original": {
+      "base_commit": null,
+      "clockcache_sha256": "14bfdbb00476f9070b21a4fe0cdb7918e3021e4240201cc516e0a6b671844026",
+      "commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "commit_is_variant_identity": true,
+      "file_count": 177,
+      "metadata": "original-source.json",
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/original",
+      "patch": "patches/main-to-original.patch",
+      "patch_from": "main",
+      "source_inventory": "provenance/source-hashes/original.json",
+      "source_inventory_sha256": "057e1fd47a15b521a8efc256e7f93b85de91aee4ce6a67316a26af6ccc6a8eed"
+    },
+    "outlined": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "3925637f6763e447132e6dfdc69c5887b2af8a0de20557916aa5f01e253f7cda",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": null,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/outlined",
+      "patch": "patches/original-to-outlined.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/outlined.json",
+      "source_inventory_sha256": "cfc4ec5876fe6bb6ec439b8a36979c5c38354d1b62480abe14107e70de08de35"
+    },
+    "sequential": {
+      "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
+      "clockcache_sha256": "9a8fe2d70c6ed9f4aa85399011c91f4e74c83b6fa811e1cb3c28f1f923d7b8c4",
+      "commit": null,
+      "commit_is_variant_identity": false,
+      "file_count": 177,
+      "metadata": null,
+      "original_absolute_path": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/sources/sequential",
+      "patch": "patches/original-to-sequential.patch",
+      "patch_from": "original",
+      "source_inventory": "provenance/source-hashes/sequential.json",
+      "source_inventory_sha256": "7456f6825c91151d694decc83d95c45f3ca3dfd5282da339cb5040cc7479be73"
+    }
+  },
+  "unoptimized_branch_profile": "original"
+}

@@ -1,0 +1,751 @@
+{
+  "validation": {
+    "complete": false,
+    "expected_rows": 64,
+    "observed_rows": 11,
+    "missing_jobs": [
+      "controlled-screen-b00-async-1-independent-s00-main",
+      "controlled-screen-b00-async-1-independent-s01-original",
+      "controlled-screen-b00-async-1-independent-s02-sequential",
+      "controlled-screen-b00-async-1-independent-s03-isolated-miss",
+      "controlled-screen-b00-async-1-independent-s04-isolated-miss",
+      "controlled-screen-b00-async-1-independent-s05-sequential",
+      "controlled-screen-b00-async-1-independent-s06-original",
+      "controlled-screen-b00-async-1-independent-s07-main",
+      "controlled-screen-b00-async-8-independent-s00-main",
+      "controlled-screen-b00-async-8-independent-s01-original",
+      "controlled-screen-b00-async-8-independent-s02-sequential",
+      "controlled-screen-b00-async-8-independent-s03-isolated-miss",
+      "controlled-screen-b00-async-8-independent-s04-isolated-miss",
+      "controlled-screen-b00-async-8-independent-s05-sequential",
+      "controlled-screen-b00-async-8-independent-s06-original",
+      "controlled-screen-b00-async-8-independent-s07-main",
+      "controlled-screen-b00-blocking-8-independent-s03-isolated-miss",
+      "controlled-screen-b00-blocking-8-independent-s04-isolated-miss",
+      "controlled-screen-b00-blocking-8-independent-s05-sequential",
+      "controlled-screen-b00-blocking-8-independent-s06-original",
+      "controlled-screen-b00-blocking-8-independent-s07-main",
+      "controlled-screen-b01-async-1-independent-s00-original",
+      "controlled-screen-b01-async-1-independent-s01-sequential",
+      "controlled-screen-b01-async-1-independent-s02-isolated-miss",
+      "controlled-screen-b01-async-1-independent-s03-main",
+      "controlled-screen-b01-async-1-independent-s04-main",
+      "controlled-screen-b01-async-1-independent-s05-isolated-miss",
+      "controlled-screen-b01-async-1-independent-s06-sequential",
+      "controlled-screen-b01-async-1-independent-s07-original",
+      "controlled-screen-b01-async-8-independent-s00-original",
+      "controlled-screen-b01-async-8-independent-s01-sequential",
+      "controlled-screen-b01-async-8-independent-s02-isolated-miss",
+      "controlled-screen-b01-async-8-independent-s03-main",
+      "controlled-screen-b01-async-8-independent-s04-main",
+      "controlled-screen-b01-async-8-independent-s05-isolated-miss",
+      "controlled-screen-b01-async-8-independent-s06-sequential",
+      "controlled-screen-b01-async-8-independent-s07-original",
+      "controlled-screen-b01-blocking-1-independent-s00-original",
+      "controlled-screen-b01-blocking-1-independent-s01-sequential",
+      "controlled-screen-b01-blocking-1-independent-s02-isolated-miss",
+      "controlled-screen-b01-blocking-1-independent-s03-main",
+      "controlled-screen-b01-blocking-1-independent-s04-main",
+      "controlled-screen-b01-blocking-1-independent-s05-isolated-miss",
+      "controlled-screen-b01-blocking-1-independent-s06-sequential",
+      "controlled-screen-b01-blocking-1-independent-s07-original",
+      "controlled-screen-b01-blocking-8-independent-s00-original",
+      "controlled-screen-b01-blocking-8-independent-s01-sequential",
+      "controlled-screen-b01-blocking-8-independent-s02-isolated-miss",
+      "controlled-screen-b01-blocking-8-independent-s03-main",
+      "controlled-screen-b01-blocking-8-independent-s04-main",
+      "controlled-screen-b01-blocking-8-independent-s05-isolated-miss",
+      "controlled-screen-b01-blocking-8-independent-s06-sequential",
+      "controlled-screen-b01-blocking-8-independent-s07-original"
+    ],
+    "manifest_sha256": "2a41beec8dc4ef981a50564e3c4d45ed333769e43ffed9fc330ccf7fbc32a0dd",
+    "results_sha256": "37117e335628d555bc45724d17f13b54878aca88ecb8119d52294959653de4cf",
+    "driver_build_sha256": "53c7c2ba492635eb955c1f7e7dd095a25f18b2d8e31c55cf41cc2881d790b1a4",
+    "driver_sha256": "44e670cb89560c5f226633b6486da992d9cd4c8581806df5a701a3a7a3f38349",
+    "runner_sha256": "c717ffacf6e81669cc4d61527b64eb2eef11b56b7c444e4db75313b5241780c8",
+    "libraries": {
+      "main": "1b5aea7536bc5c1f9c8ff503420ddbe9cbf47b768682987e3a3edb385b7a58e6",
+      "original": "e0c680239539a36a9a9f927888963508c39992c7366250a3a2c7c8b8224ad3e2",
+      "sequential": "dfe5df947638f98c5cb2460dc680cf0c342afc4fc04f10238ae2c201cacd09d1",
+      "isolated-miss": "36ce1f073f513f9eba7c8e5b977e16b658c3a42e60ced80681f54cca01b88dfa"
+    },
+    "all_present_raw_logs_and_job_records_verified": true,
+    "sample_exclusions": 0,
+    "thermal_flagged_samples": 11
+  },
+  "arguments": {
+    "label": "controlled-screen",
+    "profiles": [
+      "main",
+      "original",
+      "sequential",
+      "isolated-miss"
+    ],
+    "apis": [
+      "blocking",
+      "async"
+    ],
+    "threads": [
+      1,
+      8
+    ],
+    "modes": [
+      "independent"
+    ],
+    "blocks": 2,
+    "seconds": 3,
+    "warmup": 2,
+    "cache_mib": 64,
+    "control_cpu": 12,
+    "cpus_1": "2",
+    "cpus_6": "0,2,4,6,8,10",
+    "cpus_8": "0,2,4,6,8,10,1,3",
+    "perf": "single"
+  },
+  "summaries": [
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "main",
+      "samples": 2,
+      "means": {
+        "ops_s": 17587524.85,
+        "worker_cpu_ns_op": 56.85690304779112,
+        "cycles_op": 240.64848567357018,
+        "instructions_op": 276.40335256942524,
+        "branches_op": 54.12210156261206,
+        "branch_misses_op": 0.016613870975303424,
+        "user_cycles_per_worker_cpu_ns_proxy": 4.232731240064677
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "original",
+      "samples": 2,
+      "means": {
+        "ops_s": 17425313.15,
+        "worker_cpu_ns_op": 57.375815842203835,
+        "cycles_op": 241.46311524386556,
+        "instructions_op": 280.40335086371397,
+        "branches_op": 53.122100194095715,
+        "branch_misses_op": 0.01690211643383417,
+        "user_cycles_per_worker_cpu_ns_proxy": 4.2084423050593465
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "sequential",
+      "samples": 2,
+      "means": {
+        "ops_s": 17495255.45,
+        "worker_cpu_ns_op": 57.15176064345947,
+        "cycles_op": 240.66428197612072,
+        "instructions_op": 280.4033509963038,
+        "branches_op": 53.12210086164026,
+        "branch_misses_op": 0.01663444988057124,
+        "user_cycles_per_worker_cpu_ns_proxy": 4.210922124974401
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "isolated-miss",
+      "samples": 2,
+      "means": {
+        "ops_s": 17512412.65,
+        "worker_cpu_ns_op": 57.09719765610092,
+        "cycles_op": 240.71877737386728,
+        "instructions_op": 279.40335136792913,
+        "branches_op": 54.12210070202977,
+        "branch_misses_op": 0.01667714017586317,
+        "user_cycles_per_worker_cpu_ns_proxy": 4.215950142569028
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 8,
+      "mode": "independent",
+      "profile": "main",
+      "samples": 1,
+      "means": {
+        "ops_s": 105179385.4,
+        "worker_cpu_ns_op": 76.05627392936107
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 8,
+      "mode": "independent",
+      "profile": "original",
+      "samples": 1,
+      "means": {
+        "ops_s": 100427769.3,
+        "worker_cpu_ns_op": 79.65287344522014
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 8,
+      "mode": "independent",
+      "profile": "sequential",
+      "samples": 1,
+      "means": {
+        "ops_s": 101765065.8,
+        "worker_cpu_ns_op": 78.60747418731692
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "original",
+      "baseline": "main",
+      "paired_blocks": [
+        {
+          "block": 0,
+          "candidate_mean": {
+            "ops_s": 17425313.15,
+            "worker_cpu_ns_op": 57.375815842203835,
+            "cycles_op": 241.46311524386556,
+            "instructions_op": 280.40335086371397,
+            "branches_op": 53.122100194095715,
+            "branch_misses_op": 0.01690211643383417,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.2084423050593465
+          },
+          "baseline_mean": {
+            "ops_s": 17587524.85,
+            "worker_cpu_ns_op": 56.85690304779112,
+            "cycles_op": 240.64848567357018,
+            "instructions_op": 276.40335256942524,
+            "branches_op": 54.12210156261206,
+            "branch_misses_op": 0.016613870975303424,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.232731240064677
+          },
+          "ratios": {
+            "ops_s": 0.9907768886535502,
+            "worker_cpu_ns_op": 1.0091266454308379,
+            "cycles_op": 1.0033851431394436,
+            "instructions_op": 1.0144715983257984,
+            "branches_op": 0.9815232346925872,
+            "branch_misses_op": 1.0173496868345266,
+            "user_cycles_per_worker_cpu_ns_proxy": 0.994261640149645
+          },
+          "thermal_flagged": true
+        }
+      ],
+      "estimates": {
+        "ops_s": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.9223111346449819,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.9223111346449819
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.9126645430837854,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.9126645430837854
+          ]
+        },
+        "cycles_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.33851431394436027,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.33851431394436027
+          ]
+        },
+        "instructions_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 1.4471598325798363,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            1.4471598325798363
+          ]
+        },
+        "branches_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -1.8476765307412824,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -1.8476765307412824
+          ]
+        },
+        "branch_misses_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 1.7349686834526645,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            1.7349686834526645
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.5738359850354979,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.5738359850354979
+          ]
+        }
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "sequential",
+      "baseline": "main",
+      "paired_blocks": [
+        {
+          "block": 0,
+          "candidate_mean": {
+            "ops_s": 17495255.45,
+            "worker_cpu_ns_op": 57.15176064345947,
+            "cycles_op": 240.66428197612072,
+            "instructions_op": 280.4033509963038,
+            "branches_op": 53.12210086164026,
+            "branch_misses_op": 0.01663444988057124,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.210922124974401
+          },
+          "baseline_mean": {
+            "ops_s": 17587524.85,
+            "worker_cpu_ns_op": 56.85690304779112,
+            "cycles_op": 240.64848567357018,
+            "instructions_op": 276.40335256942524,
+            "branches_op": 54.12210156261206,
+            "branch_misses_op": 0.016613870975303424,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.232731240064677
+          },
+          "ratios": {
+            "ops_s": 0.9947537017978967,
+            "worker_cpu_ns_op": 1.0051859594853505,
+            "cycles_op": 1.0000656405649357,
+            "instructions_op": 1.014471598805495,
+            "branches_op": 0.9815232470266342,
+            "branch_misses_op": 1.001238658064602,
+            "user_cycles_per_worker_cpu_ns_proxy": 0.99484750770759
+          },
+          "thermal_flagged": true
+        }
+      ],
+      "estimates": {
+        "ops_s": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.5246298202103317,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.5246298202103317
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.51859594853505,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.51859594853505
+          ]
+        },
+        "cycles_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.006564056493574277,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.006564056493574277
+          ]
+        },
+        "instructions_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 1.447159880549509,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            1.447159880549509
+          ]
+        },
+        "branches_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -1.8476752973365818,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -1.8476752973365818
+          ]
+        },
+        "branch_misses_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.1238658064601994,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.1238658064601994
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.5152492292409994,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.5152492292409994
+          ]
+        }
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "isolated-miss",
+      "baseline": "main",
+      "paired_blocks": [
+        {
+          "block": 0,
+          "candidate_mean": {
+            "ops_s": 17512412.65,
+            "worker_cpu_ns_op": 57.09719765610092,
+            "cycles_op": 240.71877737386728,
+            "instructions_op": 279.40335136792913,
+            "branches_op": 54.12210070202977,
+            "branch_misses_op": 0.01667714017586317,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.215950142569028
+          },
+          "baseline_mean": {
+            "ops_s": 17587524.85,
+            "worker_cpu_ns_op": 56.85690304779112,
+            "cycles_op": 240.64848567357018,
+            "instructions_op": 276.40335256942524,
+            "branches_op": 54.12210156261206,
+            "branch_misses_op": 0.016613870975303424,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.232731240064677
+          },
+          "ratios": {
+            "ops_s": 0.995729234179305,
+            "worker_cpu_ns_op": 1.0042263049063334,
+            "cycles_op": 1.000292092842805,
+            "instructions_op": 1.0108536990257757,
+            "branches_op": 0.9999999840992447,
+            "branch_misses_op": 1.0038082154757189,
+            "user_cycles_per_worker_cpu_ns_proxy": 0.9960353973489249
+          },
+          "thermal_flagged": true
+        }
+      ],
+      "estimates": {
+        "ops_s": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.4270765820694966,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.4270765820694966
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.4226304906333356,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.4226304906333356
+          ]
+        },
+        "cycles_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.02920928428049585,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.02920928428049585
+          ]
+        },
+        "instructions_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 1.085369902577571,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            1.085369902577571
+          ]
+        },
+        "branches_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -1.5900755268027922e-06,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -1.5900755268027922e-06
+          ]
+        },
+        "branch_misses_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.3808215475718857,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.3808215475718857
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.3964602651075122,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.3964602651075122
+          ]
+        }
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "sequential",
+      "baseline": "original",
+      "paired_blocks": [
+        {
+          "block": 0,
+          "candidate_mean": {
+            "ops_s": 17495255.45,
+            "worker_cpu_ns_op": 57.15176064345947,
+            "cycles_op": 240.66428197612072,
+            "instructions_op": 280.4033509963038,
+            "branches_op": 53.12210086164026,
+            "branch_misses_op": 0.01663444988057124,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.210922124974401
+          },
+          "baseline_mean": {
+            "ops_s": 17425313.15,
+            "worker_cpu_ns_op": 57.375815842203835,
+            "cycles_op": 241.46311524386556,
+            "instructions_op": 280.40335086371397,
+            "branches_op": 53.122100194095715,
+            "branch_misses_op": 0.01690211643383417,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.2084423050593465
+          },
+          "ratios": {
+            "ops_s": 1.0040138331746422,
+            "worker_cpu_ns_op": 0.996094954024522,
+            "cycles_op": 0.9966916965063668,
+            "instructions_op": 1.000000000472854,
+            "branches_op": 1.0000000125662303,
+            "branch_misses_op": 0.984163725631003,
+            "user_cycles_per_worker_cpu_ns_proxy": 1.0005892488800603
+          },
+          "thermal_flagged": true
+        }
+      ],
+      "estimates": {
+        "ops_s": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.4013833174642212,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.4013833174642212
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.39050459754780276,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.39050459754780276
+          ]
+        },
+        "cycles_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.33083034936332023,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.33083034936332023
+          ]
+        },
+        "instructions_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 4.728539781950758e-08,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            4.728539781950758e-08
+          ]
+        },
+        "branches_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 1.2566230278565627e-06,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            1.2566230278565627e-06
+          ]
+        },
+        "branch_misses_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -1.5836274368997039,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -1.5836274368997039
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.05892488800602891,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.05892488800602891
+          ]
+        }
+      }
+    },
+    {
+      "api": "blocking",
+      "threads": 1,
+      "mode": "independent",
+      "profile": "isolated-miss",
+      "baseline": "original",
+      "paired_blocks": [
+        {
+          "block": 0,
+          "candidate_mean": {
+            "ops_s": 17512412.65,
+            "worker_cpu_ns_op": 57.09719765610092,
+            "cycles_op": 240.71877737386728,
+            "instructions_op": 279.40335136792913,
+            "branches_op": 54.12210070202977,
+            "branch_misses_op": 0.01667714017586317,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.215950142569028
+          },
+          "baseline_mean": {
+            "ops_s": 17425313.15,
+            "worker_cpu_ns_op": 57.375815842203835,
+            "cycles_op": 241.46311524386556,
+            "instructions_op": 280.40335086371397,
+            "branches_op": 53.122100194095715,
+            "branch_misses_op": 0.01690211643383417,
+            "user_cycles_per_worker_cpu_ns_proxy": 4.2084423050593465
+          },
+          "ratios": {
+            "ops_s": 1.0049984467567517,
+            "worker_cpu_ns_op": 0.995143978660466,
+            "cycles_op": 0.9969173847970672,
+            "instructions_op": 0.996433710607578,
+            "branches_op": 1.018824566503965,
+            "branch_misses_op": 0.9866894623018542,
+            "user_cycles_per_worker_cpu_ns_proxy": 1.0017839944011246
+          },
+          "thermal_flagged": true
+        }
+      ],
+      "estimates": {
+        "ops_s": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.4998446756751651,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.4998446756751651
+          ]
+        },
+        "worker_cpu_ns_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.4856021339534,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.4856021339534
+          ]
+        },
+        "cycles_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.3082615202932848,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.3082615202932848
+          ]
+        },
+        "instructions_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -0.3566289392421984,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -0.3566289392421984
+          ]
+        },
+        "branches_op": {
+          "blocks": 1,
+          "geometric_delta_pct": 1.8824566503965023,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            1.8824566503965023
+          ]
+        },
+        "branch_misses_op": {
+          "blocks": 1,
+          "geometric_delta_pct": -1.331053769814583,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            -1.331053769814583
+          ]
+        },
+        "user_cycles_per_worker_cpu_ns_proxy": {
+          "blocks": 1,
+          "geometric_delta_pct": 0.17839944011246445,
+          "ci95_low_pct": null,
+          "ci95_high_pct": null,
+          "block_delta_pct": [
+            0.17839944011246445
+          ]
+        }
+      }
+    }
+  ],
+  "metric_direction": {
+    "ops_s": "higher is better",
+    "worker_cpu_ns_op": "lower is better",
+    "cycles_op": "lower is better",
+    "instructions_op": "lower is better",
+    "branches_op": "descriptive only",
+    "branch_misses_op": "descriptive only",
+    "user_cycles_per_worker_cpu_ns_proxy": "diagnostic only; no normalization"
+  },
+  "uncertainty_method": "Arithmetic mirror-pair means within each block; geometric mean and two-sided Student-t interval of block log ratios. Blocks, not individual adjacent runs, are the replication units.",
+  "limitations": [
+    "Few blocks give imprecise intervals; normal-log-ratio and independent-block assumptions may be imperfect under thermal carryover.",
+    "Intervals are pointwise, not adjusted for multiple scenarios/candidates.",
+    "No samples are silently excluded, including flagged thermal events; inspect all block ratios.",
+    "The user-cycle/thread-CPU-time proxy is not calibrated CPU frequency and is not used to normalize throughput.",
+    "Zero I/O and error checks apply to these cache probe cases; results are not database steady-state or durability benchmarks.",
+    "For degrees of freedom above 30, the t cutoff is conservatively held at 2.042."
+  ],
+  "campaign": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/probe-results/controlled-screen",
+  "report_script_sha256": "eea6d2bb86fc49a7f95b41269eeee127580c4e4e8251dde0a02ac71e28ef5e40"
+}

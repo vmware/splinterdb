@@ -1,0 +1,36 @@
+{
+  "status": "build and all scheduled smoke audits passed; full comparison pending",
+  "source_sha256": "0bee78d7cf79c83ed3b7e1c572b2ebdd5a418114c54e4545e2e35ca50088fe61",
+  "binary_sha256": "0092d0cd5d1f80d529fd3d405528dd8d37c798a804cba2f3ca146039b35b5e8c",
+  "object_sha256": "875dd5282dce703375c9b7af07c083ece4ad3c3249d97a67ce50dde5628d067e",
+  "runner_sha256": "81fb1255c110f0d7880dc32569f5a27ab301999d56385891dc8f8e7d368effae",
+  "build_job": "jobs/build-cache-write-probe-retry",
+  "preserved_setup_failure": "jobs/build-cache-write-probe failed before compiler because a relative script path was resolved under the campaign cwd; root retried with absolute paths and no source change.",
+  "smokes": [
+    {
+      "name": "mask-write-smoke32",
+      "report": ".cache/invalid-address-perf-20261017/database/analysis/mask-write-smoke32-audited.json",
+      "report_sha256": "7e5162cecba6d9a39e60942dcad0c95229d6c5efd72c17702821f4f9c37d2113",
+      "measured": 8,
+      "excluded": 4,
+      "checked_processes": 12,
+      "dirty_pages": [
+        32
+      ],
+      "guards": "all passed; exact updates, identity/complement, zero timed I/O/major faults/errors, fixed CPU/TID, counters/provenance/lock chronology"
+    },
+    {
+      "name": "mask-write-smoke33",
+      "report": ".cache/invalid-address-perf-20261017/database/analysis/mask-write-smoke33-audited.json",
+      "report_sha256": "21922eb892e3b4744e2db03beb0b00c4b27e23043b1a79a4d84b10ce7ff00b25",
+      "measured": 4,
+      "excluded": 2,
+      "checked_processes": 6,
+      "dirty_pages": [
+        33
+      ],
+      "guards": "all passed; exact updates, identity/complement, zero timed I/O/major faults/errors, fixed CPU/TID, counters/provenance/lock chronology"
+    }
+  ],
+  "interpretation": "Only correctness and harness readiness; short single-profile smokes are not comparative performance evidence."
+}

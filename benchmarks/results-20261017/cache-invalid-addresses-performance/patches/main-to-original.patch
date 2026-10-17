@@ -1,0 +1,404 @@
+diff --git a/src/cache.h b/src/cache.h
+index 259a32e6..e5e51fa9 100644
+--- a/src/cache.h
++++ b/src/cache.h
+@@ -374,8 +374,11 @@ cache_extent_discard(cache *cc, uint64 addr, page_type type)
+  * page whose read is already in flight may still wait for that read.
+  * On any failure, page is cleared and the caller owns no reference.
+  *
+- * addr is a byte offset from the beginning of the disk. It should be aligned
+- * to cache_page_size().
++ * addr is a byte offset from the beginning of the disk. Misaligned addresses,
++ * addresses outside the cache/allocator capacity, and addresses in unallocated
++ * extents return STATUS_BAD_PARAM, including for nonblocking gets. Callers must
++ * keep the extent allocated throughout the get and the returned handle's life.
++ * The asynchronous get API below reports the same address errors.
+  *----------------------------------------------------------------------
+  */
+ static inline platform_status
+@@ -528,7 +531,8 @@ cache_unlock(cache *cc, page_handle *page)
+  *
+  * Asynchronously load the extent with given base address. No notification is
+  * provided to the calling thread; it may call cache_get when it's ready
+- * to block on the arrival of the page.
++ * to block on the arrival of the page. Invalid addresses are ignored; demand
++ * reads report address errors. addr must be extent-aligned for this hint.
+  *
+  *----------------------------------------------------------------------
+  */
+diff --git a/src/clockcache.c b/src/clockcache.c
+index a4871aea..e97f385f 100644
+--- a/src/clockcache.c
++++ b/src/clockcache.c
+@@ -391,37 +391,64 @@ clockcache_divide_by_page_size(const clockcache *cc, uint64 addr)
+  * structures, and lookup_no indexes cc->lookup directly. Keep these checks in
+  * production and centralize them here so every lookup-table user is covered.
+  */
+-static inline uint64
+-clockcache_lookup_number(const clockcache *cc, uint64 addr)
++static inline bool32
++clockcache_try_lookup_number(const clockcache *cc,
++                             uint64            addr,
++                             uint64           *lookup_no)
+ {
+    uint64 page_size = clockcache_config_page_size(cc->cfg);
+-   platform_assert(addr % page_size == 0,
+-                   "Unaligned cache page address %lu (page size %lu)",
+-                   addr,
+-                   page_size);
++   if (addr % page_size != 0) {
++      platform_error_log(
++         "Unaligned cache page address %lu (page size %lu)\n", addr, page_size);
++      return FALSE;
++   }
+ 
+-   uint64 lookup_no       = clockcache_divide_by_page_size(cc, addr);
++   *lookup_no             = clockcache_divide_by_page_size(cc, addr);
+    uint64 lookup_capacity = cc->lookup_bh.length / sizeof(cc->lookup[0]);
+-   platform_assert(lookup_no < lookup_capacity,
+-                   "Cache page address %lu is outside lookup capacity %lu",
+-                   addr,
+-                   lookup_capacity * page_size);
++   if (*lookup_no >= lookup_capacity) {
++      platform_error_log("Cache page address %lu is outside lookup capacity "
++                         "%lu\n",
++                         addr,
++                         lookup_capacity * page_size);
++      return FALSE;
++   }
++   return TRUE;
++}
++
++/* Internal operations on existing mappings must still satisfy this invariant.
++ * Demand reads use the fallible helpers to reject addresses from disk. */
++static inline uint64
++clockcache_lookup_number(const clockcache *cc, uint64 addr)
++{
++   uint64 lookup_no;
++   platform_assert(clockcache_try_lookup_number(cc, addr, &lookup_no));
+    return lookup_no;
+ }
+ 
+-static inline uint32
+-clockcache_lookup(const clockcache *cc, uint64 addr)
++static inline bool32
++clockcache_try_lookup(const clockcache *cc, uint64 addr, uint32 *entry_number)
+ {
+-   uint64 lookup_no    = clockcache_lookup_number(cc, addr);
+-   uint32 entry_number = cc->lookup[lookup_no];
++   uint64 lookup_no;
++   if (!clockcache_try_lookup_number(cc, addr, &lookup_no)) {
++      return FALSE;
++   }
++   *entry_number = cc->lookup[lookup_no];
+ 
+-   debug_assert(((entry_number < cc->cfg->page_capacity)
+-                 || (entry_number == CC_UNMAPPED_ENTRY)),
++   debug_assert(((*entry_number < cc->cfg->page_capacity)
++                 || (*entry_number == CC_UNMAPPED_ENTRY)),
+                 "entry_number=%u is out-of-bounds. "
+                 " Should be either CC_UNMAPPED_ENTRY,"
+                 " or should be < %d.",
+-                entry_number,
++                *entry_number,
+                 cc->cfg->page_capacity);
++   return TRUE;
++}
++
++static inline uint32
++clockcache_lookup(const clockcache *cc, uint64 addr)
++{
++   uint32 entry_number;
++   platform_assert(clockcache_try_lookup(cc, addr, &entry_number));
+    return entry_number;
+ }
+ 
+@@ -2262,13 +2289,7 @@ clockcache_acquire_entry_for_load(clockcache *cc, // IN
+                                   uint64      addr,
+                                   page_type   type) // OUT
+ {
+-   /*
+-    * Validate allocation membership only when admitting a new mapping. A
+-    * cache hit inherits this property from the mapping, which is removed by
+-    * cache_extent_discard() before the allocator can make the extent free.
+-    */
+-   clockcache_assert_page_access_valid(cc, addr, type);
+-
++   /* The demand-read caller has already validated allocation membership. */
+    threadid          tid          = platform_get_tid();
+    uint64            lookup_no    = clockcache_lookup_number(cc, addr);
+    uint32            entry_number = clockcache_get_free_page(cc,
+@@ -2405,9 +2426,11 @@ clockcache_get_internal(clockcache      *cc,       // IN
+ {
+    clockcache_assert_page_type_valid(addr, type);
+ 
+-   // We expect entry_number to be valid, but it's still validated below
+-   // in case some arithmetic goes wrong.
+-   uint32 entry_number = clockcache_lookup(cc, addr);
++   uint32 entry_number;
++   if (!clockcache_try_lookup(cc, addr, &entry_number)) {
++      *rc = STATUS_BAD_PARAM;
++      return FALSE;
++   }
+ 
+    if (entry_number != CC_UNMAPPED_ENTRY) {
+ #if SPLINTER_DEBUG
+@@ -2418,7 +2441,16 @@ clockcache_get_internal(clockcache      *cc,       // IN
+ #endif
+       return clockcache_get_in_cache(
+          cc, addr, blocking, type, entry_number, page, rc);
+-   } else if (blocking) {
++   }
++
++   /* A hit inherits allocation validity from its mapping, which is removed by
++    * cache_extent_discard() before the allocator can free the extent. Check
++    * misses even for a nonblocking get, before returning STATUS_BUSY. */
++   if (!allocator_page_valid(cc->al, addr)) {
++      *rc = STATUS_BAD_PARAM;
++      return FALSE;
++   }
++   if (blocking) {
+       return clockcache_get_from_disk(cc, addr, type, page, rc);
+    } else {
+       *rc = STATUS_BUSY;
+@@ -2686,13 +2718,23 @@ clockcache_get_internal_async(clockcache_get_async_state *state, uint64 depth)
+    state->tid = platform_get_tid();
+    clockcache_assert_page_type_valid(state->addr, state->type);
+ 
+-   // We expect entry_number to be valid, but it's still validated below
+-   // in case some arithmetic goes wrong.
+-   state->entry_number = clockcache_lookup(state->cc, state->addr);
++   uint32 entry_number;
++   if (!clockcache_try_lookup(state->cc, state->addr, &entry_number)) {
++      state->result_status = STATUS_BAD_PARAM;
++      state->succeeded     = TRUE;
++      async_return(state);
++   }
++   state->entry_number = entry_number;
+ 
+    if (state->entry_number != CC_UNMAPPED_ENTRY) {
+       async_await_subroutine(state, clockcache_get_in_cache_async);
+    } else {
++      /* As in the synchronous path, cached mappings are already allocated. */
++      if (!allocator_page_valid(state->cc->al, state->addr)) {
++         state->result_status = STATUS_BAD_PARAM;
++         state->succeeded     = TRUE;
++         async_return(state);
++      }
+       async_await_subroutine(state, clockcache_get_from_disk_async);
+    }
+    async_return(state);
+@@ -3412,18 +3454,33 @@ clockcache_prefetch_pages(clockcache *cc,
+    platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
+    platform_assert(num_pages > 0);
+    platform_assert(num_pages <= cc->cfg->pages_per_extent);
+-   clockcache_assert_page_access_valid(cc, first_addr, type);
++   /* Prefetch is a hint: reject malformed pointers without publishing a
++    * mapping. A later demand read will return the address error to its caller.
++    */
++   uint64 lookup_no;
++   if (!clockcache_try_lookup_number(cc, first_addr, &lookup_no)
++       || !allocator_page_valid(cc->al, first_addr))
++   {
++      return;
++   }
+ 
+    uint64 last_page_offset =
+       clockcache_multiply_by_page_size(cc, num_pages - 1);
+-   platform_assert(first_addr <= UINT64_MAX - last_page_offset);
++   if (first_addr > UINT64_MAX - last_page_offset) {
++      platform_error_log("Cache prefetch range overflows at address %lu\n",
++                         first_addr);
++      return;
++   }
+    uint64 last_addr = first_addr + last_page_offset;
+    if (last_addr != first_addr) {
+       /* A legal-sized prefetch can straddle an extent boundary. Validate the
+        * allocation state at both ends before publishing any cache entries. */
+-      clockcache_assert_page_access_valid(cc, last_addr, type);
++      if (!clockcache_try_lookup_number(cc, last_addr, &lookup_no)
++          || !allocator_page_valid(cc->al, last_addr))
++      {
++         return;
++      }
+    }
+-   (void)clockcache_lookup_number(cc, last_addr);
+ 
+    for (uint64 page_off = 0; page_off < num_pages; page_off++) {
+       uint64 addr = first_addr + clockcache_multiply_by_page_size(cc, page_off);
+@@ -3596,7 +3653,11 @@ void
+ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
+ {
+    platform_assert(cc != NULL);
+-   platform_assert(base_addr % clockcache_extent_size(cc) == 0);
++   if (base_addr % clockcache_extent_size(cc) != 0) {
++      platform_error_log("Unaligned cache prefetch extent address %lu\n",
++                         base_addr);
++      return;
++   }
+ 
+    clockcache_prefetch_pages(cc, base_addr, cc->cfg->pages_per_extent, type);
+ }
+diff --git a/tests/unit/writeback_set_test.c b/tests/unit/writeback_set_test.c
+index f1e30b9d..61c6aac2 100644
+--- a/tests/unit/writeback_set_test.c
++++ b/tests/unit/writeback_set_test.c
+@@ -446,10 +446,12 @@ static void              *read_fault_callback_arg;
+ static bool32             read_fault_complete;
+ static bool32             read_fault_reject_init;
+ static bool32             read_fault_reject_append;
++static uint64             read_fault_attempts;
+ 
+ static platform_status
+ reject_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
+ {
++   read_fault_attempts++;
+    return STATUS_TIMEDOUT;
+ }
+ 
+@@ -479,6 +481,9 @@ read_fault_init(io_async_state   *state,
+                 async_callback_fn callback,
+                 void             *callback_arg)
+ {
++   if (cmd == io_async_preadv) {
++      read_fault_attempts++;
++   }
+    if (cmd == io_async_preadv && read_fault_reject_init) {
+       return STATUS_NO_MEMORY;
+    }
+@@ -509,6 +514,7 @@ read_fault_install(io_handle *io)
+    read_fault_complete             = FALSE;
+    read_fault_reject_init          = FALSE;
+    read_fault_reject_append        = FALSE;
++   read_fault_attempts             = 0;
+    io->ops                         = &read_fault_ops;
+ }
+ 
+@@ -519,6 +525,127 @@ read_ready(void *arg)
+    *ready        = TRUE;
+ }
+ 
++static void
++assert_cache_rejects_address(cache *cc, uint64 addr)
++{
++   for (unsigned blocking = 0; blocking <= 1; blocking++) {
++      page_handle page = {.page = (cache_page *)1};
++      ASSERT_TRUE(
++         STATUS_IS_EQ(cache_get(cc, addr, blocking, PAGE_TYPE_MISC, &page),
++                      STATUS_BAD_PARAM));
++      ASSERT_TRUE(page_handle_is_null(&page));
++      cache_assert_free(cc);
++   }
++
++   page_get_async_state_buffer state;
++   bool32                      ready = FALSE;
++   cache_get_async_state_init(
++      &state, cc, addr, PAGE_TYPE_MISC, read_ready, &ready);
++   ASSERT_EQUAL(ASYNC_STATUS_DONE, cache_get_async(&state));
++   page_handle page = {.page = (cache_page *)1};
++   ASSERT_TRUE(STATUS_IS_EQ(cache_get_async_state_result(&state, &page),
++                            STATUS_BAD_PARAM));
++   ASSERT_TRUE(page_handle_is_null(&page));
++   ASSERT_FALSE(ready);
++   cache_assert_free(cc);
++
++   /* Invalid speculative hints must not abort before the demand read can
++    * return its error, nor publish a loading entry or issue any read. */
++   cache_prefetch_page(cc, addr, PAGE_TYPE_MISC);
++   cache_prefetch(cc, addr, PAGE_TYPE_MISC);
++   cache_assert_free(cc);
++}
++
++static void
++assert_cache_reads_address(cache *cc, uint64 addr)
++{
++   page_handle page;
++   ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_MISC, &page)));
++   ASSERT_EQUAL(addr, page_handle_addr(&page));
++   ASSERT_EQUAL(0, (unsigned char)page_handle_data(&page)[0]);
++   cache_unget(cc, &page);
++   ASSERT_TRUE(SUCCESS(cache_get(cc, addr, FALSE, PAGE_TYPE_MISC, &page)));
++   cache_unget(cc, &page);
++
++   page_get_async_state_buffer state;
++   bool32                      ready = FALSE;
++   cache_get_async_state_init(
++      &state, cc, addr, PAGE_TYPE_MISC, read_ready, &ready);
++   ASSERT_EQUAL(ASYNC_STATUS_DONE, cache_get_async(&state));
++   ASSERT_TRUE(SUCCESS(cache_get_async_state_result(&state, &page)));
++   ASSERT_EQUAL(addr, page_handle_addr(&page));
++   cache_unget(cc, &page);
++   cache_assert_free(cc);
++}
++
++CTEST2(writeback_set, test_cache_invalid_address_shapes)
++{
++   cache *cc          = (cache *)&data->cc;
++   uint64 addr        = alloc_and_dirty_extent(&data->cc, &data->al);
++   uint64 page_size   = cache_page_size(cc);
++   uint64 extent_size = cache_extent_size(cc);
++   uint64 capacity    = allocator_get_capacity((allocator *)&data->al);
++   uint64 invalid[]   = {0,
++                         page_size,
++                         extent_size - page_size,
++                         addr + 1,
++                         addr + page_size - 1,
++                         capacity,
++                         capacity + page_size,
++                         UINT64_MAX - (page_size - 1),
++                         UINT64_MAX};
++
++   /* Check misalignment with the containing page both resident and absent.
++    * The largest aligned address also catches overflow-prone end checks. */
++   for (unsigned resident = 0; resident < 2; resident++) {
++      read_fault_install(data->io);
++      read_fault_reject_init = TRUE;
++      for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
++         assert_cache_rejects_address(cc, invalid[i]);
++      }
++      data->io->ops = read_saved_ops;
++      ASSERT_EQUAL(0, read_fault_attempts);
++      assert_cache_reads_address(cc, addr);
++      cache_flush(cc);
++      ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
++   }
++}
++
++CTEST2(writeback_set, test_cache_unallocated_and_freed_addresses)
++{
++   cache     *cc          = (cache *)&data->cc;
++   allocator *al          = (allocator *)&data->al;
++   uint64     page_size   = cache_page_size(cc);
++   uint64     extent_size = cache_extent_size(cc);
++   uint64     unallocated = allocator_get_capacity(al) - extent_size;
++   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, unallocated));
++
++   uint64 freed = alloc_and_dirty_extent(&data->cc, &data->al);
++   assert_cache_reads_address(cc, freed);
++   ASSERT_EQUAL(AL_NO_REFS, allocator_dec_ref(al, freed, PAGE_TYPE_MISC));
++   cache_extent_discard(cc, freed, PAGE_TYPE_MISC);
++   ASSERT_EQUAL(AL_FREE, allocator_dec_ref(al, freed, PAGE_TYPE_MISC));
++
++   read_fault_install(data->io);
++   read_fault_reject_init = TRUE;
++   uint64 invalid[]       = {unallocated,
++                             unallocated + extent_size - page_size,
++                             freed,
++                             freed + extent_size - page_size};
++   for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
++      assert_cache_rejects_address(cc, invalid[i]);
++   }
++   data->io->ops = read_saved_ops;
++   ASSERT_EQUAL(0, read_fault_attempts);
++
++   /* Failed reads must not poison admission or subsequent disk reads. */
++   uint64 retry = alloc_and_dirty_extent(&data->cc, &data->al);
++   assert_cache_reads_address(cc, retry);
++   cache_flush(cc);
++   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
++   assert_cache_reads_address(cc, retry);
++}
++
+ CTEST2(writeback_set, test_cache_sync_read_error_and_retry)
+ {
+    cache *cc   = (cache *)&data->cc;

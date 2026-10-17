@@ -1,0 +1,27 @@
+version=splinterdb_build_version invalid-address-perf-original records=20000000 key=16 value=16 cache_mib=256 disk_gib=8 inserters=8 readers=0 memtable_bg=1 normal_bg=3 memtable_mib=8 queue_scale=100 log=1 checkpoints=disabled direct=1 query_range=inserted seed=42 report_ms=100 barrier_ms=0 target_insert_ops_s=0 id_base=0 mode=create
+Splinter task system created 1 background thread of type 'TASK_TYPE_MEMTABLE'.
+Splinter task system created 3 background threads of type 'TASK_TYPE_NORMAL'.
+worker=0 kind=insert tid=5 os_tid=346
+worker=5 kind=insert tid=6 os_tid=351
+worker=2 kind=insert tid=7 os_tid=348
+worker=6 kind=insert tid=8 os_tid=352
+worker=7 kind=insert tid=9 os_tid=353
+worker=4 kind=insert tid=10 os_tid=350
+worker=1 kind=insert tid=11 os_tid=347
+start_monotonic_ns=2087314472938559 main_address=0x55b6223f4300
+worker=3 kind=insert tid=12 os_tid=349
+load_end reason=complete inserted=20000000 elapsed_s=13.522 error=0 barrier_count=0 barrier_avg_ms=0.000 barrier_max_ms=0.000
+close_s=0.226 close_rc=0
+diagnostic_stage name=worker_start wall_ns=2087314472967870 cpu_ns=9282161
+diagnostic_stage name=stop_request wall_ns=2087327994493129 cpu_ns=60932168300
+diagnostic_stage name=workers_joined wall_ns=2087327994535633 cpu_ns=60932210192
+diagnostic_stage name=before_close wall_ns=2087327994617508 cpu_ns=60932292058
+diagnostic_stage name=after_close wall_ns=2087328220212757 cpu_ns=61019010403
+diagnostic_worker index=0 completed=2500000 last_start_ns=2087327716542074 last_end_ns=2087327716543282 loop_exit_ns=2087327716543341 deregister_start_ns=2087327716543449 deregister_end_ns=2087327716544429
+diagnostic_worker index=1 completed=2500000 last_start_ns=2087327372755789 last_end_ns=2087327372757765 loop_exit_ns=2087327372757847 deregister_start_ns=2087327372757971 deregister_end_ns=2087327372759003
+diagnostic_worker index=2 completed=2500000 last_start_ns=2087327480195817 last_end_ns=2087327480197214 loop_exit_ns=2087327480197283 deregister_start_ns=2087327480197311 deregister_end_ns=2087327480198488
+diagnostic_worker index=3 completed=2500000 last_start_ns=2087327968652325 last_end_ns=2087327968653254 loop_exit_ns=2087327968653293 deregister_start_ns=2087327968653394 deregister_end_ns=2087327968654398
+diagnostic_worker index=4 completed=2500000 last_start_ns=2087327831727733 last_end_ns=2087327831728939 loop_exit_ns=2087327831729006 deregister_start_ns=2087327831729036 deregister_end_ns=2087327831729971
+diagnostic_worker index=5 completed=2500000 last_start_ns=2087327316150714 last_end_ns=2087327316151820 loop_exit_ns=2087327316151874 deregister_start_ns=2087327316151976 deregister_end_ns=2087327316154933
+diagnostic_worker index=6 completed=2500000 last_start_ns=2087327941278351 last_end_ns=2087327941279509 loop_exit_ns=2087327941279551 deregister_start_ns=2087327941279587 deregister_end_ns=2087327941280661
+diagnostic_worker index=7 completed=2500000 last_start_ns=2087327938778276 last_end_ns=2087327938779385 loop_exit_ns=2087327938779438 deregister_start_ns=2087327938779461 deregister_end_ns=2087327938780358
