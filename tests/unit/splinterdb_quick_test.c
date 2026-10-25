@@ -2015,8 +2015,7 @@ CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
       ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
       core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
       splinterdb_lookup_result result;
-      splinterdb_lookup_result_init(
-         data->kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      splinterdb_lookup_result_init(data->kvsb, &result);
       for (uint64 i = 0; i < count; i++) {
          slice k = prefix_test_key(keybuf, i * 2);
          ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, k, &result));
