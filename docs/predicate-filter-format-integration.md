@@ -3,7 +3,6 @@
 The current `robj/filtered-ranges` PR candidate targets main `1d6ea2a3`, where
 disk-format landed as #689. The earlier companion branch at `36183807`
 supplied the predicate integration code and regression tests now included here.
-The update to main preserves the previously tested implementation exactly.
 
 The iterator initializers take three separate additional arguments: a
 `splinterdb_key_predicate`, its borrowed `void *` context, and an optional
@@ -37,8 +36,4 @@ The integration regressions cover six saved seeds, exact callback seed use,
 cache eviction, invalid-descriptor rejection, and a reopened database containing
 multiple saved seeds. The database test compares predicate-only and pruned scans
 with expected full values across trunk spans, including updates, deletions,
-reverse traversal, and hashes that collide under just one saved seed. Validation
-records and commands for the original integration snapshot are in
-[the historical integration archive](../benchmarks/results-20261013/filter-predicate-disk-integration/README.md).
-Those checks do not establish combined performance. Current PR readiness and
-validation results are tracked in [the PR notes](filtered-ranges-pr.md).
+reverse traversal, and hashes that collide under just one saved seed.

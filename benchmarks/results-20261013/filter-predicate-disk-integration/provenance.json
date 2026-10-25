@@ -1,9 +1,0 @@
-{
-  "worktree": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/filtered-ranges-disk-format",
-  "merge_parents": [
-    "cf7dc4f710aad91dfad9050dca0d326ff0fccac5",
-    "3e302c04c60babb8afecb58d27f808848624f83c"
-  ],
-  "storage": "ext4 /dev/mapper/snafu-root_crypt[/home/rob/projects/splinterdb]",
-  "purpose": "Correctness integration proof; separate PR branches remain independent. No combined-branch benchmark is claimed."
-}

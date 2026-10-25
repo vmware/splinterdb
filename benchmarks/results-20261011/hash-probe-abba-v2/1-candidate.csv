@@ -1,5 +1,0 @@
-mode,keys_per_tenant,limit,queries,ns_per_query,visited,checksum
-hash-filter,16384,1,2000,37848.9,2000,16564065
-hash-filter,16384,2,2000,18013.0,4000,33546648
-hash-filter,16384,10,2000,21107.4,20000,165710700
-hash-filter,16384,100,2000,124245.0,200000,1627341000

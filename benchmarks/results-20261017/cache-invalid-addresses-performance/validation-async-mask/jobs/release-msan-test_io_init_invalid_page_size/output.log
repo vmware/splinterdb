@@ -1,3 +1,0 @@
-Running 1 CTests, suite name 'limitations', test case 'test_io_init_invalid_page_size'.
-TEST 1/1 limitations:test_io_init_invalid_page_size [OK]
-RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 0 ms

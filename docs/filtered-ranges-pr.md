@@ -4,20 +4,7 @@ Rejected keys are skipped before application merge/finalize callbacks, preservin
 
 This PR targets main `1d6ea2a3`, which includes disk-format (#689). Routing-filter lookup validates each descriptor and uses its saved seed and encoding settings; changing construction defaults cannot reinterpret an existing maplet. A four-entry per-iterator seed/hash cache avoids repeated hashing and safely recomputes after eviction. B-tree version validation stays in the B-tree module.
 
-Validation:
-
-- The main update preserves the entire prior candidate tree at `33af695f`; subsequent edits only refresh documentation and validation evidence. Main's tree exactly matches the former disk-format benchmark baseline. The tests and timings below remain applicable without rerunning unchanged code. [Main-update proof and PR checks](../benchmarks/results-20261013/filtered-main-1d6ea2a3/README.txt).
-
-- The merged runtime, headers, tests, Makefile and CI configuration exactly match the previously validated integration at `36183807`: its 125 debug and 125 release unit cases and full routing-filter results remain applicable.
-- Fresh release checks passed 56 quick API cases, 10 merge cases and the full routing-filter suite. Fresh GCC ASan checks passed six predicate cases and ten merge cases, including persisted mixed seeds and thread handoff; LeakSanitizer was disabled.
-- C11/C++17 public-header probes and active-source formatting passed. Tests cover saved seeds 11/22 under current default 99, six-seed cache replacement, full-width and seed-specific collisions, noncommutative updates, deletes, bounds, reverse traversal and copied-key ownership across trunk spans. The full CI compiler/sanitizer/stress matrix remains separate.
-
-Combined-code benchmarks use serialized, fsynced O_DIRECT database files on real disk, fixed worker placement, validating warmup and measured-phase hardware counters. Against the baseline now on main (labeled disk-format in the archive), resident point throughput changed +0.59%, one-result scans -1.25% and long-scan tuple throughput +2.54%; user cycles per operation/tuple changed -1.21%, +0.50% and -1.06%. Disk-backed point and long-scan throughput changed -1.82% and -1.34%.
-
-One initial disk-backed one-result scan dropped to 19.6k queries/sec with substantially more kernel CPU time; the next combined run reached 68.1k, versus disk-format's 71.3k. This outlier is retained in the results. Six targeted repeats averaged 73.69k combined versus 73.76k disk-format (-0.09%), and four separately sampled runs also completed normally. Normal profiles identify contention in the shared Linux AIO completion-ring mutex, on a path unchanged from main; they do not prove the original outlier's cause.
-
-A separate six-run disk-backed long-scan repeat changed tuple throughput by -0.11% and user cycles/tuple by -1.08%. Tail ranges overlapped, but combined p99/p99.9 means remained 3.3%/15.6% higher; p99.9 ranged 27.0–46.7 ms versus disk-format's 24.9–37.2 ms, with only about 13 observations at the p99.9 tail per run. No sustained throughput or CPU regression was reproduced. Tail neutrality and absence of rare slowdowns remain unestablished. The branch is ready for PR review with these limits, not an unconditional claim that performance is unchanged.
-
-In the selective tenant workload, predicate-only scans reduced latency by approximately 3–20% versus application-side filtering. Adding pruning reduced it by 13–38%, including deliberate full-width hash collisions. These are workload-specific gains, not guarantees for arbitrary predicates or data distributions.
-
-See the [current combined benchmark and validation evidence](../benchmarks/results-20261013/filtered-disk-pr-0fa3bd6c/README.md) for raw samples, commands, hashes and limitations. Earlier standalone predicate timings remain historical. No fresh write-throughput matrix was run; the full CI compiler/sanitizer/stress matrix remains required before merging.
+Regression coverage includes persisted mixed hash seeds, seed/hash-cache
+replacement, full-width and seed-specific collisions, noncommutative updates,
+deletes, bounds, reverse traversal, thread handoff and copied-key ownership
+across trunk spans.

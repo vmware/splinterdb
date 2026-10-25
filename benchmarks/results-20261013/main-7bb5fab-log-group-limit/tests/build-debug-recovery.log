@@ -1,4 +1,0 @@
-Starting main-merge-log-group-debug-recovery-build build
-Checking for mismatched config...No mismatched config found
-Compiling            tests/unit/splinterdb_forked_child_test.c          [build-main-7bb5fab/debug/obj/tests/unit/splinterdb_forked_child_test.o]
-Linking              build-main-7bb5fab/debug/bin/unit/splinterdb_forked_child_test

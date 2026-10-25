@@ -1,8 +1,5 @@
 # Random insertion and point-query benchmark
 
-The initial investigation and measured results are in
-[insert_spikes.md](insert_spikes.md).
-
 Build with `make benchmarks` (use the same compiler as the rest of your build).
 The defaults reproduce an insertion-spike investigation: 8 inserters, 8 point
 query threads, 16-byte keys + 16-byte values, a 3 GiB Splinter cache, 1 memtable
@@ -25,8 +22,7 @@ Plotting requires Matplotlib; JSON analysis uses only the Python standard
 library. `--help` lists all workload controls. A smaller reproduction uses
 `--data-gib 6 --disk-gib 64`. Existing output files are refused. The default
 512 GiB image capacity is sparse, but a 60 GiB load with unreclaimed logging
-needs substantially more than 60 GiB of physical storage. The initial 6 GiB
-run used approximately 25 GiB. The sampler requests a stop when free space
+needs substantially more than 60 GiB of physical storage. The sampler requests a stop when free space
 falls below 8 GiB; this is a periodic guard, not a hard reservation, and final
 drain/close can consume additional space. Choose a scratch filesystem with
 sufficient headroom. Images can be removed after analysis; retain CSVs/logs.

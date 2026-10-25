@@ -1,3 +1,0 @@
-phase,version,samples,ops_s_mean,ops_s_min,ops_s_max,throughput_delta_before_pct,cpu_us_op,cpu_efficiency_delta_before_pct,read_B_op,write_B_op,p99_us,errors,violations
-point:uniform@8,before,2,4891408.75,4651143.1,5131674.4,0.0,1.639044802966473,0.0,0.0,0.0,2.24,0,0
-point:uniform@8,merged,2,4994298.4,4907728.7,5080868.1,2.1034768357888867,1.601931001715026,2.1006625375252552,0.0,0.0,2.176,0,0

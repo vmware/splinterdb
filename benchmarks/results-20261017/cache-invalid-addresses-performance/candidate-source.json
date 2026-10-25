@@ -1,6 +1,0 @@
-{
-  "base_commit": "da5757265109f3a5936e0ef20daff6a955f775a3",
-  "derived_from": "sequential",
-  "changes": "Same code with clang-format alignment and diagnostic-helper comment clarified. Final candidate must be measured independently.",
-  "clockcache_sha256": "214f333f0efe4fa3422a9d71fba16999b3d8aba9219a1528ef992e1ba95f4d24"
-}

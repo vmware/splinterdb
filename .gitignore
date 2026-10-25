@@ -166,3 +166,13 @@ TAGS
 trunk.log
 src/trunk.c.orig
 src/trunk.h.orig
+
+# Generated benchmark results and execution evidence stay local.
+/benchmarks/results-*/
+/benchmarks/branch-prefix-history/
+/benchmarks/branch-prefix-evaluation/
+/benchmarks/cache_hash/results/
+/benchmarks/cache_hash/REPORT.md
+/benchmarks/insert_spikes.md
+/docs/cache-errors-null-evidence/
+/docs/cache-handoff-mainmerge.md

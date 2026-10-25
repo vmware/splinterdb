@@ -1,5 +1,0 @@
-Starting log-async-fc0-debug-submission_failure_retries test
-Running 1 CTests, suite name 'splinter', test case 'test_automatic_log_barrier_submission_failure_retries'.
-TEST 1/1 splinter:test_automatic_log_barrier_submission_failure_retries WARNING: automatic durable barrier submission failed: Cannot allocate memory; recent writes may not be durable.
-[OK]
-RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 124 ms

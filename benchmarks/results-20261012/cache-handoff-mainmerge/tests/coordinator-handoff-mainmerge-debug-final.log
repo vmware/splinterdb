@@ -1,3 +1,0 @@
-Checking for mismatched config...No mismatched config found
-Compiling            tests/unit/splinter_test.c                         [build-mainmerge/debug/obj/tests/unit/splinter_test.o]
-Linking              build-mainmerge/debug/bin/unit/splinter_test

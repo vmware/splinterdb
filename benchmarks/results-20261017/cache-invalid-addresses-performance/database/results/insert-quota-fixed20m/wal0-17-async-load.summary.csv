@@ -1,2 +1,0 @@
-target_insert_ops_s,achieved_insert_ops_s,elapsed_s,inserted,insert_service_mean_ms,insert_service_p50_ms,insert_service_p99_ms,insert_service_p999_ms,insert_service_max_ms,insert_response_mean_ms,insert_response_p50_ms,insert_response_p99_ms,insert_response_p999_ms,insert_response_max_ms,query_service_mean_ms,query_service_p99_ms,query_service_max_ms
-0,2405780.235758,8.313311,20000000,0.002774,0.001360,0.004160,0.010368,1597.344842,0.002774,0.001360,0.004160,0.010368,1597.344842,0.000000,0.000000,0.000000

@@ -1,3 +1,0 @@
-Starting invalid-address-validation-asan-build build
-Building build-asan
-{"name": "build-asan", "command": ["make", "-j4", "BUILD_MODE=debug", "BUILD_ASAN=1", "build/debug-asan/bin/unit/writeback_set_test"], "cwd": "/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-invalid-addresses", "started": 1791876637.4609134, "returncode": 0, "finished": 1791876638.6776443}

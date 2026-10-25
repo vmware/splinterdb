@@ -1,5 +1,0 @@
-/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/driver_test: splinterdb_build_version 23d26d16-dirty
-Dispatch test splinter_test
-Functional test started
-Round i=       0, op= 1, nummsgs =   100000, minkey=27281667, maxkey=49053187, mindelta =    131072, maxdelta=   131088
-Statistics are not enabled

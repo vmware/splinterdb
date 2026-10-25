@@ -1,6 +1,0 @@
-Starting disk-format-pr-debug-tests-rest test
-debug notification-shmem
-debug optimize
-debug optimize-shmem
-debug filter
-debug log

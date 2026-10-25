@@ -1,3 +1,0 @@
-# Preserve immutable measured source snapshots.
-DisableFormat: true
-SortIncludes: Never

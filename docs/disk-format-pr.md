@@ -1,13 +1,7 @@
-This is the historical standalone disk-format PR draft. Its performance assessment predates the controlled follow-up and the predicate integration. For the current combined branch, use [the filtered-ranges PR notes](filtered-ranges-pr.md) and their current validation and benchmark evidence.
-
 Persist the versions and reader settings needed to interpret existing database structures. Format 8 rejects older files clearly; reopen uses saved routing-filter widths/hash seeds and log checksum seeds, while current configuration controls newly constructed instances. Branch versions travel with their references, mini-allocator pages validate their headers, and each owning module decides which versions it supports. The newest valid superblock is selected before compatibility checks, so unsupported versions recognizable under the current checksum layout cannot silently fall back to an older checkpoint.
 
 This branch includes main `0fa3bd6c`, retaining transferable cache handles, multi-level blobs, widened statistics and the notification-based durable-barrier API. Applications must still supply compatible comparison, hash and merge callbacks. There is no migration reader or portable cross-architecture encoding.
 
-Validation on this revision:
-
-- Debug and release each passed 150 unit-test executions, including notification/optimize coverage with both private and shared heaps, the full routing-filter functional suite and the complete functional log suite with a 500,000-record round trip. Each mode skipped the expected notification allocation-failure case once per heap mode because fault injection was disabled.
-- Both inspection-tool builds read the previous format-8 fixture; the release tool clearly rejected main's format-7 fixture. Tests cover invalid versions, changed configuration across reopen/compaction, synchronous/asynchronous reads, cache errors, recovery and blobs.
-- All targets, tools and benchmark programs build; the exact clean-export CI formatting check and full PR diff check pass. The full compiler/ASan CI matrix was not rerun.
-
-Fresh benchmarks use serialized O_DIRECT files on real disk, with fsynced fixture copies and zero query errors/violations. Resident eight-reader point throughput lost 4.39% in the broad screen and 7.75% in a focused reversed-order repeat (non-overlapping ranges, zero disk reads; mean CPU/op 1.965 us to 2.131 us). Other read results varied in both directions. This remaining cost is unresolved: the branch is prepared for review, but performance neutrality and merge readiness are not established. No fresh write-throughput matrix was run. [Raw samples, commands, hashes and control drift](../benchmarks/results-20261013/predicate-disk-main-0fa3bd6c/report.txt) and [correctness evidence](../benchmarks/results-20261013/disk-format-pr-0fa3bd6c/README.md) accompany the change.
+Regression coverage includes invalid versions, changed configuration across
+reopen/compaction, synchronous/asynchronous reads, cache errors, recovery and
+blobs.

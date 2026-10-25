@@ -1,2 +1,0 @@
-phase,profile,block,candidate_ops_s,baseline_ops_s,delta_baseline_pct
-insert-wal0-shared@8,async-load,0,29.9099145,29.9099145,0.0
