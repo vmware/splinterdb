@@ -1432,8 +1432,8 @@ prefix_test_init_failure(core_handle       *core,
       platform_memory_fault_config_set(&fault);
       platform_memory_fault_reset_counters();
       platform_memory_fault_enable();
-      btree_iterator                 itor;
-      platform_status                rc = btree_iterator_init(
+      btree_iterator  itor;
+      platform_status rc = btree_iterator_init(
          core->cc,
          core->cfg.btree_cfg,
          &itor,
@@ -1441,7 +1441,7 @@ prefix_test_init_failure(core_handle       *core,
          branch->format_version,
          PAGE_TYPE_BRANCH,
          &(const btree_iterator_init_options){
-                           .start_position = key_start_at_or_after(start_key)});
+            .start_position = key_start_at_or_after(start_key)});
       platform_memory_fault_counters counters =
          platform_memory_fault_get_counters();
       platform_memory_fault_disable();

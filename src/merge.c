@@ -600,9 +600,9 @@ merge_iterator_create_full(platform_heap_id              hid,
 {
    merge_key_filter keep_key       = options->keep_key;
    void            *filter_context = options->filter_context;
-   int             i;
-   platform_status rc = STATUS_OK;
-   merge_iterator *merge_itor;
+   int              i;
+   platform_status  rc = STATUS_OK;
+   merge_iterator  *merge_itor;
 
    if (!out_itor || !itor_arr || !cfg || num_trees < 0
        || num_trees > ARRAY_SIZE(merge_itor->ordered_iterator_stored))

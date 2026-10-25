@@ -1182,11 +1182,11 @@ splinterdb_iterator_init_full(
    slice                    user_min_key         = options->lower_limit.key;
    slice                    user_max_key         = options->upper_limit.key;
    slice                    user_start_key       = options->start_position.key;
-   splinterdb_key_predicate predicate          = options->predicate;
-   void                    *predicate_context  = options->predicate_context;
-   slice                    routing_filter_key = options->routing_filter_key;
-   comparison               min_key_comparison = greater_than_or_equal;
-   comparison               max_key_comparison = less_than;
+   splinterdb_key_predicate predicate            = options->predicate;
+   void                    *predicate_context    = options->predicate_context;
+   slice                    routing_filter_key   = options->routing_filter_key;
+   comparison               min_key_comparison   = greater_than_or_equal;
+   comparison               max_key_comparison   = less_than;
    comparison               start_key_comparison = greater_than_or_equal;
    if (options->lower_limit.present) {
       min_key_comparison = options->lower_limit.cmp;
