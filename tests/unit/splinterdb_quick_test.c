@@ -1346,26 +1346,17 @@ CTEST2(splinterdb_quick, test_branch_prefix_pack_initializes_free_gap)
                                            core->cfg.btree_cfg,
                                            &input.super,
                                            ARRAY_SIZE(input.keys),
-                                           0,
-                                           FALSE,
                                            core->heap_id)));
    ASSERT_TRUE(SUCCESS(btree_pack(&req)));
    btree_iterator scan;
-   ASSERT_TRUE(SUCCESS(btree_iterator_init(core->cc,
-                                           core->cfg.btree_cfg,
-                                           &scan,
-                                           req.root_addr,
-                                           BTREE_BRANCH_FORMAT_VERSION,
-                                           PAGE_TYPE_BRANCH,
-                                           greater_than_or_equal,
-                                           NEGATIVE_INFINITY_KEY,
-                                           less_than,
-                                           POSITIVE_INFINITY_KEY,
-                                           greater_than_or_equal,
-                                           NEGATIVE_INFINITY_KEY,
-                                           FALSE,
-                                           0,
-                                           0)));
+   ASSERT_TRUE(
+      SUCCESS(btree_iterator_init(core->cc,
+                                  core->cfg.btree_cfg,
+                                  &scan,
+                                  req.root_addr,
+                                  BTREE_BRANCH_FORMAT_VERSION,
+                                  PAGE_TYPE_BRANCH,
+                                  &(const btree_iterator_init_options){0})));
    btree_hdr *hdr = scan.curr.hdr;
    ASSERT_EQUAL(0, hdr->height);
    ASSERT_TRUE(hdr->prefix_length != 0);
@@ -1442,21 +1433,15 @@ prefix_test_init_failure(core_handle       *core,
       platform_memory_fault_reset_counters();
       platform_memory_fault_enable();
       btree_iterator                 itor;
-      platform_status                rc = btree_iterator_init(core->cc,
-                                               core->cfg.btree_cfg,
-                                               &itor,
-                                               branch->addr,
-                                               branch->format_version,
-                                               PAGE_TYPE_BRANCH,
-                                               greater_than_or_equal,
-                                               NEGATIVE_INFINITY_KEY,
-                                               less_than,
-                                               POSITIVE_INFINITY_KEY,
-                                               greater_than_or_equal,
-                                               start_key,
-                                               FALSE,
-                                               0,
-                                               0);
+      platform_status                rc = btree_iterator_init(
+         core->cc,
+         core->cfg.btree_cfg,
+         &itor,
+         branch->addr,
+         branch->format_version,
+         PAGE_TYPE_BRANCH,
+         &(const btree_iterator_init_options){
+                           .start_position = key_start_at_or_after(start_key)});
       platform_memory_fault_counters counters =
          platform_memory_fault_get_counters();
       platform_memory_fault_disable();
@@ -1498,14 +1483,8 @@ CTEST2(splinterdb_quick, test_branch_prefix_minimum)
    core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
    ASSERT_TRUE(SUCCESS(core_checkpoint(core, 0)));
    core_range_iterator scan;
-   ASSERT_TRUE(SUCCESS(core_range_iterator_init(core,
-                                                &scan,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY,
-                                                less_than,
-                                                POSITIVE_INFINITY_KEY,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY)));
+   ASSERT_TRUE(SUCCESS(core_range_iterator_init(
+      core, &scan, &(const core_range_iterator_init_options){0})));
    uint64 ordinal           = 0;
    uint32 compressed_groups = 0, uncompressed_groups = 0;
    while (iterator_can_curr(&scan.super)) {
@@ -1611,15 +1590,9 @@ prefix_variable_test_growth_failure(core_handle       *core,
       branch->addr,
       branch->format_version,
       PAGE_TYPE_BRANCH,
-      greater_than_or_equal,
-      NEGATIVE_INFINITY_KEY,
-      less_than,
-      POSITIVE_INFINITY_KEY,
-      greater_than_or_equal,
-      key_create_from_slice(TRUE, prefix_variable_test_key(keybuf, ordinal)),
-      FALSE,
-      0,
-      0)));
+      &(const btree_iterator_init_options){
+         .start_position = key_start_at_or_after(key_create_from_slice(
+            TRUE, prefix_variable_test_key(keybuf, ordinal)))})));
    prefix_variable_check_current(&itor.super, ordinal);
    ASSERT_TRUE(itor.curr.hdr->prefix_length != 0);
    ASSERT_TRUE(itor.idx + 1 < itor.curr.hdr->num_entries);
@@ -1662,14 +1635,8 @@ CTEST2(splinterdb_quick, test_branch_prefix_variable_iterator)
    core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
    ASSERT_TRUE(SUCCESS(core_checkpoint(core, 0)));
    core_range_iterator probe;
-   ASSERT_TRUE(SUCCESS(core_range_iterator_init(core,
-                                                &probe,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY,
-                                                less_than,
-                                                POSITIVE_INFINITY_KEY,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY)));
+   ASSERT_TRUE(SUCCESS(core_range_iterator_init(
+      core, &probe, &(const core_range_iterator_init_options){0})));
 
    uint64 total = 0, grows = 0, shrinks = 0, leaf_changes = 0;
    uint64 compressed_lengths = 0;
@@ -1794,21 +1761,14 @@ prefix_test_malformed_leaf_entries(core_handle *core, trunk_branch_info *branch)
    ASSERT_EQUAL(sizeof(saved_page), page_size);
    for (uint64 fault = 0; fault < NUM_FAULTS; fault++) {
       btree_iterator itor;
-      ASSERT_TRUE(SUCCESS(btree_iterator_init(core->cc,
-                                              core->cfg.btree_cfg,
-                                              &itor,
-                                              branch->addr,
-                                              branch->format_version,
-                                              PAGE_TYPE_BRANCH,
-                                              greater_than_or_equal,
-                                              NEGATIVE_INFINITY_KEY,
-                                              less_than,
-                                              POSITIVE_INFINITY_KEY,
-                                              greater_than_or_equal,
-                                              NEGATIVE_INFINITY_KEY,
-                                              FALSE,
-                                              0,
-                                              0)));
+      ASSERT_TRUE(
+         SUCCESS(btree_iterator_init(core->cc,
+                                     core->cfg.btree_cfg,
+                                     &itor,
+                                     branch->addr,
+                                     branch->format_version,
+                                     PAGE_TYPE_BRANCH,
+                                     &(const btree_iterator_init_options){0})));
       btree_hdr *hdr  = itor.curr.hdr;
       uint64     next = itor.idx + 1;
       ASSERT_TRUE(next < hdr->num_entries);
@@ -1900,14 +1860,8 @@ CTEST2(splinterdb_quick, test_branch_prefix_malformed_leaf_entries)
    core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
    ASSERT_TRUE(SUCCESS(core_checkpoint(core, 0)));
    core_range_iterator probe;
-   ASSERT_TRUE(SUCCESS(core_range_iterator_init(core,
-                                                &probe,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY,
-                                                less_than,
-                                                POSITIVE_INFINITY_KEY,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY)));
+   ASSERT_TRUE(SUCCESS(core_range_iterator_init(
+      core, &probe, &(const core_range_iterator_init_options){0})));
    bool32 tested = FALSE;
    for (uint64 b = 0; b < probe.num_branches; b++) {
       if (probe.btree_itor_initialized[b]
@@ -1964,14 +1918,8 @@ CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
       ASSERT_TRUE(SUCCESS(core_checkpoint(core, 0)));
 
       core_range_iterator probe;
-      ASSERT_TRUE(SUCCESS(core_range_iterator_init(core,
-                                                   &probe,
-                                                   greater_than_or_equal,
-                                                   NEGATIVE_INFINITY_KEY,
-                                                   less_than,
-                                                   POSITIVE_INFINITY_KEY,
-                                                   greater_than_or_equal,
-                                                   NEGATIVE_INFINITY_KEY)));
+      ASSERT_TRUE(SUCCESS(core_range_iterator_init(
+         core, &probe, &(const core_range_iterator_init_options){0})));
       bool32 compressed = FALSE;
       for (uint64 i = 0; i < probe.num_branches; i++) {
          if (probe.btree_itor_initialized[i]
@@ -2101,9 +2049,7 @@ CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
       splinterdb_lookup_result_deinit(&result);
 
       splinterdb_iterator *it;
-      ASSERT_EQUAL(0,
-                   splinterdb_iterator_init(
-                      data->kvsb, &it, greater_than_or_equal, NULL_SLICE));
+      ASSERT_EQUAL(0, splinterdb_iterator_init(data->kvsb, &it));
       slice k, v;
       ASSERT_TRUE(splinterdb_iterator_valid(it));
       splinterdb_iterator_get_current(it, &k, &v);
@@ -2147,15 +2093,17 @@ CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
             for (uint64 reverse = 0; reverse < 2; reverse++) {
                ASSERT_EQUAL(
                   0,
-                  splinterdb_iterator_init_with_bounds(
+                  splinterdb_iterator_init(
                      data->kvsb,
                      &it,
-                     min_inclusive ? greater_than_or_equal : greater_than,
-                     min,
-                     max_inclusive ? less_than_or_equal : less_than,
-                     max,
-                     reverse ? less_than_or_equal : greater_than_or_equal,
-                     NULL_SLICE));
+                     .lower_limit = splinterdb_make_lower_limit(
+                        min_inclusive ? greater_than_or_equal : greater_than,
+                        min),
+                     .upper_limit = splinterdb_make_upper_limit(
+                        max_inclusive ? less_than_or_equal : less_than, max),
+                     .start_position = splinterdb_make_start_position(
+                        reverse ? less_than_or_equal : greater_than_or_equal,
+                        NULL_SLICE)));
                for (uint64 i = first; i <= last; i++) {
                   uint64 logical = reverse ? last - (i - first) : i;
                   ASSERT_TRUE(splinterdb_iterator_valid(it));
@@ -2185,14 +2133,16 @@ CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
             };
             ASSERT_EQUAL(
                0,
-               splinterdb_iterator_init_with_filter(
+               splinterdb_iterator_init(
                   data->kvsb,
                   &it,
-                  reverse ? less_than_or_equal : greater_than_or_equal,
-                  NULL_SLICE,
-                  prefix_test_predicate,
-                  &predicate,
-                  prune ? predicate.expected : NULL_SLICE));
+                  .start_position = splinterdb_make_start_position(
+                     reverse ? less_than_or_equal : greater_than_or_equal,
+                     NULL_SLICE),
+                  .predicate         = prefix_test_predicate,
+                  .predicate_context = &predicate,
+                  .routing_filter_key =
+                     prune ? predicate.expected : NULL_SLICE));
             ASSERT_TRUE(splinterdb_iterator_valid(it));
             splinterdb_iterator_get_current(it, &k, &v);
             ASSERT_EQUAL(0, slice_lex_cmp(k, predicate.expected));
@@ -2215,8 +2165,9 @@ CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
                       splinterdb_iterator_init(
                          data->kvsb,
                          &it,
-                         side ? less_than_or_equal : greater_than_or_equal,
-                         slice_create(sizeof(keybuf), keybuf)));
+                         .start_position = splinterdb_make_start_position(
+                            side ? less_than_or_equal : greater_than_or_equal,
+                            slice_create(sizeof(keybuf), keybuf))));
          ASSERT_TRUE(splinterdb_iterator_valid(it));
          splinterdb_iterator_get_current(it, &k, &v);
          if (side) {
@@ -3458,14 +3409,8 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
    core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
 
    core_range_iterator probe;
-   ASSERT_TRUE(SUCCESS(core_range_iterator_init(core,
-                                                &probe,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY,
-                                                less_than,
-                                                POSITIVE_INFINITY_KEY,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY)));
+   ASSERT_TRUE(SUCCESS(core_range_iterator_init(
+      core, &probe, &(const core_range_iterator_init_options){0})));
    bool32        visited[COUNT] = {0};
    lookup_result result;
    lookup_result_init(
@@ -3592,11 +3537,12 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
    for (bool32 reverse = FALSE; reverse <= TRUE; reverse++) {
       splinterdb_iterator *it;
       ASSERT_EQUAL(0,
-                   splinterdb_iterator_init(data->kvsb,
-                                            &it,
-                                            reverse ? less_than_or_equal
-                                                    : greater_than_or_equal,
-                                            NULL_SLICE));
+                   splinterdb_iterator_init(
+                      data->kvsb,
+                      &it,
+                      .start_position = splinterdb_make_start_position(
+                         reverse ? less_than_or_equal : greater_than_or_equal,
+                         NULL_SLICE)));
       for (uint64 i = 0; i < COUNT; i++) {
          uint64 expected = reverse ? COUNT - 1 - i : i;
          slice  k, v;
@@ -3619,12 +3565,14 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
 
       for (uint64 i = 0; i < COUNT; i += 31) {
          uint64 expected = i + !reverse;
-         ASSERT_EQUAL(0,
-                      splinterdb_iterator_init(
-                         data->kvsb,
-                         &it,
-                         reverse ? less_than_or_equal : greater_than_or_equal,
-                         nonlexical_branch_test_key(keybuf, 2 * i + 1)));
+         ASSERT_EQUAL(
+            0,
+            splinterdb_iterator_init(
+               data->kvsb,
+               &it,
+               .start_position = splinterdb_make_start_position(
+                  reverse ? less_than_or_equal : greater_than_or_equal,
+                  nonlexical_branch_test_key(keybuf, 2 * i + 1))));
          if (expected < COUNT) {
             slice k, v;
             ASSERT_TRUE(splinterdb_iterator_valid(it));

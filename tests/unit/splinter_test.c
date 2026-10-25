@@ -1792,14 +1792,8 @@ CTEST2(splinter, test_persisted_old_branch_version_rejected)
                                              &result);
          lookup_result_deinit(&result);
          core_range_iterator itor;
-         range_rc = core_range_iterator_init(&spl,
-                                             &itor,
-                                             greater_than_or_equal,
-                                             NEGATIVE_INFINITY_KEY,
-                                             less_than,
-                                             POSITIVE_INFINITY_KEY,
-                                             greater_than_or_equal,
-                                             NEGATIVE_INFINITY_KEY);
+         range_rc = core_range_iterator_init(
+            &spl, &itor, &(const core_range_iterator_init_options){0});
          if (SUCCESS(range_rc)) {
             core_range_iterator_deinit(&itor);
          }
