@@ -381,7 +381,7 @@ typedef struct core_range_iterator_init_options {
    // splinterdb_iterator_init_options.
    splinterdb_key_predicate predicate;
    void                    *predicate_context;
-   key                      routing_filter_key; // default: unset (zero)
+   key                      routing_filter_key; // default: NULL_KEY
 } core_range_iterator_init_options;
 
 platform_status

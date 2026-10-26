@@ -1179,28 +1179,21 @@ splinterdb_iterator_init_full(
    {
       return platform_status_to_int(STATUS_BAD_PARAM);
    }
-   slice                    user_min_key         = options->lower_limit.key;
-   slice                    user_max_key         = options->upper_limit.key;
-   slice                    user_start_key       = options->start_position.key;
-   splinterdb_key_predicate predicate            = options->predicate;
-   void                    *predicate_context    = options->predicate_context;
-   slice                    routing_filter_key   = options->routing_filter_key;
-   comparison               min_key_comparison   = greater_than_or_equal;
-   comparison               max_key_comparison   = less_than;
-   comparison               start_key_comparison = greater_than_or_equal;
-   if (options->lower_limit.present) {
-      min_key_comparison = options->lower_limit.cmp;
-   }
-   if (options->upper_limit.present) {
-      max_key_comparison = options->upper_limit.cmp;
-   }
-   if (options->start_position.present) {
-      start_key_comparison = options->start_position.cmp;
-   }
+   slice                    user_min_key       = options->lower_limit.key;
+   slice                    user_max_key       = options->upper_limit.key;
+   slice                    user_start_key     = options->start_position.key;
+   splinterdb_key_predicate predicate          = options->predicate;
+   void                    *predicate_context  = options->predicate_context;
+   slice                    routing_filter_key = options->routing_filter_key;
 
+   // A limit's comparison only matters when it has a key.
    if ((predicate == NULL && !slice_is_null(routing_filter_key))
-       || !splinterdb_iterator_min_comparison_is_valid(min_key_comparison)
-       || !splinterdb_iterator_max_comparison_is_valid(max_key_comparison))
+       || (!slice_is_null(user_min_key)
+           && !splinterdb_iterator_min_comparison_is_valid(
+              options->lower_limit.cmp))
+       || (!slice_is_null(user_max_key)
+           && !splinterdb_iterator_max_comparison_is_valid(
+              options->upper_limit.cmp)))
    {
       return platform_status_to_int(STATUS_BAD_PARAM);
    }
@@ -1221,26 +1214,20 @@ splinterdb_iterator_init_full(
    merge_accumulator_init(&it->materialized_message, kvs->spl.heap_id);
 
    core_range_iterator *range_itor = &(it->sri);
-   // Internal keys for the user-supplied slices; NULL_SLICE bounds become
-   // NULL_KEY, which the core treats as unbounded.
-   key min_key   = slice_is_null(user_min_key)
-                      ? NULL_KEY
-                      : key_create_from_slice(TRUE, user_min_key);
-   key max_key   = slice_is_null(user_max_key)
-                      ? NULL_KEY
-                      : key_create_from_slice(TRUE, user_max_key);
-   key start_key = slice_is_null(user_start_key)
-                      ? NULL_KEY
-                      : key_create_from_slice(TRUE, user_start_key);
-
+   // NULL_SLICE becomes NULL_KEY, which the core treats as "no key".
    platform_status rc = core_range_iterator_init(
       &kvs->spl,
       range_itor,
       &(const core_range_iterator_init_options){
-         .lower_limit = make_key_lower_limit(min_key_comparison, min_key),
-         .upper_limit = make_key_upper_limit(max_key_comparison, max_key),
-         .start_position =
-            make_key_start_position(start_key_comparison, start_key),
+         .lower_limit =
+            make_key_lower_limit(options->lower_limit.cmp,
+                                 key_create_from_slice(TRUE, user_min_key)),
+         .upper_limit =
+            make_key_upper_limit(options->upper_limit.cmp,
+                                 key_create_from_slice(TRUE, user_max_key)),
+         .start_position    = {.k = key_create_from_slice(TRUE, user_start_key),
+                               .backward  = options->start_position.backward,
+                               .exclusive = options->start_position.exclusive},
          .predicate         = predicate,
          .predicate_context = predicate_context,
          .routing_filter_key =

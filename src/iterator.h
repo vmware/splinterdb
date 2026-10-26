@@ -68,84 +68,100 @@ comparison_invert(comparison c)
  * Range specification for iterator constructors. These mirror the public
  * splinterdb_lower_limit / splinterdb_upper_limit / splinterdb_start_position
  * types, but hold internal keys, so they can name infinities. Constructors
- * take them in an options struct filled in with designated initializers; the
- * zero value of each means "unbounded" / "start at the smallest key". A limit
- * whose key is NULL_KEY is also unbounded.
+ * take them in an options struct filled in with designated initializers. The
+ * zero value of each is the default: a limit whose key is NULL_KEY is
+ * unbounded (and its comparison is ignored), and the zero start position is
+ * "at or after the smallest key".
  */
 typedef struct key_lower_limit {
-   bool       present;
    comparison cmp; // greater_than or greater_than_or_equal
    key        k;
 } key_lower_limit;
 
 typedef struct key_upper_limit {
-   bool       present;
    comparison cmp; // less_than or less_than_or_equal
    key        k;
 } key_upper_limit;
 
+/*
+ * The start is a direction and an inclusivity rather than a comparison, so
+ * that the zero value (forward, inclusive) is the default.
+ */
 typedef struct key_start_position {
-   bool       present;
-   comparison cmp;
-   key        k;
+   key    k;
+   bool32 backward;  // scan toward smaller keys
+   bool32 exclusive; // skip a key equal to k
 } key_start_position;
 
 static inline key_lower_limit
 key_greater_than(key k)
 {
-   return (key_lower_limit){TRUE, greater_than, k};
+   return (key_lower_limit){.cmp = greater_than, .k = k};
 }
 static inline key_lower_limit
 key_greater_than_or_equal(key k)
 {
-   return (key_lower_limit){TRUE, greater_than_or_equal, k};
+   return (key_lower_limit){.cmp = greater_than_or_equal, .k = k};
 }
 static inline key_lower_limit
 make_key_lower_limit(comparison cmp, key k)
 {
-   return (key_lower_limit){TRUE, cmp, k};
+   return (key_lower_limit){.cmp = cmp, .k = k};
 }
 
 static inline key_upper_limit
 key_less_than(key k)
 {
-   return (key_upper_limit){TRUE, less_than, k};
+   return (key_upper_limit){.cmp = less_than, .k = k};
 }
 static inline key_upper_limit
 key_less_than_or_equal(key k)
 {
-   return (key_upper_limit){TRUE, less_than_or_equal, k};
+   return (key_upper_limit){.cmp = less_than_or_equal, .k = k};
 }
 static inline key_upper_limit
 make_key_upper_limit(comparison cmp, key k)
 {
-   return (key_upper_limit){TRUE, cmp, k};
+   return (key_upper_limit){.cmp = cmp, .k = k};
 }
 
 static inline key_start_position
 key_start_at_or_after(key k)
 {
-   return (key_start_position){TRUE, greater_than_or_equal, k};
+   return (key_start_position){.k = k};
 }
 static inline key_start_position
 key_start_after(key k)
 {
-   return (key_start_position){TRUE, greater_than, k};
+   return (key_start_position){.k = k, .exclusive = TRUE};
 }
 static inline key_start_position
 key_start_at_or_before(key k)
 {
-   return (key_start_position){TRUE, less_than_or_equal, k};
+   return (key_start_position){.k = k, .backward = TRUE};
 }
 static inline key_start_position
 key_start_before(key k)
 {
-   return (key_start_position){TRUE, less_than, k};
+   return (key_start_position){.k = k, .backward = TRUE, .exclusive = TRUE};
 }
 static inline key_start_position
 make_key_start_position(comparison cmp, key k)
 {
-   return (key_start_position){TRUE, cmp, k};
+   return (key_start_position){.k        = k,
+                               .backward = !comparison_is_forward(cmp),
+                               .exclusive =
+                                  cmp == greater_than || cmp == less_than};
+}
+
+static inline comparison
+key_start_position_comparison(key_start_position start)
+{
+   if (start.backward) {
+      return start.exclusive ? less_than : less_than_or_equal;
+   } else {
+      return start.exclusive ? greater_than : greater_than_or_equal;
+   }
 }
 
 // A range specification with every default filled in: infinite keys for
@@ -165,18 +181,18 @@ resolve_key_range(key_lower_limit    lower,
                   key_start_position start)
 {
    resolved_key_range r;
-   bool32             lower_set = lower.present && !key_is_null(lower.k);
-   bool32             upper_set = upper.present && !key_is_null(upper.k);
+   bool32             lower_set = !key_is_null(lower.k);
+   bool32             upper_set = !key_is_null(upper.k);
    r.min_cmp                    = lower_set ? lower.cmp : greater_than_or_equal;
    r.min_key                    = lower_set ? lower.k : NEGATIVE_INFINITY_KEY;
    r.max_cmp                    = upper_set ? upper.cmp : less_than;
    r.max_key                    = upper_set ? upper.k : POSITIVE_INFINITY_KEY;
-   r.start_cmp = start.present ? start.cmp : greater_than_or_equal;
-   if (start.present && !key_is_null(start.k)) {
+   r.start_cmp                  = key_start_position_comparison(start);
+   if (!key_is_null(start.k)) {
       r.start_key = start.k;
    } else {
-      r.start_key = comparison_is_forward(r.start_cmp) ? NEGATIVE_INFINITY_KEY
-                                                       : POSITIVE_INFINITY_KEY;
+      r.start_key =
+         start.backward ? POSITIVE_INFINITY_KEY : NEGATIVE_INFINITY_KEY;
    }
    return r;
 }

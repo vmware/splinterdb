@@ -29,10 +29,16 @@
  * does not require them to deal with infinite keys.
  */
 
+/*
+ * USER_KEY must be 0, so that a zero-initialized key is NULL_KEY (a user key
+ * with a NULL_SLICE); there is exactly one representation of "no key".
+ * data_key_compare() orders keys of different kinds by subtracting their
+ * kinds, so the values must also stay in -inf < user < +inf order.
+ */
 typedef enum {
-   NEGATIVE_INFINITY = 1,
-   USER_KEY          = 2,
-   POSITIVE_INFINITY = 3,
+   NEGATIVE_INFINITY = -1,
+   USER_KEY          = 0,
+   POSITIVE_INFINITY = 1,
 } key_type;
 
 typedef struct key {
@@ -51,6 +57,9 @@ typedef struct key {
           .user_slice   = INVALID_SLICE})
 #define NULL_KEY                                                               \
    ((key){.kind = USER_KEY, .is_query_key = FALSE, .user_slice = NULL_SLICE})
+_Static_assert(USER_KEY == 0, "a zero-initialized key must be NULL_KEY");
+_Static_assert(NEGATIVE_INFINITY < USER_KEY && USER_KEY < POSITIVE_INFINITY,
+               "data_key_compare orders kinds by subtraction");
 
 static inline bool32
 key_is_negative_infinity(key k)

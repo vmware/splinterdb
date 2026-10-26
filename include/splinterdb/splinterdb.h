@@ -616,66 +616,64 @@ typedef bool (*splinterdb_key_predicate)(void *context, slice key);
 
 // A limit on the range an iterator returns. Build these with the helpers
 // below (splinterdb_greater_than, splinterdb_less_than_or_equal, ...) rather
-// than by hand. The zero value means "no limit". A limit whose key is
-// NULL_SLICE also means "no limit".
+// than by hand. The zero value, or any limit whose key is NULL_SLICE, means
+// "no limit"; the comparison is then ignored.
 typedef struct splinterdb_lower_limit {
-   bool       present;
    comparison cmp; // greater_than or greater_than_or_equal
    slice      key;
 } splinterdb_lower_limit;
 
 typedef struct splinterdb_upper_limit {
-   bool       present;
    comparison cmp; // less_than or less_than_or_equal
    slice      key;
 } splinterdb_upper_limit;
 
-// Where an iterator starts, and therefore which way it initially travels. The
-// zero value means "at or after the smallest key", i.e. a forward scan of the
-// whole range.
+// Where an iterator starts, and therefore which way it initially travels.
+// Build these with the helpers below. The zero value means "at or after the
+// smallest key", i.e. a forward scan of the whole range.
 typedef struct splinterdb_start_position {
-   bool       present;
-   comparison cmp;
-   slice      key;
+   slice key;
+   bool  backward;  // scan toward smaller keys
+   bool  exclusive; // skip a key equal to key
 } splinterdb_start_position;
 
 // Lower limits: only return keys > key, or >= key.
 static inline splinterdb_lower_limit
 splinterdb_greater_than(slice key)
 {
-   return (splinterdb_lower_limit){true, greater_than, key};
+   return (splinterdb_lower_limit){.cmp = greater_than, .key = key};
 }
 static inline splinterdb_lower_limit
 splinterdb_greater_than_or_equal(slice key)
 {
-   return (splinterdb_lower_limit){true, greater_than_or_equal, key};
+   return (splinterdb_lower_limit){.cmp = greater_than_or_equal, .key = key};
 }
 // Generic form, for when the comparison is only known at run time. Passing a
-// comparison other than greater_than/greater_than_or_equal makes
-// splinterdb_iterator_init fail with EINVAL.
+// comparison other than greater_than/greater_than_or_equal with a non-null key
+// makes splinterdb_iterator_init fail with EINVAL.
 static inline splinterdb_lower_limit
 splinterdb_make_lower_limit(comparison cmp, slice key)
 {
-   return (splinterdb_lower_limit){true, cmp, key};
+   return (splinterdb_lower_limit){.cmp = cmp, .key = key};
 }
 
 // Upper limits: only return keys < key, or <= key.
 static inline splinterdb_upper_limit
 splinterdb_less_than(slice key)
 {
-   return (splinterdb_upper_limit){true, less_than, key};
+   return (splinterdb_upper_limit){.cmp = less_than, .key = key};
 }
 static inline splinterdb_upper_limit
 splinterdb_less_than_or_equal(slice key)
 {
-   return (splinterdb_upper_limit){true, less_than_or_equal, key};
+   return (splinterdb_upper_limit){.cmp = less_than_or_equal, .key = key};
 }
 // Generic form. Passing a comparison other than less_than/less_than_or_equal
-// makes splinterdb_iterator_init fail with EINVAL.
+// with a non-null key makes splinterdb_iterator_init fail with EINVAL.
 static inline splinterdb_upper_limit
 splinterdb_make_upper_limit(comparison cmp, slice key)
 {
-   return (splinterdb_upper_limit){true, cmp, key};
+   return (splinterdb_upper_limit){.cmp = cmp, .key = key};
 }
 
 // Start positions. The iterator starts at the closest key satisfying the
@@ -686,28 +684,32 @@ splinterdb_make_upper_limit(comparison cmp, slice key)
 static inline splinterdb_start_position
 splinterdb_start_at_or_after(slice key)
 {
-   return (splinterdb_start_position){true, greater_than_or_equal, key};
+   return (splinterdb_start_position){.key = key};
 }
 static inline splinterdb_start_position
 splinterdb_start_after(slice key)
 {
-   return (splinterdb_start_position){true, greater_than, key};
+   return (splinterdb_start_position){.key = key, .exclusive = true};
 }
 static inline splinterdb_start_position
 splinterdb_start_at_or_before(slice key)
 {
-   return (splinterdb_start_position){true, less_than_or_equal, key};
+   return (splinterdb_start_position){.key = key, .backward = true};
 }
 static inline splinterdb_start_position
 splinterdb_start_before(slice key)
 {
-   return (splinterdb_start_position){true, less_than, key};
+   return (splinterdb_start_position){
+      .key = key, .backward = true, .exclusive = true};
 }
 // Generic form, for when the comparison is only known at run time.
 static inline splinterdb_start_position
 splinterdb_make_start_position(comparison cmp, slice key)
 {
-   return (splinterdb_start_position){true, cmp, key};
+   return (splinterdb_start_position){
+      .key       = key,
+      .backward  = cmp == less_than || cmp == less_than_or_equal,
+      .exclusive = cmp == less_than || cmp == greater_than};
 }
 
 // Optional parameters for splinterdb_iterator_init. A zero-initialized options
