@@ -342,7 +342,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
          root_addr,
          &mini,
          key_create(FALSE, sizeof(key_data), &key_data),
-         message_create(
+         message_create_internal(
             MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(value), value)),
          &results);
       btree_insert_results_deinit(&results);
@@ -375,9 +375,9 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
       root_addr,
       &mini,
       rejected_key,
-      message_create(MESSAGE_TYPE_INSERT,
-                     NULL,
-                     slice_create(sizeof(large_value), large_value)),
+      message_create_internal(MESSAGE_TYPE_INSERT,
+                              NULL,
+                              slice_create(sizeof(large_value), large_value)),
       &results);
    btree_insert_results_deinit(&results);
    ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED));
@@ -461,7 +461,7 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
          root_addr,
          &mini,
          key_create(FALSE, sizeof(key_data), &key_data),
-         message_create(
+         message_create_internal(
             MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(value), value)),
          &results);
       btree_insert_results_deinit(&results);
@@ -472,9 +472,9 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
    uint64  key_data          = htobe64(UINT64_MAX);
    uint8   large_value[1400] = {2};
    message replacement =
-      message_create(MESSAGE_TYPE_INSERT,
-                     NULL,
-                     slice_create(sizeof(large_value), large_value));
+      message_create_internal(MESSAGE_TYPE_INSERT,
+                              NULL,
+                              slice_create(sizeof(large_value), large_value));
    failing_insert_callback_context callback_ctxt = {0};
    btree_insert_results_init(&results, NULL);
    btree_insert_results_set_callback(
@@ -514,16 +514,16 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
    key_data                              = htobe64(0);
    key target = key_create(FALSE, sizeof(key_data), &key_data);
    btree_insert_results_init(&results, NULL);
-   rc = btree_insert(
-      cc,
-      cfg,
-      data->hid,
-      data->test_scratch,
-      root_addr,
-      &mini,
-      target,
-      message_create(MESSAGE_TYPE_UPDATE, NULL, message_slice(replacement)),
-      &results);
+   rc = btree_insert(cc,
+                     cfg,
+                     data->hid,
+                     data->test_scratch,
+                     root_addr,
+                     &mini,
+                     target,
+                     message_create_internal(
+                        MESSAGE_TYPE_UPDATE, NULL, message_slice(replacement)),
+                     &results);
    btree_insert_results_deinit(&results);
    cc->ops       = ops.original;
    cfg->data_cfg = original_data_cfg;
@@ -913,9 +913,10 @@ gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    dh->ref_count = 1;
    memset(dh->data, 0, datalen);
    memcpy(dh->data, &i, sizeof(i));
-   return message_create(MESSAGE_TYPE_INSERT,
-                         NULL,
-                         slice_create(sizeof(data_handle) + datalen, buffer));
+   return message_create_internal(
+      MESSAGE_TYPE_INSERT,
+      NULL,
+      slice_create(sizeof(data_handle) + datalen, buffer));
 }
 
 static int
@@ -1188,7 +1189,7 @@ bounds_insert(cache           *cc,
       root,
       mini,
       bounds_key(n, &keybuf),
-      message_create(
+      message_create_internal(
          MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(msgbuf), msgbuf)),
       &result);
    btree_insert_results_deinit(&result);

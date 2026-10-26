@@ -78,7 +78,7 @@ btree_height_limit_iterator_curr(iterator *base, key *curr_key, message *msg)
    platform_assert(itor->pos < BTREE_HEIGHT_LIMIT_TEST_NUM_KEYS);
    *curr_key = key_create(
       FALSE, BTREE_HEIGHT_LIMIT_TEST_KEY_SIZE, itor->keys[itor->pos]);
-   *msg = message_create(
+   *msg = message_create_internal(
       MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(itor->data), &itor->data));
 }
 

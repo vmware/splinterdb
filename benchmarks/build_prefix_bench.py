@@ -117,6 +117,8 @@ command = ['cc', '-D_GNU_SOURCE', '-ggdb', '-Wall', '-pthread', '-Werror',
            '-DKVBENCH_SPACE_MODE']
 if 'key_compare_is_lexical' in (tree / 'include/splinterdb/data.h').read_text():
     command.append('-DKVBENCH_PREFIX_SUPPORT')
+if 'message_create(' not in (tree / 'include/splinterdb/data.h').read_text():
+    command.append('-Dmessage_create=slice_create')
 command += ['-I', str(tree / 'include'), str(generated),
             str(tree / a.build_root / 'release/lib/libsplinterdb.a'), '-laio', '-lxxhash', '-lm',
             '-lpthread', '-o', str(binary)]

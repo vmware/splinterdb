@@ -189,10 +189,11 @@ CTEST2(splinterdb_optimize, test_merge_can_grow_and_shrink_values)
    const uint8 lengths[][2] = {{100, 100}, {200, 20}, {1, 2}};
    for (uint64 round = 0; round < ARRAY_SIZE(lengths); round++) {
       for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
-         ASSERT_EQUAL(
-            0,
-            splinterdb_update(
-               data->kvsb, keys[i], slice_create(1, &lengths[round][i]), NULL));
+         ASSERT_EQUAL(0,
+                      splinterdb_update(data->kvsb,
+                                        keys[i],
+                                        message_create(1, &lengths[round][i]),
+                                        NULL));
       }
       force_flush_current_memtable(data->kvsb);
       ASSERT_EQUAL(
@@ -431,7 +432,7 @@ insert_key(splinterdb *kvsb, uint32 key_no)
 
    int rc = splinterdb_insert(kvsb,
                               slice_create(strlen(key), key),
-                              slice_create(strlen(value), value),
+                              message_create(strlen(value), value),
                               NULL);
    ASSERT_EQUAL(0, rc);
 }

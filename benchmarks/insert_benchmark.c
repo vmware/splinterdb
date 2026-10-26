@@ -304,7 +304,7 @@ run_worker(void *arg)
       } else {
          rc = splinterdb_insert(b->db,
                                 slice_create(o->key_size, key),
-                                slice_create(o->value_size, value),
+                                message_create(o->value_size, value),
                                 NULL);
       }
       uint64_t end = now_ns();

@@ -69,29 +69,41 @@ looks out-of-date, please open an issue or pull request.
   functional tests.
 
 
-## Reusing a value blob
+## Passing values and reusable blobs
 
-Use `splinterdb_blob_create()` to copy a value into blob storage once, then
-`splinterdb_insert_blob()` to insert it under multiple keys. Full extents are
-shared; tails may be copied on insertion or compaction. Small values may be
-copied entirely, and each handle has allocation overhead, so this API is most
-useful for large repeated values.
+Both `splinterdb_insert()` and `splinterdb_update()` accept a public `message`.
+Use `message_create(length, pointer)` for direct bytes, or
+`message_from_slice(slice)` for an existing slice. These constructors borrow
+the input without allocation or copying. Keys and lookup results still use
+slices. Existing callers can replace value-side `slice_create()` calls with
+`message_create()`.
+
+The called operation determines the message type: insert always overwrites,
+and update always applies a delta through the configured merge callbacks.
+Neither modifies the caller's message. Its `type` field is ignored on input,
+so the same message can be passed to either operation.
+
+Use `splinterdb_blob_create()` to copy bytes into blob storage once, then pass
+the returned message to either operation. Full extents are shared; tails may
+be copied on insertion or compaction. Small values may be copied entirely,
+and each created blob has allocation overhead, so this API is most useful
+for large repeated payloads.
 
 ```c
 int
-insert_shared_values(splinterdb *db, slice value, slice first_key, slice second_key)
+insert_shared_values(splinterdb *db, slice bytes, slice first_key, slice second_key)
 {
-   splinterdb_blob *blob = NULL;
-   int rc = splinterdb_blob_create(db, value, &blob);
+   message value;
+   int rc = splinterdb_blob_create(db, bytes, &value);
    if (rc != 0) {
       return rc;
    }
 
-   rc = splinterdb_insert_blob(db, first_key, blob, NULL);
+   rc = splinterdb_insert(db, first_key, value, NULL);
    if (rc == 0) {
-      rc = splinterdb_insert_blob(db, second_key, blob, NULL);
+      rc = splinterdb_insert(db, second_key, value, NULL);
    }
-   splinterdb_blob_destroy(&blob);
+   splinterdb_blob_release(&value);
    if (rc == 0) {
       rc = splinterdb_durable_barrier(db, NULL);
    }
@@ -99,25 +111,33 @@ insert_shared_values(splinterdb *db, slice value, slice first_key, slice second_
 }
 ```
 
-The input value may be released after creation succeeds. Destroying a handle
-releases the caller's ownership and clears its pointer; successfully inserted
-values retain their own ownership. The two inserts above are independent
-operations: if the second fails, the first is still applied.
+A reusable delta is passed as `splinterdb_update(db, key, value, NULL)`.
+It is processed by the configured merge callbacks just like a direct delta;
+the resulting value need not retain the delta's blob storage.
 
-A handle is immutable and belongs to the same open database instance that
-created it. Threads may insert it concurrently, but destruction must not race
-any use. Handles cannot be serialized or reused after close/reopen. Destroy
-all handles before `splinterdb_close(&db, FALSE)`, which returns `EBUSY` while
-handles remain live. Forced close releases the handles and invalidates every
-outstanding pointer; do not use or destroy those pointers afterward.
+The input bytes may be released after blob creation succeeds. Releasing the
+message drops the caller's ownership and resets that message to an empty
+direct message; successfully inserted values or deltas retain their own
+ownership. Operations are independent: if a second operation fails, a first
+successful operation remains applied.
+
+Copying a message only borrows the same payload. Release each created blob
+exactly once, after all uses of all copies finish; release invalidates the
+other copies. Callback messages are borrowed and must not be released.
+Do not change a blob message's `cc`, `data`, or descriptor bytes.
+For a blob, `message_data()`, `message_length()`, and `message_slice()`
+describe its encoded descriptor, not its logical bytes.
+
+A blob belongs to the open database instance that created it. Threads may
+reuse it concurrently, but release must not race any use. Blob messages cannot
+be serialized or reused after close/reopen. Release all created blobs before
+`splinterdb_close(&db, FALSE)`, which returns `EBUSY` while they remain live.
+Forced close releases them and invalidates every outstanding copy.
 
 Creating a standalone blob does not establish crash durability. Inserted
-references follow ordinary insert and durability-barrier semantics; a
-successful blocking barrier covers the preceding successful inserts and their
-blob data. Recovery reclaims storage that no recovered data references.
-Keys still use the existing `slice` API and key-size limit; large-key support
-is separate from this value-blob API.
-
+references follow ordinary update and durability-barrier semantics. Recovery
+reclaims storage that no recovered data references. Keys retain the existing
+size limit; large-key support is separate.
 
 ## Example programs
 - [`tests/unit/splinterdb_quick_test.c`](../tests/unit/splinterdb_quick_test.c) covers

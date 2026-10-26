@@ -29,20 +29,32 @@ CF='-D_GNU_SOURCE -ggdb -Wall -pthread -Wfatal-errors -Werror -Wvla -DXXH_STATIC
 LF='-ggdb -pthread -O3 -ffast-math -flto'
 LIBS='-laio -lxxhash -lm -lpthread'
 
-cc $CF $LF -DKVBENCH_CLOSE_HAS_FORCE \
+head_value_flags=()
+main_value_flags=()
+for name in head main; do
+   if ! python3 -c 'import pathlib, sys; sys.exit("message_create(" not in pathlib.Path(sys.argv[1]).read_text())' "$OUT/src/$name/include/splinterdb/data.h"; then
+      if [ "$name" = head ]; then
+         head_value_flags=(-Dmessage_create=slice_create)
+      else
+         main_value_flags=(-Dmessage_create=slice_create)
+      fi
+   fi
+done
+
+cc $CF $LF "${head_value_flags[@]}" -DKVBENCH_CLOSE_HAS_FORCE \
    -I "$OUT/src/head/include" "$ROOT/benchmarks/kvbench.c" \
    "$OUT/src/head/build/release/lib/libsplinterdb.a" $LIBS \
    -o "$OUT/bin/kvbench-head"
-cc $CF $LF \
+cc $CF $LF "${main_value_flags[@]}" \
    -I "$OUT/src/main/include" "$ROOT/benchmarks/kvbench.c" \
    "$OUT/src/main/build/release/lib/libsplinterdb.a" $LIBS \
    -o "$OUT/bin/kvbench-main"
 
-cc $CF $LF -I "$OUT/src/head/include" -I "$OUT/src/head/src" \
+cc $CF $LF "${head_value_flags[@]}" -I "$OUT/src/head/include" -I "$OUT/src/head/src" \
    -I "$OUT/src/head/src/platform_linux" "$ROOT/benchmarks/insert_benchmark.c" \
    "$OUT/src/head/build/release/lib/libsplinterdb.a" $LIBS \
    -o "$OUT/bin/insert_benchmark-head"
-cc $CF $LF -DKVBENCH_LEGACY_CLOSE -DKVBENCH_NO_TRACE \
+cc $CF $LF "${main_value_flags[@]}" -DKVBENCH_LEGACY_CLOSE -DKVBENCH_NO_TRACE \
    -DKVBENCH_NO_DURABLE_BARRIER -I "$OUT/src/main/include" \
    -I "$OUT/src/main/src" -I "$OUT/src/main/src/platform_linux" \
    "$ROOT/benchmarks/insert_benchmark.c" \

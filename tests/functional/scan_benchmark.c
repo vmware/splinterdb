@@ -473,7 +473,7 @@ scan_benchmark_load_database(const splinterdb_config *cfg,
       scan_benchmark_encode_record_key(
          key_record_no, splinter_random_keys, keybuf);
       slice key = slice_create(sizeof(keybuf), keybuf);
-      rc        = splinterdb_insert(kvs, key, value, NULL);
+      rc        = splinterdb_insert(kvs, key, message_from_slice(value), NULL);
       if (rc != 0) {
          platform_error_log(
             "scan_benchmark: insert failed at record %lu: %d\n", record_no, rc);

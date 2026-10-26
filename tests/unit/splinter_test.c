@@ -433,10 +433,10 @@ core_log_write_prepare_invalid_blob(log_handle         *log,
       .checksum = {0},
       .format   = BLOB_FORMAT + 1,
    };
-   message invalid_msg =
-      message_create(MESSAGE_TYPE_INSERT,
-                     ((shard_log *)log)->cc,
-                     slice_create(sizeof(invalid_blob), &invalid_blob));
+   message invalid_msg = message_create_internal(
+      MESSAGE_TYPE_INSERT,
+      ((shard_log *)log)->cc,
+      slice_create(sizeof(invalid_blob), &invalid_blob));
    return fault->saved_ops->write_prepare(
       log, tuple_key, invalid_msg, force_blob, prepared);
 }
@@ -1296,7 +1296,7 @@ CTEST2(splinter, test_retain_failure_blob_lookup_and_old_value_are_atomic)
    ASSERT_TRUE(
       SUCCESS(writable_buffer_resize(&bytes, 2 * cache_page_size(cc))));
    blob_checksum_test_fill(&bytes, writable_buffer_length(&bytes));
-   message original = message_create(
+   message original = message_create_internal(
       MESSAGE_TYPE_INSERT, NULL, writable_buffer_to_slice(&bytes));
    btree_insert_results inserted;
    btree_insert_results_init(&inserted, NULL);
@@ -1348,7 +1348,7 @@ CTEST2(splinter, test_retain_failure_blob_lookup_and_old_value_are_atomic)
    }
 
    uint64  replacement_value = 0x12345678;
-   message replacement       = message_create(
+   message replacement       = message_create_internal(
       MESSAGE_TYPE_INSERT,
       NULL,
       slice_create(sizeof(replacement_value), &replacement_value));
@@ -1443,7 +1443,7 @@ CTEST2(splinter, test_retain_failure_blob_clone_prefix_cleanup)
    ASSERT_EQUAL_U(2, parsed.num_extents);
    uint64  first    = parsed.base->addrs[0];
    uint64  second   = parsed.base->addrs[1];
-   message incoming = message_create(
+   message incoming = message_create_internal(
       MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&descriptor));
    DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
    test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
@@ -1642,9 +1642,9 @@ CTEST2(splinter, test_blob_checksums)
       goto cleanup;
    }
 
-   message inline_msg = message_create(
+   message inline_msg = message_create_internal(
       MESSAGE_TYPE_INSERT, NULL, writable_buffer_to_slice(&source_data));
-   message blob_msg = message_create(
+   message blob_msg = message_create_internal(
       MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&descriptor));
    if (!SUCCESS(message_validate(inline_msg))
        || !SUCCESS(message_validate(blob_msg)))
@@ -1754,7 +1754,7 @@ CTEST2(splinter, test_blob_checksums)
       rc = STATUS_TEST_FAILED;
       goto cleanup;
    }
-   blob_msg = message_create(
+   blob_msg = message_create_internal(
       MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&checked_clone));
    rc = message_validate(blob_msg);
    if (!STATUS_IS_EQ(rc, STATUS_IO_ERROR)) {
@@ -1879,7 +1879,7 @@ CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
    pack_abort_test_iterator itor = {
       .super     = {.ops = &pack_abort_test_ops},
       .tuple_key = key_create(FALSE, 1, &key_byte),
-      .msg       = message_create(
+      .msg       = message_create_internal(
          MESSAGE_TYPE_INSERT, NULL, slice_create(UINT64_MAX, &value_byte)),
    };
    btree_pack_req  req;
@@ -3297,7 +3297,7 @@ CTEST2(splinter, test_shard_log_first_fit_decreasing_packing)
          TYPED_ARRAY_MALLOC(data->hid, payload[rank], message_size);
       platform_assert(payload[rank] != NULL);
       memset(payload[rank], (int)(rank + 1), message_size);
-      expected_msg[rank] = message_create(
+      expected_msg[rank] = message_create_internal(
          MESSAGE_TYPE_INSERT, NULL, slice_create(message_size, payload[rank]));
    }
 
@@ -5809,7 +5809,7 @@ shadow_entry_key(const shadow_entry *entry, char *data)
 static message
 shadow_entry_value(const shadow_entry *entry, char *data)
 {
-   return message_create(
+   return message_create_internal(
       MESSAGE_TYPE_INSERT,
       NULL,
       slice_create(entry->value_length,
@@ -7205,7 +7205,7 @@ CTEST2(splinter, test_blob_height_three_and_large_stats)
 
    blob_tree_pack_iterator iter = {
       .super = {.ops = &blob_tree_pack_ops},
-      .msg   = message_create(MESSAGE_TYPE_INSERT, cc, desc)};
+      .msg   = message_create_internal(MESSAGE_TYPE_INSERT, cc, desc)};
    btree_pack_req *req = TYPED_MALLOC(data->hid, req);
    ASSERT_NOT_NULL(req);
    ASSERT_TRUE(SUCCESS(btree_pack_req_init(

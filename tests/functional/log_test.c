@@ -1365,10 +1365,10 @@ test_log_prepare_failure_does_not_poison(clockcache             *cc,
       .checksum = {0},
       .format   = BLOB_FORMAT + 1,
    };
-   message invalid_msg =
-      message_create(MESSAGE_TYPE_INSERT,
-                     cacheh,
-                     slice_create(sizeof(invalid_blob), &invalid_blob));
+   message invalid_msg = message_create_internal(
+      MESSAGE_TYPE_INSERT,
+      cacheh,
+      slice_create(sizeof(invalid_blob), &invalid_blob));
    DECLARE_AUTO_KEY_BUFFER(keybuffer, hid);
    key invalid_key = test_key(&keybuffer, TEST_RANDOM, 257, 0, 0, key_size, 0);
    int append_rc   = log_write(log, invalid_key, invalid_msg, 257, 0);
@@ -1703,7 +1703,7 @@ test_log_rejects_oversized_blob_descriptor(cache            *cc,
    log_handle *log;
    platform_assert_status_ok(shard_log_create(cc, cfg, hid, &log));
    log_head head = log_get_head(log);
-   message  msg  = message_create(
+   message  msg  = message_create_internal(
       MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&descriptor));
    int append_rc = log_write(log, skey, msg, 0, 0);
    platform_assert(append_rc == STATUS_LIMIT_EXCEEDED.r);
@@ -1743,9 +1743,9 @@ test_log_malformed_record_bounds(clockcache        *cc,
    char            value_data[] = "value";
    key             skey = key_create(FALSE, sizeof(key_data) - 1, key_data);
    message         msg =
-      message_create(MESSAGE_TYPE_INSERT,
-                     NULL,
-                     slice_create(sizeof(value_data) - 1, value_data));
+      message_create_internal(MESSAGE_TYPE_INSERT,
+                              NULL,
+                              slice_create(sizeof(value_data) - 1, value_data));
 
    platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &log));
    log_head sealed = log_get_head(log);
@@ -1819,9 +1819,9 @@ test_log_group_page_cycle(clockcache        *cc,
    char        value_data[] = "value";
    key         skey         = key_create(FALSE, sizeof(key_data) - 1, key_data);
    message     msg =
-      message_create(MESSAGE_TYPE_INSERT,
-                     NULL,
-                     slice_create(sizeof(value_data) - 1, value_data));
+      message_create_internal(MESSAGE_TYPE_INSERT,
+                              NULL,
+                              slice_create(sizeof(value_data) - 1, value_data));
 
    platform_assert_status_ok(shard_log_create(cacheh, cfg, hid, &log));
    log_head sealed = log_get_head(log);
@@ -2364,7 +2364,7 @@ test_log_indirect_blob_recovery(clockcache        *cc,
    char     key_data[] = "indirect-recovery";
    key      skey       = key_create(FALSE, sizeof(key_data) - 1, key_data);
    message  small =
-      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(2, "ok"));
+      message_create_internal(MESSAGE_TYPE_INSERT, NULL, slice_create(2, "ok"));
    platform_assert(log_write(log, skey, small, 0, 0) == 0);
    platform_assert_status_ok(log_make_durable(log));
    merge_accumulator value;
@@ -2782,7 +2782,7 @@ test_log_group_size_hint(cache *cc, shard_log_config *cfg, platform_heap_id hid)
    log_head head = log_get_head(logh);
    key      k    = key_create(FALSE, 1, "k");
    message  msg =
-      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
+      message_create_internal(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
    platform_assert(log_write(logh, k, msg, 0, 0) == 0);
    platform_assert(((shard_log *)logh)->durable_ticket == 0);
    platform_assert(!log_group_size_reached(logh));

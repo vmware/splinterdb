@@ -128,9 +128,13 @@ def main():
         close_flags = (["-DKVBENCH_CLOSE_HAS_FORCE"]
                        if "splinterdb_close(splinterdb **kvs, bool32 force)" in
                        (source / "include/splinterdb/splinterdb.h").read_text() else [])
-        link = flags + close_flags + ["-DKVBENCH_SPACE_MODE", "-I" + str(source / "include"),
-                                      str(harness), str(library), "-laio", "-lxxhash", "-lm",
-                                      "-o", str(binary)]
+        value_flags = ([] if "message_create(" in
+                       (source / "include/splinterdb/data.h").read_text()
+                       else ["-Dmessage_create=slice_create"])
+        link = flags + close_flags + value_flags + [
+            "-DKVBENCH_SPACE_MODE", "-I" + str(source / "include"),
+            str(harness), str(library), "-laio", "-lxxhash", "-lm",
+            "-o", str(binary)]
         run(link)
         manifest["variants"][name] = dict(
             source=str(source), revision=baseline_commit if name == "original" else current_commit,

@@ -19,9 +19,10 @@ split_test_curr(iterator *base, key *k, message *msg)
 {
    split_test_iterator *itor = (split_test_iterator *)base;
    *k                        = key_create(FALSE, 1, &itor->keys[itor->pos]);
-   *msg                      = message_create(MESSAGE_TYPE_INSERT,
-                         NULL,
-                         slice_create(sizeof(itor->value), itor->value));
+   *msg =
+      message_create_internal(MESSAGE_TYPE_INSERT,
+                              NULL,
+                              slice_create(sizeof(itor->value), itor->value));
 }
 
 static bool32

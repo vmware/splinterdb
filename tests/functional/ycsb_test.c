@@ -356,10 +356,10 @@ ycsb_thread(void *arg)
             case 'i':
             case 'u':
             {
-               message val =
-                  message_create(MESSAGE_TYPE_INSERT,
-                                 NULL,
-                                 slice_create(YCSB_DATA_SIZE, ops->value));
+               message val = message_create_internal(
+                  MESSAGE_TYPE_INSERT,
+                  NULL,
+                  slice_create(YCSB_DATA_SIZE, ops->value));
                rc = core_insert(
                   spl, key_create(FALSE, YCSB_KEY_SIZE, ops->key), val, NULL);
                platform_assert_status_ok(rc);
