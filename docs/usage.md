@@ -69,6 +69,56 @@ looks out-of-date, please open an issue or pull request.
   functional tests.
 
 
+## Reusing a value blob
+
+Use `splinterdb_blob_create()` to copy a value into blob storage once, then
+`splinterdb_insert_blob()` to insert it under multiple keys. Full extents are
+shared; tails may be copied on insertion or compaction. Small values may be
+copied entirely, and each handle has allocation overhead, so this API is most
+useful for large repeated values.
+
+```c
+int
+insert_shared_values(splinterdb *db, slice value, slice first_key, slice second_key)
+{
+   splinterdb_blob *blob = NULL;
+   int rc = splinterdb_blob_create(db, value, &blob);
+   if (rc != 0) {
+      return rc;
+   }
+
+   rc = splinterdb_insert_blob(db, first_key, blob, NULL);
+   if (rc == 0) {
+      rc = splinterdb_insert_blob(db, second_key, blob, NULL);
+   }
+   splinterdb_blob_destroy(&blob);
+   if (rc == 0) {
+      rc = splinterdb_durable_barrier(db, NULL);
+   }
+   return rc;
+}
+```
+
+The input value may be released after creation succeeds. Destroying a handle
+releases the caller's ownership and clears its pointer; successfully inserted
+values retain their own ownership. The two inserts above are independent
+operations: if the second fails, the first is still applied.
+
+A handle is immutable and belongs to the same open database instance that
+created it. Threads may insert it concurrently, but destruction must not race
+any use. Handles cannot be serialized or reused after close/reopen. Destroy
+all handles before `splinterdb_close(&db, FALSE)`, which returns `EBUSY` while
+handles remain live. Forced close releases the handles and invalidates every
+outstanding pointer; do not use or destroy those pointers afterward.
+
+Creating a standalone blob does not establish crash durability. Inserted
+references follow ordinary insert and durability-barrier semantics; a
+successful blocking barrier covers the preceding successful inserts and their
+blob data. Recovery reclaims storage that no recovered data references.
+Keys still use the existing `slice` API and key-size limit; large-key support
+is separate from this value-blob API.
+
+
 ## Example programs
 - [`tests/unit/splinterdb_quick_test.c`](../tests/unit/splinterdb_quick_test.c) covers
    various basic operations on a single thread. The

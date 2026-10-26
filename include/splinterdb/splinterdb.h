@@ -255,6 +255,9 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 // teardown.  The database remains open and *kvs is unchanged, so the caller can
 // retry or investigate.
 //
+// Live splinterdb_blob handles cause a non-forced close to return EBUSY.
+// Destroy them and retry, or force close to release and invalidate them.
+//
 // With force, teardown always completes.  An error means data preservation
 // could not be guaranteed; it does not prove that data was actually lost.
 //
@@ -459,6 +462,42 @@ splinterdb_insert(splinterdb               *kvsb,
                   slice                     key,
                   slice                     value,
                   splinterdb_lookup_result *old_result);
+
+// An immutable, reusable value owned by one open database instance.
+// Create copies value into blob storage without inserting a key. The input
+// slice may be released after create returns. On failure, *blob is NULL.
+// Creation alone does not establish crash durability; inserted references use
+// the ordinary update/durable_barrier contract. Unreferenced storage is
+// reclaimed by allocation reconstruction after a crash.
+//
+// Handles may be reused concurrently by registered/automatically registered
+// threads. Destroy must not race any use of that handle. Handles cannot be
+// serialized or used with a different database or after close/reopen.
+//
+// Existing blob cloning rules apply: full extents are shared, tails may be
+// copied. Small values may be copied entirely. Each handle owns a separate
+// mini allocator, so creating blobs for tiny values has allocation overhead.
+typedef struct splinterdb_blob splinterdb_blob;
+
+int
+splinterdb_blob_create(splinterdb *kvs, slice value, splinterdb_blob **blob);
+
+// Release the caller's ownership and set *blob to NULL. Inserted values retain
+// their own ownership. Passing NULL or a pointer to NULL is harmless.
+// Destroy all handles before ordinary close. Forced close releases all handles
+// and invalidates every outstanding handle pointer.
+void
+splinterdb_blob_destroy(splinterdb_blob **blob);
+
+// Insert a previously created blob as a value. This has the same overwrite,
+// old_result, and durability semantics as splinterdb_insert(). The handle
+// remains reusable on success or failure. A handle from another open database
+// is rejected with EINVAL. Keys use the existing slice API and key-size limit.
+int
+splinterdb_insert_blob(splinterdb               *kvs,
+                       slice                     key,
+                       const splinterdb_blob    *blob,
+                       splinterdb_lookup_result *old_result);
 
 // Delete a given key and any associated value / messages
 int
