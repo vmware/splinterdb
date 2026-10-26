@@ -1,2 +1,0 @@
-# Preserve raw perf output byte for byte.
-*.txt -whitespace

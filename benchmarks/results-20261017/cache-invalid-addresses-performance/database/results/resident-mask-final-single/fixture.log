@@ -1,7 +1,0 @@
-kvbench version=main splinter=splinterdb_build_version invalid-address-perf-main db=/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/database/results/resident-mask-final-single/fixture.db mode=create n=200000 cache_mib=128 disk_gib=8 log=0 threads=8 mt_bg=0 normal_bg=0 memtable_mib=4 secs=8.0 warmup=3.0 rep=-1 sabotage=0
-create took 0.016 s
-phase load:random@1: T=1 dist=random (fixed count)
-close took 0.104 s
-== load:random@1          T=1  ops=200000     secs=   0.22 ops/s=     917239  lat us p50=0.62 p99=2.98 p99.9=5.06 max=3760.9 mean=1.05
-   cpu=0.22s ops/cpu-s=917376 rd=0.0 B/op wr=0.0 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
-   insert/run=0.22s drain(close)=0.10s total=0.32s drain_cpu=0.02s drain_rd=0 drain_wr=27025408 wamp=1.090 db_apparent=159256576 db_alloc=27181056

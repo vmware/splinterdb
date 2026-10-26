@@ -1,7 +1,0 @@
-kvbench version=disk-format splinter=splinterdb_build_version 2ba43edd-dirty db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filter-predicate-20261013/fixtures/disk-disk-format.db mode=create n=2000000 cache_mib=64 disk_gib=8 log=0 threads=1 mt_bg=0 normal_bg=0 memtable_mib=4 secs=6.0 warmup=1.0 rep=0 sabotage=0
-create took 0.014 s
-phase load:random: T=1 dist=random (fixed count)
-close took 0.093 s
-== load:random            T=1  ops=2000000    secs=   5.10 ops/s=     392250  lat us p50=0.98 p99=2.72 p99.9=8.32 max=108571.8 mean=2.45
-   cpu=4.21s ops/cpu-s=474616 rd=79.5 B/op wr=218.5 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
-   insert/run=5.10s drain(close)=0.09s total=5.19s drain_cpu=0.02s drain_rd=0 drain_wr=37994496 wamp=1.916 db_apparent=2513178624 db_alloc=475258880

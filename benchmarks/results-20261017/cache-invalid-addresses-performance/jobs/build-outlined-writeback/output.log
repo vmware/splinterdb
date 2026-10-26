@@ -1,8 +1,0 @@
-Checking for mismatched config...No mismatched config found
-Compiling            tests/unit/main.c                                  [/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/obj/tests/unit/main.o]
-Compiling            tests/unit/writeback_set_test.c                    [/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/obj/tests/unit/writeback_set_test.o]
-Compiling            tests/unit/btree_test_common.c                     [/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/obj/tests/unit/btree_test_common.o]
-Compiling            tests/config.c                                     [/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/obj/tests/config.o]
-Compiling            tests/test_data.c                                  [/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/obj/tests/test_data.o]
-Compiling            tests/unit/unit_tests_common.c                     [/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/obj/tests/unit/unit_tests_common.o]
-Linking              /home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/builds/outlined/release/bin/unit/writeback_set_test

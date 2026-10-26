@@ -1,4 +1,0 @@
-Starting main-merge-log-group-release-recovery-final-0-splinterdb_forked_child_test test
-Running 1 CTests, suite name 'splinterdb_forked_child', test case 'automatic_log_barriers_survive_process_exit'.
-TEST 1/1 splinterdb_forked_child:automatic_log_barriers_survive_process_exit [OK]
-RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 558 ms

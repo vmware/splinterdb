@@ -1,7 +1,0 @@
-Running 1 CTests, suite name 'superblock', test case 'all'.
-TEST 1/17 superblock:test_format_sets_fresh_state [OK]
-TEST 2/17 superblock:test_rejects_other_experiment_formats Unsupported superblock format version 7; this build requires version 8.
-[FAIL]
-  ERR: tests/unit/superblock_test.c:190  should be true
-TEST 3/17 superblock:test_snapshot_persists_state OS-pid=9, OS-tid=9, Thread-ID=0, Assertion failed at src/platform_linux/platform_threads.c:420:platform_register_thread(): "thread_tid == INVALID_TID". Attempt to register thread that is already registered as thread 0
-

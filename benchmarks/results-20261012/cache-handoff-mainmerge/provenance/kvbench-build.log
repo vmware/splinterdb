@@ -1,5 +1,0 @@
-Starting handoff-mainmerge-kvbench-final build
-lto-wrapper: warning: using serial compilation of 14 LTRANS jobs
-lto-wrapper: note: see the ‘-flto’ option documentation for more information
-/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/release/bin/kvbench
-/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/cache-handoff-mainmerge

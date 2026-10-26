@@ -1,6 +1,0 @@
-{
-  "build-main-7bb5fab/release/lib/libsplinterdb.so": "4fb3a906bd9748208657ed445d2b0f679722811d20b6c453cc6db5ceae95091d",
-  "build-main-7bb5fab/release/lib/libsplinterdb.a": "ecb82297d307a904f3d1afe7e29ff8a496b09468477a2dc1eb1bb07096519e18",
-  "build-main-7bb5fab/debug-asan/lib/libsplinterdb.so": "b6fdb2dc22821ef81e2bdaaa6080684636f7a4d5d3207df032f39e87dc242337",
-  "build-main-7bb5fab/debug/lib/libsplinterdb.so": "faadf27f0994ce7dec7b55749bfbffcdc9a9a9ae200f72e5fd5b0d199daf7a48"
-}

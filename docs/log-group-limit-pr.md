@@ -18,24 +18,7 @@ a failed insert. A later threshold crossing or explicit barrier can retry the
 pending prefix. Applications needing a definite durable frontier must still
 wait for an explicit barrier.
 
-The branch includes main `fc0bc8f7` (filtered ranges). See the
-[policy and validation report](log-group-limit.md) for test coverage,
-performance results and limitations.
-
-Validation:
-
-- Debug and release each pass 44 core tests, 56 public API tests, the
-  process-exit recovery test with small records and both blob layouts, and the
-  functional log suite's 500,000-record replay. Coverage includes failed
-  submission, failed durability and retry, overlapping automatic/manual cuts,
-  and inserts progressing while an earlier barrier is blocked.
-- Full source formatting and PR whitespace checks pass. The complete CI
-  compiler, sanitizer and stress matrix remains separate.
-- Twelve fresh serialized `O_DIRECT` runs on real disk compare the new default,
-  explicit 1024 and current main. Default insertion throughput changes -0.32%
-  with one writer and -0.81% with eight; including close changes -0.08% and
-  -2.02%. Default and explicit 1024 perform similarly. These short samples
-  show no substantial throughput regression, but do not establish exact
-  overhead or tail-latency neutrality. Main has no automatic durability policy.
-
-[Commands, hashes, raw results and limitations](../benchmarks/results-20261014/log-group-limit-pr/README.md)
+Regression coverage includes failed submission, failed durability and retry,
+overlapping automatic/manual cuts, and inserts progressing while an earlier
+barrier is blocked. See the [policy description](log-group-limit.md) for the
+accounting and completion contracts.

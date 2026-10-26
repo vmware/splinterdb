@@ -1,5 +1,0 @@
-/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/archive-preflight/setup_sources.py:35: DeprecationWarning: Python 3.14 will, by default, filter extracted tar archives and reject files or modify their metadata. Use the filter argument to control this behavior.
-  tar.extractall(target)
-/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/archive-preflight/setup_sources.py:35: DeprecationWarning: Python 3.14 will, by default, filter extracted tar archives and reject files or modify their metadata. Use the filter argument to control this behavior.
-  tar.extractall(target)
-Verified 13 source profiles in /home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/branch-prefix/.cache/invalid-address-perf-20261017/reconstructed-preflight

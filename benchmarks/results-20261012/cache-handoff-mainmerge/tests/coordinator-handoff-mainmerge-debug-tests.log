@@ -1,8 +1,0 @@
-Starting handoff-mainmerge-debug-tests test
-Running unit
-unit {'name': 'unit', 'command': ['/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/unit_test'], 'cwd': '/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-unit', 'started': 1791872498.444965, 'returncode': 127, 'finished': 1791872498.4466627}
-Traceback (most recent call last):
-  File "/home/rob/projects/splinterdb/.cache/projects-20261011/coordination/validate_handoff_mainmerge.py", line 48, in <module>
-    assert result.returncode == 0, record
-           ^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: {'name': 'unit', 'command': ['/home/rob/projects/splinterdb/.cache/projects-20261011/worktrees/cache-handoff/build-mainmerge/debug/bin/unit_test'], 'cwd': '/home/rob/projects/splinterdb/.cache/projects-20261011/validation/cache-handoff-mainmerge/scratch-unit', 'started': 1791872498.444965, 'returncode': 127, 'finished': 1791872498.4466627}

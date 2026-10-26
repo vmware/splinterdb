@@ -1,6 +1,0 @@
-loaded=524288 elapsed_ns=437957060
-mode,keys_per_tenant,limit,queries,ns_per_query,visited,checksum
-hash-filter,16384,1,1000,25561.8,1000,8296973
-hash-filter,16384,2,1000,20525.1,2000,16981784
-hash-filter,16384,10,1000,33010.8,10000,81849260
-hash-filter,16384,100,1000,136036.1,100000,827043200

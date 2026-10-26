@@ -1,8 +1,0 @@
-{
-  "old_sha256": "aa8baa4e2e1f5300e8214d376fac78da9f471e7dac9deff4daa122a6d1b376a5",
-  "new_sha256": "8131076508edb8c16d06b509c8c540d8705281ff99358247a3ba6cb811026575",
-  "reason": "Controller sleep wakeup may be delayed; snapshot uses actual wall time.",
-  "actual_precondition_30_004_s_accepted": true,
-  "synthetic_premature_stop_rejected": true,
-  "no_workloads": true
-}

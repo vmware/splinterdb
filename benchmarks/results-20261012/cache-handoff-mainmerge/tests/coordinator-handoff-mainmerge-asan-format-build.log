@@ -1,6 +1,0 @@
-Checking for mismatched config...No mismatched config found
-Compiling            src/blob.c                                         [build-mainmerge/debug-asan/obj/src/blob.o]
-Linking              build-mainmerge/debug-asan/bin/unit/writeback_set_test
-Linking              build-mainmerge/debug-asan/lib/libsplinterdb.so
-Linking              build-mainmerge/debug-asan/bin/unit/splinterdb_quick_test
-Linking              build-mainmerge/debug-asan/bin/unit/splinter_test

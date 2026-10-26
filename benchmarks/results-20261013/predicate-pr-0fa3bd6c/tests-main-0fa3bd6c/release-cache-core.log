@@ -1,7 +1,0 @@
-Running 1 CTests, suite name 'splinter', test case 'test_cache_read_errors_'.
-TEST 1/1 splinter:test_cache_read_errors_reach_core_operations ondisk_bundle_merge_lookup: btree_lookup_and_merge failed: 110
-trunk_merge_lookup: ondisk_bundle_merge_lookup failed: 110
-ondisk_bundle_merge_lookup_async: btree_lookup_and_merge_async failed: 110
-trunk_merge_lookup_async: ondisk_bundle_merge_lookup_async failed: 110
-[OK]
-RESULTS: 1 tests (1 ok, 0 failed, 0 skipped) ran in 161 ms

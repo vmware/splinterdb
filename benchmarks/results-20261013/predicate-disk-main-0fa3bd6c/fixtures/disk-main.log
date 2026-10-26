@@ -1,7 +1,0 @@
-kvbench version=main splinter=splinterdb_build_version 0fa3bd6c db=/home/rob/projects/splinterdb/.cache/projects-20261011/benchmarks/filter-predicate-20261013/fixtures/disk-main.db mode=create n=2000000 cache_mib=64 disk_gib=8 log=0 threads=1 mt_bg=0 normal_bg=0 memtable_mib=4 secs=6.0 warmup=1.0 rep=0 sabotage=0
-create took 0.015 s
-phase load:random: T=1 dist=random (fixed count)
-close took 0.097 s
-== load:random            T=1  ops=2000000    secs=   5.29 ops/s=     378349  lat us p50=0.98 p99=2.98 p99.9=8.32 max=114075.8 mean=2.54
-   cpu=4.30s ops/cpu-s=464737 rd=81.3 B/op wr=218.9 B/op violations=0 errors=0 swapin=0 swapout=0 majflt=0
-   insert/run=5.29s drain(close)=0.10s total=5.38s drain_cpu=0.02s drain_rd=0 drain_wr=36859904 wamp=1.914 db_apparent=2513178624 db_alloc=474849280

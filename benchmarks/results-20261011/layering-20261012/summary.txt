@@ -1,5 +1,0 @@
-phase | before ops/s | layered ops/s | throughput change | CPU us/op change
-point:uniform@1 | 1240704 | 1223197 | -1.41% | +1.38%
-point:uniform@8 | 5964690 | 5908901 | -0.94% | +0.74%
-range:uniform:1@1 | 114037 | 114086 | +0.04% | -0.05%
-range:uniform:1@8 | 558772 | 566080 | +1.31% | -1.36%

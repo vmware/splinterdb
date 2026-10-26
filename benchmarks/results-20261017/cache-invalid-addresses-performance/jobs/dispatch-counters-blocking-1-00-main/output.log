@@ -1,4 +1,0 @@
-O_DIRECT address_layout=spread cache_mib=64 disk_ratio=16 resident_pages=12288 disk_bytes=50331648 setup_seconds=0.614
-mode,api,cache_mib,threads,working_pages,seconds,ops_s,ops,checksum,errors,directory_bytes,entry_bytes,data_bytes,refcount_bytes,pin_bytes,max_rss_bytes,setup_ns,read_bytes,write_bytes,major_faults,minor_faults,cpu_ns,async_waits,perf_enabled,perf_cycles,perf_instructions,perf_branches,perf_branch_misses,perf_enabled_ns,perf_running_ns
-independent,blocking,64,1,12288,3.000080072,15916865.8,47751872,2895642049227622720,0,1048576,1048576,67108864,131072,16384,55734272,613938858,0,0,0,1,2999477804,0,1,10291752573,12865260554,2584431690,808975,2999487952,2999487952
-dependent,blocking,64,1,12288,3.000072062,9622574.2,28868416,16737455822272361664,0,1048576,1048576,67108864,131072,16384,55734272,613938858,0,0,0,0,2999902380,0,1,11568798056,7229650598,1591288123,480584,2999851364,2999851364

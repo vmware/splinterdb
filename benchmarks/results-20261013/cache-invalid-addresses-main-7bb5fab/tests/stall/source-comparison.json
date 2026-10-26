@@ -1,7 +1,0 @@
-{
-  "common_allocator_function": "clockcache_get_free_page",
-  "function_sha256": "04603bdb9a5a77e17d220a68b0b6963486ba727f60b571f0263aa4c231fb3029",
-  "main_commit": "7bb5fab305b9c6179e31f75998dabea833537a08",
-  "common_test_file_sha256": "549f326d035fbb81cf9f272a66948f34f30313495624c6320e4a75b47c042e48",
-  "candidate_commit": "f2dc7bf6dcd21214b03fd7e18ec91b940d50f30a"
-}
