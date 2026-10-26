@@ -2107,7 +2107,10 @@ core_range_iterator_init(core_handle                            *spl,
    key                      start_key            = range.start_key;
    splinterdb_key_predicate predicate            = options->predicate;
    void                    *predicate_context    = options->predicate_context;
-   key                      routing_filter_key   = options->routing_filter_key;
+   // A zero-initialized key (kind 0) is not NULL_KEY; treat it as unset.
+   key routing_filter_key = options->routing_filter_key.kind == 0
+                               ? NULL_KEY
+                               : options->routing_filter_key;
 
    range_itor->filter = NULL;
    platform_status rc = STATUS_OK;
