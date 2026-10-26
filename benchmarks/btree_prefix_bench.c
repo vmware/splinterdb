@@ -508,22 +508,16 @@ init_iterator(benchmark      *b,
               page_type       type,
               key             start)
 {
-   check(btree_iterator_init((cache *)&b->cc,
-                             &b->btree_cfg,
-                             it,
-                             root,
-                             BTREE_BRANCH_FORMAT_VERSION,
-                             type,
-                             greater_than_or_equal,
-                             NEGATIVE_INFINITY_KEY,
-                             less_than,
-                             POSITIVE_INFINITY_KEY,
-                             greater_than_or_equal,
-                             start,
-                             FALSE,
-                             0,
-                             0),
-         "iterator init");
+   check(
+      btree_iterator_init((cache *)&b->cc,
+                          &b->btree_cfg,
+                          it,
+                          root,
+                          BTREE_BRANCH_FORMAT_VERSION,
+                          type,
+                          &(const btree_iterator_init_options){
+                             .start_position = key_start_at_or_after(start)}),
+      "iterator init");
 }
 
 static void
@@ -597,15 +591,10 @@ pack_once(benchmark *b, bool measured)
    array_iterator it = {
       .super = {.ops = &array_ops}, .tuples = b->tuples, .count = b->opt.keys};
    btree_pack_req *req = allocate(1, sizeof(*req));
-   check(btree_pack_req_init(req,
-                             (cache *)&b->cc,
-                             &b->btree_cfg,
-                             &it.super,
-                             b->opt.keys,
-                             0,
-                             FALSE,
-                             b->hid),
-         "pack req init");
+   check(
+      btree_pack_req_init(
+         req, (cache *)&b->cc, &b->btree_cfg, &it.super, b->opt.keys, b->hid),
+      "pack req init");
    counters before = {0};
    if (measured) {
       before = begin_interval(b);

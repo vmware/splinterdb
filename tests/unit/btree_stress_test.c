@@ -1033,21 +1033,15 @@ iterator_tests(cache           *cc,
    else
       start_key = POSITIVE_INFINITY_KEY;
 
-   platform_status rc = btree_iterator_init(cc,
-                                            cfg,
-                                            &dbiter,
-                                            root_addr,
-                                            BTREE_BRANCH_FORMAT_VERSION,
-                                            type,
-                                            greater_than_or_equal,
-                                            NEGATIVE_INFINITY_KEY,
-                                            less_than,
-                                            POSITIVE_INFINITY_KEY,
-                                            greater_than_or_equal,
-                                            start_key,
-                                            FALSE,
-                                            0,
-                                            0);
+   platform_status rc = btree_iterator_init(
+      cc,
+      cfg,
+      &dbiter,
+      root_addr,
+      BTREE_BRANCH_FORMAT_VERSION,
+      type,
+      &(const btree_iterator_init_options){
+         .start_position = key_start_at_or_after(start_key)});
    ASSERT_TRUE(SUCCESS(rc));
 
    iterator *iter = (iterator *)&dbiter;
@@ -1087,21 +1081,15 @@ iterator_seek_tests(cache           *cc,
    // start in the "middle" of the range
    key start_key = gen_key(cfg, nkvs / 2, keybuf, keybuf_size);
 
-   platform_status rc = btree_iterator_init(cc,
-                                            cfg,
-                                            &dbiter,
-                                            root_addr,
-                                            0,
-                                            PAGE_TYPE_MEMTABLE,
-                                            greater_than_or_equal,
-                                            NEGATIVE_INFINITY_KEY,
-                                            less_than,
-                                            POSITIVE_INFINITY_KEY,
-                                            greater_than_or_equal,
-                                            start_key,
-                                            FALSE,
-                                            0,
-                                            0);
+   platform_status rc = btree_iterator_init(
+      cc,
+      cfg,
+      &dbiter,
+      root_addr,
+      0,
+      PAGE_TYPE_MEMTABLE,
+      &(const btree_iterator_init_options){
+         .start_position = key_start_at_or_after(start_key)});
    ASSERT_TRUE(SUCCESS(rc));
    iterator *iter = (iterator *)&dbiter;
 
@@ -1136,26 +1124,19 @@ pack_tests(cache           *cc,
    btree_iterator dbiter;
    iterator      *iter = (iterator *)&dbiter;
 
-   platform_status rc = btree_iterator_init(cc,
-                                            cfg,
-                                            &dbiter,
-                                            root_addr,
-                                            0,
-                                            PAGE_TYPE_MEMTABLE,
-                                            greater_than_or_equal,
-                                            NEGATIVE_INFINITY_KEY,
-                                            less_than,
-                                            POSITIVE_INFINITY_KEY,
-                                            greater_than_or_equal,
-                                            NEGATIVE_INFINITY_KEY,
-                                            FALSE,
-                                            0,
-                                            0);
+   platform_status rc =
+      btree_iterator_init(cc,
+                          cfg,
+                          &dbiter,
+                          root_addr,
+                          0,
+                          PAGE_TYPE_MEMTABLE,
+                          &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
 
    rc = STATUS_TEST_FAILED;
    btree_pack_req req;
-   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, 0, FALSE, hid);
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {
@@ -1238,21 +1219,19 @@ bounds_init_with_copy(cache          *cc,
    comparison start_cmp = reverse ? hi_cmp : lo_cmp;
    key        start     = reverse ? hi : lo;
    if (!async) {
-      return btree_iterator_init(cc,
-                                 cfg,
-                                 itor,
-                                 root,
-                                 BTREE_BRANCH_FORMAT_VERSION,
-                                 type,
-                                 lo_cmp,
-                                 lo,
-                                 hi_cmp,
-                                 hi,
-                                 start_cmp,
-                                 start,
-                                 copy_nodes,
-                                 0,
-                                 prefetch_lookahead);
+      return btree_iterator_init(
+         cc,
+         cfg,
+         itor,
+         root,
+         BTREE_BRANCH_FORMAT_VERSION,
+         type,
+         &(const btree_iterator_init_options){
+            .lower_limit        = make_key_lower_limit(lo_cmp, lo),
+            .upper_limit        = make_key_upper_limit(hi_cmp, hi),
+            .start_position     = make_key_start_position(start_cmp, start),
+            .copy_nodes         = copy_nodes,
+            .prefetch_lookahead = prefetch_lookahead});
    }
    btree_iterator_async_state state;
    bool32                     ready = FALSE;
@@ -1390,15 +1369,8 @@ iterator_endpoint_fault_init(cache          *cc,
                                  root,
                                  BTREE_BRANCH_FORMAT_VERSION,
                                  PAGE_TYPE_BRANCH,
-                                 greater_than_or_equal,
-                                 NEGATIVE_INFINITY_KEY,
-                                 less_than,
-                                 upper,
-                                 greater_than_or_equal,
-                                 NEGATIVE_INFINITY_KEY,
-                                 FALSE,
-                                 0,
-                                 0);
+                                 &(const btree_iterator_init_options){
+                                    .upper_limit = key_less_than(upper)});
    }
 
    btree_iterator_async_state state;
@@ -1442,25 +1414,17 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
    }
 
    btree_iterator  source;
-   platform_status rc = btree_iterator_init(cc,
-                                            cfg,
-                                            &source,
-                                            source_root,
-                                            0,
-                                            PAGE_TYPE_MEMTABLE,
-                                            greater_than_or_equal,
-                                            NEGATIVE_INFINITY_KEY,
-                                            less_than,
-                                            POSITIVE_INFINITY_KEY,
-                                            greater_than_or_equal,
-                                            NEGATIVE_INFINITY_KEY,
-                                            FALSE,
-                                            0,
-                                            0);
+   platform_status rc =
+      btree_iterator_init(cc,
+                          cfg,
+                          &source,
+                          source_root,
+                          0,
+                          PAGE_TYPE_MEMTABLE,
+                          &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
    btree_pack_req req;
-   rc = btree_pack_req_init(
-      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   rc = btree_pack_req_init(&req, cc, cfg, &source.super, count, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc                 = btree_pack(&req);
    uint64 packed_root = req.root_addr;
@@ -1475,15 +1439,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
                             packed_root,
                             BTREE_BRANCH_FORMAT_VERSION,
                             PAGE_TYPE_BRANCH,
-                            greater_than_or_equal,
-                            NEGATIVE_INFINITY_KEY,
-                            less_than,
-                            POSITIVE_INFINITY_KEY,
-                            greater_than_or_equal,
-                            NEGATIVE_INFINITY_KEY,
-                            FALSE,
-                            0,
-                            0);
+                            &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
    uint64 first_leaf = probe.curr.addr;
    uint64 upper_num  = 0;
@@ -1550,25 +1506,17 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
    }
 
    btree_iterator  source;
-   platform_status rc = btree_iterator_init(cc,
-                                            cfg,
-                                            &source,
-                                            source_root,
-                                            0,
-                                            PAGE_TYPE_MEMTABLE,
-                                            greater_than_or_equal,
-                                            NEGATIVE_INFINITY_KEY,
-                                            less_than,
-                                            POSITIVE_INFINITY_KEY,
-                                            greater_than_or_equal,
-                                            NEGATIVE_INFINITY_KEY,
-                                            FALSE,
-                                            0,
-                                            0);
+   platform_status rc =
+      btree_iterator_init(cc,
+                          cfg,
+                          &source,
+                          source_root,
+                          0,
+                          PAGE_TYPE_MEMTABLE,
+                          &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
    btree_pack_req req;
-   rc = btree_pack_req_init(
-      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   rc = btree_pack_req_init(&req, cc, cfg, &source.super, count, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc                 = btree_pack(&req);
    uint64 packed_root = req.root_addr;
@@ -1868,21 +1816,14 @@ CTEST2(btree_stress, copied_iterator_split_on_release)
          bounds_insert(cc, cfg, data->hid, data->test_scratch, &mini, root, n);
       }
       btree_iterator  probe;
-      platform_status rc = btree_iterator_init(cc,
-                                               cfg,
-                                               &probe,
-                                               root,
-                                               0,
-                                               PAGE_TYPE_MEMTABLE,
-                                               greater_than_or_equal,
-                                               NEGATIVE_INFINITY_KEY,
-                                               less_than,
-                                               POSITIVE_INFINITY_KEY,
-                                               greater_than_or_equal,
-                                               NEGATIVE_INFINITY_KEY,
-                                               FALSE,
-                                               0,
-                                               0);
+      platform_status rc =
+         btree_iterator_init(cc,
+                             cfg,
+                             &probe,
+                             root,
+                             0,
+                             PAGE_TYPE_MEMTABLE,
+                             &(const btree_iterator_init_options){0});
       ASSERT_TRUE(SUCCESS(rc));
       btree_node leaf = probe.curr;
       ASSERT_TRUE(leaf.addr != root);
@@ -1977,8 +1918,7 @@ CTEST2(btree_stress, copied_iterator_prefetch)
                                     0);
    ASSERT_TRUE(SUCCESS(rc));
    btree_pack_req req;
-   rc = btree_pack_req_init(
-      &req, cc, cfg, &source.super, count, 0, FALSE, data->hid);
+   rc = btree_pack_req_init(&req, cc, cfg, &source.super, count, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
    rc                 = btree_pack(&req);
    uint64 packed_root = req.root_addr;

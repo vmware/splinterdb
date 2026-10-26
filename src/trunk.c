@@ -3186,21 +3186,19 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
             "%s():%d: platform_malloc() failed", __func__, __LINE__);
          return STATUS_NO_MEMORY;
       }
-      rc = btree_iterator_init(cc,
-                               merger->cfg->btree_cfg,
-                               itor,
-                               branch.addr,
-                               branch.format_version,
-                               branch.type,
-                               greater_than_or_equal,
-                               merger->min_key,
-                               less_than,
-                               merger->max_key,
-                               greater_than_or_equal,
-                               merger->min_key,
-                               FALSE,
-                               merger->height,
-                               lookahead);
+      rc = btree_iterator_init(
+         cc,
+         merger->cfg->btree_cfg,
+         itor,
+         branch.addr,
+         branch.format_version,
+         branch.type,
+         &(const btree_iterator_init_options){
+            .lower_limit        = key_greater_than_or_equal(merger->min_key),
+            .upper_limit        = key_less_than(merger->max_key),
+            .start_position     = key_start_at_or_after(merger->min_key),
+            .height             = merger->height,
+            .prefetch_lookahead = lookahead});
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_iterator_init() failed: %s",
                             __func__,
@@ -4911,9 +4909,9 @@ bundle_compaction_task(task *arg)
                             context->cfg->btree_cfg,
                             &merger.merge_itor->super,
                             bc->input.stats.num_tuples,
-                            state->hash_seed,
-                            TRUE,
-                            context->hid);
+                            context->hid,
+                            .seed                 = state->hash_seed,
+                            .collect_fingerprints = TRUE);
    if (!SUCCESS(rc)) {
       platform_error_log(
          "btree_pack_req_init failed for state: %p bc: %p: %s\n",

@@ -54,11 +54,19 @@ optimize(splinterdb *db, bool empty_range)
 {
    slice bound = empty_range ? slice_create(1, "k") : NULL_SLICE;
 #ifdef HAVE_SENTINEL_NOTIFICATION
-   checked(splinterdb_optimize(db, bound, bound, true, NULL), "optimize");
+   checked(
+      splinterdb_optimize(
+         db, .min_key = bound, .max_key = bound, .full_leaf_compactions = true),
+      "optimize");
 #else
    splinterdb_notification note;
    splinterdb_notification_init_blocking(&note);
-   checked(splinterdb_optimize(db, bound, bound, true, &note), "optimize");
+   checked(splinterdb_optimize(db,
+                               .min_key               = bound,
+                               .max_key               = bound,
+                               .full_leaf_compactions = true,
+                               .notification          = &note),
+           "optimize");
    splinterdb_notification_deinit(&note);
 #endif
 }
@@ -129,8 +137,7 @@ main(int argc, char **argv)
    checked(splinterdb_close(&db, false), "close");
    checked(splinterdb_open(&cfg, &db), "reopen");
    splinterdb_iterator *it;
-   checked(splinterdb_iterator_init(db, &it, greater_than_or_equal, NULL_SLICE),
-           "iterator init");
+   checked(splinterdb_iterator_init(db, &it), "iterator init");
    for (uint64_t id = 0; id < keys; id++) {
       assert(splinterdb_iterator_valid(it));
       slice k, v;

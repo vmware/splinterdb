@@ -513,8 +513,7 @@ scan_benchmark_run_optimize(const splinterdb_config *cfg)
    platform_default_log(
       "scan_benchmark: running blocking full-leaf optimize\n");
    timestamp start_time = platform_get_timestamp();
-   rc                   = splinterdb_optimize(
-      kvs, NULL_SLICE, NULL_SLICE, TRUE, SPLINTERDB_NOTIFICATION_BLOCKING);
+   rc                = splinterdb_optimize(kvs, .full_leaf_compactions = TRUE);
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
 
    platform_default_log("optimize complete: rc=%d, %.3fs elapsed\n",
@@ -545,7 +544,10 @@ scan_benchmark_run_scan(const splinterdb_config *cfg,
    splinterdb_iterator *iter       = NULL;
    timestamp            start_time = platform_get_timestamp();
    rc                              = splinterdb_iterator_init(
-      kvs, &iter, scan_benchmark_start_comparison(backwards_scan), NULL_SLICE);
+      kvs,
+      &iter,
+      .start_position = splinterdb_make_start_position(
+         scan_benchmark_start_comparison(backwards_scan), NULL_SLICE));
    if (rc != 0) {
       splinterdb_close(&kvs, FALSE);
       return rc;
@@ -686,8 +688,8 @@ scan_benchmark_run_repeated_scans(const splinterdb_config *cfg,
       rc                              = splinterdb_iterator_init(
          kvs,
          &iter,
-         scan_benchmark_start_comparison(backwards_scan),
-         start_key);
+         .start_position = splinterdb_make_start_position(
+            scan_benchmark_start_comparison(backwards_scan), start_key));
       if (rc != 0) {
          splinterdb_close(&kvs, FALSE);
          return rc;

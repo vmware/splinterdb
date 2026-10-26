@@ -6,11 +6,12 @@ integration from `36183807` on top of main's persisted configuration. The main
 update leaves the previously tested implementation unchanged; see the
 [main-update proof](../benchmarks/results-20261013/filtered-main-1d6ea2a3/README.txt).
 
-`splinterdb_iterator_init_with_filter()` and
-`splinterdb_iterator_init_with_bounds_and_filter()` append three separate
-arguments to the corresponding ordinary initializer: a
-`splinterdb_key_predicate`, its `void *` context, and a `slice`
-`routing_filter_key`. There is no new `data_config` callback.
+`splinterdb_iterator_init()` accepts optional designated-initializer
+parameters (see `splinterdb_iterator_init_options`). The filter parameters are
+`.predicate` (a `splinterdb_key_predicate`), `.predicate_context` (a `void *`),
+and `.routing_filter_key` (a `slice`); they combine freely with the `.lower_limit`,
+`.upper_limit` and `.start_position` parameters.
+There is no new `data_config` callback.
 
 | Predicate | Routing-filter key | Behavior |
 | --- | --- | --- |

@@ -84,28 +84,37 @@ typedef struct merge_iterator {
    merge_accumulator merge_buffer;
 } merge_iterator;
 
-platform_status
-merge_iterator_create(platform_heap_id   hid,
-                      const data_config *cfg,
-                      int                num_trees,
-                      iterator         **itor_arr,
-                      merge_behavior     merge_mode,
-                      bool32             forwards,
-                      merge_iterator   **out_itor);
+typedef struct merge_iterator_options {
+   /* Reject keys before any message merge/finalization. The predicate and its
+    * context must remain valid until destruction and be stable for both scan
+    * directions. NULL (the default) retains the ordinary iterator path. */
+   merge_key_filter keep_key;
+   void            *filter_context;
+} merge_iterator_options;
 
-/* Reject keys before any message merge/finalization. The predicate and its
- * context must remain valid until destruction and be stable for both scan
- * directions. NULL retains the ordinary iterator path. */
+/* Usage: merge_iterator_create(hid, cfg, n, itors, MERGE_FULL, TRUE, &out);
+ *        merge_iterator_create(hid, cfg, n, itors, MERGE_FULL, TRUE, &out,
+ *                              .keep_key = pred, .filter_context = ctx); */
+#define merge_iterator_create(                                                 \
+   hid, cfg, num_trees, itor_arr, merge_mode, forwards, out_itor, ...)         \
+   merge_iterator_create_full((hid),                                           \
+                              (cfg),                                           \
+                              (num_trees),                                     \
+                              (itor_arr),                                      \
+                              (merge_mode),                                    \
+                              (forwards),                                      \
+                              (out_itor),                                      \
+                              &(const merge_iterator_options){__VA_ARGS__})
+
 platform_status
-merge_iterator_create_with_filter(platform_heap_id   hid,
-                                  const data_config *cfg,
-                                  int                num_trees,
-                                  iterator         **itor_arr,
-                                  merge_behavior     merge_mode,
-                                  bool32             forwards,
-                                  merge_key_filter   keep_key,
-                                  void              *filter_context,
-                                  merge_iterator   **out_itor);
+merge_iterator_create_full(platform_heap_id              hid,
+                           const data_config            *cfg,
+                           int                           num_trees,
+                           iterator                    **itor_arr,
+                           merge_behavior                merge_mode,
+                           bool32                        forwards,
+                           merge_iterator              **out_itor,
+                           const merge_iterator_options *options);
 
 platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor);

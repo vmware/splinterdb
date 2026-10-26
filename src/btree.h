@@ -432,22 +432,24 @@ btree_lookup_async(btree_lookup_async_state *state);
  * prefetches at most the next extent, and values >= 2 enable deep extent
  * prefetch.
  */
+typedef struct btree_iterator_init_options {
+   // Range and start position. Default: the whole tree, scanned forward.
+   key_lower_limit    lower_limit;
+   key_upper_limit    upper_limit;
+   key_start_position start_position;
+   bool32             copy_nodes;         // default: FALSE
+   uint32             height;             // default: 0
+   uint32             prefetch_lookahead; // default: 0 (disabled)
+} btree_iterator_init_options;
+
 platform_status
-btree_iterator_init(cache              *cc,
-                    const btree_config *cfg,
-                    btree_iterator     *itor,
-                    uint64              root_addr,
-                    uint16              format_version,
-                    page_type           page_type,
-                    comparison          min_key_comparison,
-                    key                 min_key,
-                    comparison          max_key_comparison,
-                    key                 max_key,
-                    comparison          start_type,
-                    key                 start_key,
-                    bool32              copy_nodes,
-                    uint32              height,
-                    uint32              prefetch_lookahead);
+btree_iterator_init(cache                             *cc,
+                    const btree_config                *cfg,
+                    btree_iterator                    *itor,
+                    uint64                             root_addr,
+                    uint16                             format_version,
+                    page_type                          page_type,
+                    const btree_iterator_init_options *options);
 
 // clang-format off
 DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
@@ -494,16 +496,34 @@ btree_iterator_init_async_result(btree_iterator_async_state *state);
 void
 btree_iterator_deinit(btree_iterator *itor);
 
+typedef struct btree_pack_req_init_options {
+   unsigned int seed;                 // default: 0
+   bool32       collect_fingerprints; // default: FALSE
+} btree_pack_req_init_options;
+
+// Usage: btree_pack_req_init(req, cc, cfg, itor, max_tuples, hid,
+//                            .seed = seed, .collect_fingerprints = TRUE);
+// The options are optional.
+#define btree_pack_req_init(req, cc, cfg, itor, max_tuples, hid, ...)          \
+   btree_pack_req_init_full((req),                                             \
+                            (cc),                                              \
+                            (cfg),                                             \
+                            (itor),                                            \
+                            (max_tuples),                                      \
+                            (hid),                                             \
+                            &(const btree_pack_req_init_options){__VA_ARGS__})
+
 static inline platform_status
-btree_pack_req_init(btree_pack_req     *req,
-                    cache              *cc,
-                    const btree_config *cfg,
-                    iterator           *itor,
-                    uint64              max_tuples,
-                    unsigned int        seed,
-                    bool32              collect_fingerprints,
-                    platform_heap_id    hid)
+btree_pack_req_init_full(btree_pack_req                    *req,
+                         cache                             *cc,
+                         const btree_config                *cfg,
+                         iterator                          *itor,
+                         uint64                             max_tuples,
+                         platform_heap_id                   hid,
+                         const btree_pack_req_init_options *options)
 {
+   unsigned int seed                 = options->seed;
+   bool32       collect_fingerprints = options->collect_fingerprints;
    memset(req, 0, sizeof(*req));
    req->cc         = cc;
    req->cfg        = cfg;

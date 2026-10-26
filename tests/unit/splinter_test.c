@@ -1362,9 +1362,8 @@ CTEST2(splinter, test_btree_pack_abort_releases_reserved_extents)
                                             &data->system_cfg->btree_cfg,
                                             &itor.super,
                                             1,
-                                            42,
-                                            FALSE,
-                                            data->hid);
+                                            data->hid,
+                                            .seed = 42);
    ASSERT_TRUE(SUCCESS(rc));
 
    uint64 before = allocator_in_use(alp);
@@ -1404,9 +1403,8 @@ CTEST2(splinter, test_btree_pack_rejects_counter_overflow)
                                             &data->system_cfg->btree_cfg,
                                             &itor.super,
                                             1,
-                                            42,
-                                            FALSE,
-                                            data->hid);
+                                            data->hid,
+                                            .seed = 42);
    ASSERT_TRUE(SUCCESS(rc));
 
    uint64 before = allocator_in_use(alp);
@@ -1681,14 +1679,8 @@ CTEST2(splinter, test_invalid_branch_reference_rejected)
       lookup_result_deinit(&result);
 
       core_range_iterator itor;
-      range_rc[invalid_field] = core_range_iterator_init(&spl,
-                                                         &itor,
-                                                         greater_than_or_equal,
-                                                         NEGATIVE_INFINITY_KEY,
-                                                         less_than,
-                                                         POSITIVE_INFINITY_KEY,
-                                                         greater_than_or_equal,
-                                                         NEGATIVE_INFINITY_KEY);
+      range_rc[invalid_field] = core_range_iterator_init(
+         &spl, &itor, &(const core_range_iterator_init_options){0});
       if (SUCCESS(range_rc[invalid_field])) {
          core_range_iterator_deinit(&itor);
       }
@@ -1800,14 +1792,8 @@ CTEST2(splinter, test_persisted_old_branch_version_rejected)
                                              &result);
          lookup_result_deinit(&result);
          core_range_iterator itor;
-         range_rc = core_range_iterator_init(&spl,
-                                             &itor,
-                                             greater_than_or_equal,
-                                             NEGATIVE_INFINITY_KEY,
-                                             less_than,
-                                             POSITIVE_INFINITY_KEY,
-                                             greater_than_or_equal,
-                                             NEGATIVE_INFINITY_KEY);
+         range_rc = core_range_iterator_init(
+            &spl, &itor, &(const core_range_iterator_init_options){0});
          if (SUCCESS(range_rc)) {
             core_range_iterator_deinit(&itor);
          }
@@ -2243,14 +2229,8 @@ CTEST2(splinter, test_reopen_with_changed_filter_config)
    }
    lookup_result_deinit(&result);
    core_range_iterator itor;
-   ASSERT_TRUE(SUCCESS(core_range_iterator_init(&spl,
-                                                &itor,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY,
-                                                less_than,
-                                                POSITIVE_INFINITY_KEY,
-                                                greater_than_or_equal,
-                                                NEGATIVE_INFINITY_KEY)));
+   ASSERT_TRUE(SUCCESS(core_range_iterator_init(
+      &spl, &itor, &(const core_range_iterator_init_options){0})));
    uint64 count = 0;
    while (iterator_can_next(&itor.super)) {
       count++;
@@ -6213,14 +6193,8 @@ CTEST2(splinter, test_cache_read_errors_reach_core_operations)
 
    core_range_iterator itor;
    cc->ops = &core_read_fault_ops;
-   rc      = core_range_iterator_init(&spl,
-                                 &itor,
-                                 greater_than_or_equal,
-                                 NEGATIVE_INFINITY_KEY,
-                                 less_than,
-                                 POSITIVE_INFINITY_KEY,
-                                 greater_than_or_equal,
-                                 NEGATIVE_INFINITY_KEY);
+   rc      = core_range_iterator_init(
+      &spl, &itor, &(const core_range_iterator_init_options){0});
    cc->ops = core_read_saved_ops;
    ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
    core_read_fail_async = FALSE;
@@ -6599,14 +6573,8 @@ CTEST2(splinter, test_blob_height_three_and_large_stats)
       .msg   = message_create(MESSAGE_TYPE_INSERT, cc, desc)};
    btree_pack_req *req = TYPED_MALLOC(data->hid, req);
    ASSERT_NOT_NULL(req);
-   ASSERT_TRUE(SUCCESS(btree_pack_req_init(req,
-                                           cc,
-                                           &data->system_cfg->btree_cfg,
-                                           &iter.super,
-                                           16,
-                                           0,
-                                           FALSE,
-                                           data->hid)));
+   ASSERT_TRUE(SUCCESS(btree_pack_req_init(
+      req, cc, &data->system_cfg->btree_cfg, &iter.super, 16, data->hid)));
    ASSERT_TRUE(SUCCESS(btree_pack(req)));
    ASSERT_EQUAL(16 * length, req->message_bytes);
    ASSERT_TRUE(req->height > 0);

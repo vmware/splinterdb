@@ -589,39 +589,20 @@ setup_ordered_iterators(merge_iterator *merge_itor)
  *-----------------------------------------------------------------------------
  */
 platform_status
-merge_iterator_create(platform_heap_id   hid,
-                      const data_config *cfg,
-                      int                num_trees,
-                      iterator         **itor_arr,
-                      merge_behavior     merge_mode,
-                      bool32             forwards,
-                      merge_iterator   **out_itor)
+merge_iterator_create_full(platform_heap_id              hid,
+                           const data_config            *cfg,
+                           int                           num_trees,
+                           iterator                    **itor_arr,
+                           merge_behavior                merge_mode,
+                           bool32                        forwards,
+                           merge_iterator              **out_itor,
+                           const merge_iterator_options *options)
 {
-   return merge_iterator_create_with_filter(hid,
-                                            cfg,
-                                            num_trees,
-                                            itor_arr,
-                                            merge_mode,
-                                            forwards,
-                                            NULL,
-                                            NULL,
-                                            out_itor);
-}
-
-platform_status
-merge_iterator_create_with_filter(platform_heap_id   hid,
-                                  const data_config *cfg,
-                                  int                num_trees,
-                                  iterator         **itor_arr,
-                                  merge_behavior     merge_mode,
-                                  bool32             forwards,
-                                  merge_key_filter   keep_key,
-                                  void              *filter_context,
-                                  merge_iterator   **out_itor)
-{
-   int             i;
-   platform_status rc = STATUS_OK;
-   merge_iterator *merge_itor;
+   merge_key_filter keep_key       = options->keep_key;
+   void            *filter_context = options->filter_context;
+   int              i;
+   platform_status  rc = STATUS_OK;
+   merge_iterator  *merge_itor;
 
    if (!out_itor || !itor_arr || !cfg || num_trees < 0
        || num_trees > ARRAY_SIZE(merge_itor->ordered_iterator_stored))

@@ -105,18 +105,22 @@ run_queries(splinterdb    *db,
       write_be(key + 8, 0);
       splinterdb_iterator *it = NULL;
 #ifdef PREDICATE_RANGE_FILTER_API
-      check(splinterdb_iterator_init_with_filter(
+      check(splinterdb_iterator_init(
          db,
          &it,
-         greater_than_or_equal,
-         slice_create(sizeof(key), key),
-         tenant_matches,
-         filter,
-         strcmp(mode, "pruned") == 0 ? slice_create(sizeof(hash_key), hash_key)
-                                     : NULL_SLICE));
+         .start_position =
+            splinterdb_start_at_or_after(slice_create(sizeof(key), key)),
+         .predicate          = tenant_matches,
+         .predicate_context  = filter,
+         .routing_filter_key = strcmp(mode, "pruned") == 0
+                                  ? slice_create(sizeof(hash_key), hash_key)
+                                  : NULL_SLICE));
 #else
       check(splinterdb_iterator_init(
-         db, &it, greater_than_or_equal, slice_create(sizeof(key), key)));
+         db,
+         &it,
+         .start_position =
+            splinterdb_start_at_or_after(slice_create(sizeof(key), key))));
 #endif
       int count = 0;
       while (splinterdb_iterator_valid(it)) {

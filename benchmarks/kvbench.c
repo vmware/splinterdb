@@ -758,8 +758,11 @@ warm_worker(void *arg)
    make_key(2 * lo, key);
    wait_start();
    splinterdb_iterator *it;
-   int                  rc = splinterdb_iterator_init(
-      kvs, &it, greater_than_or_equal, slice_create(KEY_SIZE, key));
+   int                  rc =
+      splinterdb_iterator_init(kvs,
+                               &it,
+                               .start_position = splinterdb_start_at_or_after(
+                                  slice_create(KEY_SIZE, key)));
    if (rc) {
       w->errors++;
       fprintf(stderr, "ERROR: warm iterator_init rc=%d\n", rc);
@@ -815,7 +818,7 @@ point_worker(void *arg)
    char                     buf[256];
    splinterdb_lookup_result res;
    splinterdb_lookup_result_init(
-      kvs, &res, SPLINTERDB_LOOKUP_VALUE, sizeof(buf), buf);
+      kvs, &res, .buffer = slice_create(sizeof(buf), buf));
    uint64_t T      = (uint64_t)nworkers;
    uint64_t lo     = opt.n * (uint64_t)w->idx / T,
             hi     = opt.n * (uint64_t)(w->idx + 1) / T;
@@ -906,7 +909,10 @@ range_worker(void *arg)
       uint64_t             t0 = now_ns(), t1 = 0, tl = 0;
       splinterdb_iterator *it;
       int                  rc = splinterdb_iterator_init(
-         kvs, &it, greater_than_or_equal, slice_create(KEY_SIZE, key));
+         kvs,
+         &it,
+         .start_position =
+            splinterdb_start_at_or_after(slice_create(KEY_SIZE, key)));
       if (rc) {
          w->errors++;
          if (w->errors <= 3) {
@@ -1037,7 +1043,7 @@ verify_overwrite_sample(const phase_t *ph, int threads)
    char                     key[KEY_SIZE], buffer[VALUE_SIZE];
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
-      kvs, &result, SPLINTERDB_LOOKUP_VALUE, sizeof(buffer), buffer);
+      kvs, &result, .buffer = slice_create(sizeof(buffer), buffer));
 
    for (int i = 0; i < threads; i++) {
       worker_t *original = &workers[i];

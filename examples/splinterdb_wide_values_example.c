@@ -76,7 +76,7 @@ main()
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
-      spl_handle, &result, SPLINTERDB_LOOKUP_VALUE, sizeof(outbuf), outbuf);
+      spl_handle, &result, .buffer = slice_create(sizeof(outbuf), outbuf));
 
    printf("Retrieve values of different lengths using output buffer of"
           " fixed size=%lu bytes:\n",

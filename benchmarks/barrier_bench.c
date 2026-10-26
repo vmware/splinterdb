@@ -241,8 +241,7 @@ main(int argc, char **argv)
    splinterdb *db;
    checked(splinterdb_open(&cfg, &db), "open");
    splinterdb_iterator *it;
-   checked(splinterdb_iterator_init(db, &it, greater_than_or_equal, NULL_SLICE),
-           "iterator init");
+   checked(splinterdb_iterator_init(db, &it), "iterator init");
    for (uint64_t id = 0; id < batch * count; id++) {
       assert(splinterdb_iterator_valid(it));
       slice k, v;

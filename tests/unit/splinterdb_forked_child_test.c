@@ -151,8 +151,7 @@ CTEST2(splinterdb_forked_child, automatic_log_barriers_survive_process_exit)
       splinterdb *db;
       ASSERT_EQUAL(0, splinterdb_open(&cfg, &db));
       splinterdb_lookup_result result;
-      splinterdb_lookup_result_init(
-         db, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      splinterdb_lookup_result_init(db, &result);
       for (uint64 i = 0; i < count; i++) {
          ASSERT_EQUAL(
             0, splinterdb_lookup(db, slice_create(sizeof(i), &i), &result));

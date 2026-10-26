@@ -309,22 +309,15 @@ CTEST2(btree, test_invalid_branch_iterator)
       for (bool32 copy_nodes = FALSE; copy_nodes <= TRUE; copy_nodes++) {
          btree_iterator itor;
          memset(&itor, 0xa5, sizeof(itor));
-         platform_status rc =
-            btree_iterator_init(NULL,
-                                &data->dbtree_cfg,
-                                &itor,
-                                invalid_branch_refs[i].addr,
-                                invalid_branch_refs[i].format_version,
-                                PAGE_TYPE_BRANCH,
-                                greater_than_or_equal,
-                                NEGATIVE_INFINITY_KEY,
-                                less_than,
-                                POSITIVE_INFINITY_KEY,
-                                greater_than_or_equal,
-                                NEGATIVE_INFINITY_KEY,
-                                copy_nodes,
-                                0,
-                                1);
+         platform_status rc = btree_iterator_init(
+            NULL,
+            &data->dbtree_cfg,
+            &itor,
+            invalid_branch_refs[i].addr,
+            invalid_branch_refs[i].format_version,
+            PAGE_TYPE_BRANCH,
+            &(const btree_iterator_init_options){.copy_nodes = copy_nodes,
+                                                 .prefetch_lookahead = 1});
          ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
          btree_iterator_deinit(&itor);
 

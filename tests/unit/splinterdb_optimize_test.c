@@ -95,11 +95,7 @@ CTEST2(splinterdb_optimize, test_blocking_full_range)
 
    load_key_batches(data->kvsb, num_keys, 40);
 
-   int rc = splinterdb_optimize(data->kvsb,
-                                NULL_SLICE,
-                                NULL_SLICE,
-                                TRUE,
-                                SPLINTERDB_NOTIFICATION_BLOCKING);
+   int rc = splinterdb_optimize(data->kvsb, .full_leaf_compactions = TRUE);
    ASSERT_EQUAL(0, rc);
 
    verify_point_lookups(data->kvsb, num_keys);
@@ -112,8 +108,7 @@ CTEST2(splinterdb_optimize, test_blocking_without_full_leaf_compactions)
 
    load_key_batches(data->kvsb, num_keys, 40);
 
-   int rc =
-      splinterdb_optimize(data->kvsb, NULL_SLICE, NULL_SLICE, FALSE, NULL);
+   int rc = splinterdb_optimize(data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    verify_point_lookups(data->kvsb, num_keys);
@@ -133,11 +128,7 @@ CTEST2(splinterdb_optimize, test_blocking_with_no_background_threads)
 
    load_key_batches(data->kvsb, num_keys, 40);
 
-   rc = splinterdb_optimize(data->kvsb,
-                            NULL_SLICE,
-                            NULL_SLICE,
-                            TRUE,
-                            SPLINTERDB_NOTIFICATION_BLOCKING);
+   rc = splinterdb_optimize(data->kvsb, .full_leaf_compactions = TRUE);
    ASSERT_EQUAL(0, rc);
 
    verify_point_lookups(data->kvsb, num_keys);
@@ -173,8 +164,7 @@ static void
 verify_resized_value(splinterdb *kvsb, slice key, uint8 length)
 {
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(kvsb, &result);
    ASSERT_EQUAL(0, splinterdb_lookup(kvsb, key, &result));
    ASSERT_TRUE(splinterdb_lookup_found(&result));
    slice value;
@@ -205,12 +195,8 @@ CTEST2(splinterdb_optimize, test_merge_can_grow_and_shrink_values)
                data->kvsb, keys[i], slice_create(1, &lengths[round][i]), NULL));
       }
       force_flush_current_memtable(data->kvsb);
-      ASSERT_EQUAL(0,
-                   splinterdb_optimize(data->kvsb,
-                                       NULL_SLICE,
-                                       NULL_SLICE,
-                                       TRUE,
-                                       SPLINTERDB_NOTIFICATION_BLOCKING));
+      ASSERT_EQUAL(
+         0, splinterdb_optimize(data->kvsb, .full_leaf_compactions = TRUE));
       for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
          verify_resized_value(data->kvsb, keys[i], lengths[round][i]);
       }
@@ -254,11 +240,12 @@ CTEST2(splinterdb_optimize, test_polling_subrange)
    splinterdb_notification notification;
    splinterdb_notification_init_polling(&notification, &user_data);
 
-   int rc = splinterdb_optimize(data->kvsb,
-                                slice_create(strlen(min_key), min_key),
-                                slice_create(strlen(max_key), max_key),
-                                TRUE,
-                                &notification);
+   int rc =
+      splinterdb_optimize(data->kvsb,
+                          .min_key = slice_create(strlen(min_key), min_key),
+                          .max_key = slice_create(strlen(max_key), max_key),
+                          .full_leaf_compactions = TRUE,
+                          .notification          = &notification);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(&user_data == splinterdb_notification_user_data(&notification));
 
@@ -288,8 +275,12 @@ CTEST2(splinterdb_optimize, test_empty_and_rejected_ranges_all_modes)
    for (uint64 i = 0; i < ARRAY_SIZE(notifications); i++) {
       splinterdb_notification_init_polling(&polling, NULL);
       /* Empty ranges complete inline, before the blocking caller waits. */
-      ASSERT_EQUAL(
-         0, splinterdb_optimize(data->kvsb, low, low, TRUE, notifications[i]));
+      ASSERT_EQUAL(0,
+                   splinterdb_optimize(data->kvsb,
+                                       .min_key               = low,
+                                       .max_key               = low,
+                                       .full_leaf_compactions = TRUE,
+                                       .notification = notifications[i]));
       if (notifications[i] == &polling) {
          int status = -1;
          ASSERT_TRUE(splinterdb_notification_poll(&polling, &status));
@@ -300,9 +291,12 @@ CTEST2(splinterdb_optimize, test_empty_and_rejected_ranges_all_modes)
       splinterdb_notification_init_polling(&polling, NULL);
       /* Rejected submission schedules no completion. The private blocking
        * notification must release both references on this path. */
-      ASSERT_EQUAL(
-         EINVAL,
-         splinterdb_optimize(data->kvsb, high, low, TRUE, notifications[i]));
+      ASSERT_EQUAL(EINVAL,
+                   splinterdb_optimize(data->kvsb,
+                                       .min_key               = high,
+                                       .max_key               = low,
+                                       .full_leaf_compactions = TRUE,
+                                       .notification = notifications[i]));
       ASSERT_FALSE(splinterdb_notification_poll(&polling, NULL));
       splinterdb_notification_deinit(&polling);
    }
@@ -319,11 +313,10 @@ CTEST2(splinterdb_optimize, test_fire_and_forget_without_background_threads)
    load_key_batches(data->kvsb, num_keys, 40);
 
    ASSERT_EQUAL(0,
-                splinterdb_optimize(data->kvsb,
-                                    NULL_SLICE,
-                                    NULL_SLICE,
-                                    TRUE,
-                                    SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET));
+                splinterdb_optimize(
+                   data->kvsb,
+                   .full_leaf_compactions = TRUE,
+                   .notification = SPLINTERDB_NOTIFICATION_FIRE_AND_FORGET));
    /* There is no notification recipient. Close must drain accepted work. */
    ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
    ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
@@ -462,8 +455,7 @@ static void
 verify_point_lookups(splinterdb *kvsb, uint32 num_keys)
 {
    splinterdb_lookup_result result;
-   splinterdb_lookup_result_init(
-      kvsb, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   splinterdb_lookup_result_init(kvsb, &result);
 
    for (uint32 key_no = 0; key_no < num_keys; key_no++) {
       char key[OPTIMIZE_TEST_KEY_SIZE];
@@ -490,8 +482,7 @@ static void
 verify_full_scan(splinterdb *kvsb, uint32 num_keys)
 {
    splinterdb_iterator *itor = NULL;
-   int                  rc =
-      splinterdb_iterator_init(kvsb, &itor, greater_than_or_equal, NULL_SLICE);
+   int                  rc   = splinterdb_iterator_init(kvsb, &itor);
    ASSERT_EQUAL(0, rc);
 
    for (uint32 key_no = 0; key_no < num_keys; key_no++) {
@@ -534,12 +525,12 @@ optimize_thread(void *arg)
       return NULL;
    }
 
-   args->rc =
-      splinterdb_optimize(args->kvsb,
-                          slice_create(strlen(args->min_key), args->min_key),
-                          slice_create(strlen(args->max_key), args->max_key),
-                          TRUE,
-                          args->notification);
+   args->rc = splinterdb_optimize(
+      args->kvsb,
+      .min_key = slice_create(strlen(args->min_key), args->min_key),
+      .max_key = slice_create(strlen(args->max_key), args->max_key),
+      .full_leaf_compactions = TRUE,
+      .notification          = args->notification);
 
    return NULL;
 }

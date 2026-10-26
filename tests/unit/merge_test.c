@@ -523,15 +523,15 @@ CTEST(merge, filtering_does_not_eagerly_drain_nonmatching_sources)
       }
       merge_iterator *merge = NULL;
       ASSERT_TRUE(
-         SUCCESS(merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
-                                                   &cfg,
-                                                   ARRAY_SIZE(inputs),
-                                                   inputs,
-                                                   MERGE_FULL,
-                                                   forwards,
-                                                   merge_test_keep_one_key,
-                                                   &selected,
-                                                   &merge)));
+         SUCCESS(merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+                                       &cfg,
+                                       ARRAY_SIZE(inputs),
+                                       inputs,
+                                       MERGE_FULL,
+                                       forwards,
+                                       &merge,
+                                       .keep_key = merge_test_keep_one_key,
+                                       .filter_context = &selected)));
       merge_test_check_curr(merge, selected, "v");
       ASSERT_EQUAL(1, children[1].steps);
       // Cross each bound and reverse; rejected update histories stay hidden.
@@ -574,15 +574,15 @@ CTEST(merge, filtering_propagates_errors_while_skipping_rejected_keys)
       iterator       *inputs[] = {&child.super};
       merge_iterator *merge    = NULL;
       ASSERT_TRUE(
-         SUCCESS(merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
-                                                   &cfg,
-                                                   1,
-                                                   inputs,
-                                                   MERGE_FULL,
-                                                   forwards,
-                                                   merge_test_keep_edges,
-                                                   NULL,
-                                                   &merge)));
+         SUCCESS(merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+                                       &cfg,
+                                       1,
+                                       inputs,
+                                       MERGE_FULL,
+                                       forwards,
+                                       &merge,
+                                       .keep_key       = merge_test_keep_edges,
+                                       .filter_context = NULL)));
       merge_test_check_curr(merge, forwards ? 'a' : 'c', "v");
       platform_status rc =
          forwards ? iterator_next(&merge->super) : iterator_prev(&merge->super);
@@ -598,15 +598,15 @@ CTEST(merge, filtering_propagates_errors_while_skipping_rejected_keys)
       child.steps   = 0;
       child.failed  = FALSE;
       char selected = forwards ? 'c' : 'a';
-      rc            = merge_iterator_create_with_filter(PROCESS_PRIVATE_HEAP_ID,
-                                             &cfg,
-                                             1,
-                                             inputs,
-                                             MERGE_FULL,
-                                             forwards,
-                                             merge_test_keep_one_key,
-                                             &selected,
-                                             &merge);
+      rc            = merge_iterator_create(PROCESS_PRIVATE_HEAP_ID,
+                                 &cfg,
+                                 1,
+                                 inputs,
+                                 MERGE_FULL,
+                                 forwards,
+                                 &merge,
+                                 .keep_key       = merge_test_keep_one_key,
+                                 .filter_context = &selected);
       ASSERT_EQUAL(STATUS_IO_ERROR.r, rc.r);
       ASSERT_NULL(merge);
       ASSERT_TRUE(child.failed);

@@ -96,11 +96,11 @@ main(int argc, char **argv)
           opts.min_key == NULL ? "-infinity" : opts.min_key,
           opts.max_key == NULL ? "+infinity" : opts.max_key);
 
-   rc = splinterdb_optimize(spl,
-                            min_key,
-                            max_key,
-                            opts.full_leaf_compactions,
-                            SPLINTERDB_NOTIFICATION_BLOCKING);
+   rc =
+      splinterdb_optimize(spl,
+                          .min_key               = min_key,
+                          .max_key               = max_key,
+                          .full_leaf_compactions = opts.full_leaf_compactions);
 
    if (rc == 0) {
       printf("Optimize completed successfully.\n");

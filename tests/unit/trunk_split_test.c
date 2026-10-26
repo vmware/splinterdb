@@ -69,9 +69,8 @@ split_test_pack(trunk_context *context, uint64 count)
                                            context->cfg->btree_cfg,
                                            &itor.super,
                                            count,
-                                           42,
-                                           FALSE,
-                                           context->hid)));
+                                           context->hid,
+                                           .seed = 42)));
    ASSERT_TRUE(SUCCESS(btree_pack(&req)));
    uint64 addr = req.root_addr;
    btree_pack_req_deinit(&req, context->hid);
@@ -144,8 +143,7 @@ CTEST2(trunk_split, duplicate_keys_produce_valid_leaves)
    for (uint64 pass = 0; pass < 2; pass++) {
       for (char k = '!'; k <= '"'; k++) {
          splinterdb_lookup_result result;
-         splinterdb_lookup_result_init(
-            data->db, &result, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+         splinterdb_lookup_result_init(data->db, &result);
          ASSERT_EQUAL(
             0, splinterdb_lookup(data->db, slice_create(1, &k), &result));
          ASSERT_TRUE(splinterdb_lookup_found(&result));
@@ -238,21 +236,14 @@ CTEST2(trunk_split, split_scan_propagates_io_error)
    // Find the second leaf in a valid branch. Bounds/count lookups visit the
    // endpoints; the split scan must fetch this interior page while advancing.
    btree_iterator itor;
-   ASSERT_TRUE(SUCCESS(btree_iterator_init(context->cc,
-                                           data->cfg.btree_cfg,
-                                           &itor,
-                                           branch,
-                                           BTREE_BRANCH_FORMAT_VERSION,
-                                           PAGE_TYPE_BRANCH,
-                                           greater_than_or_equal,
-                                           NEGATIVE_INFINITY_KEY,
-                                           less_than,
-                                           POSITIVE_INFINITY_KEY,
-                                           greater_than_or_equal,
-                                           NEGATIVE_INFINITY_KEY,
-                                           FALSE,
-                                           0,
-                                           0)));
+   ASSERT_TRUE(
+      SUCCESS(btree_iterator_init(context->cc,
+                                  data->cfg.btree_cfg,
+                                  &itor,
+                                  branch,
+                                  BTREE_BRANCH_FORMAT_VERSION,
+                                  PAGE_TYPE_BRANCH,
+                                  &(const btree_iterator_init_options){0})));
    uint64 first_page = itor.curr.addr;
    while (itor.curr.addr == first_page && iterator_can_next(&itor.super)) {
       ASSERT_TRUE(SUCCESS(iterator_next(&itor.super)));
