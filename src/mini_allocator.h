@@ -54,6 +54,11 @@ typedef struct mini_allocator {
    uint64 cur_extent_meta_page[MINI_MAX_BATCHES];
 } mini_allocator;
 
+/* A new mini allocator (meta_tail == 0) adopts the caller's fresh metadata
+ * extent allocation as its first external reference. On initialization failure
+ * the caller still owns that allocation and must discard/free it. Finalizing
+ * with mini_release() drops unused reserves, not this external reference;
+ * mini_dec_ref() consumes it once the owner is finished. */
 platform_status
 mini_init(mini_allocator *mini,
           cache          *cc,
@@ -136,11 +141,10 @@ mini_prefetch(cache *cc, page_type type, uint64 meta_head);
  *
  *     The multiplicity it produces matches normal operation, because a logical
  *     reference is exactly one allocator reference on the extent holding the
- *     metadata head, as mini_inc_ref() shows.  That reference is recorded for
- *     every holder, the first one included: enumerating the extents leaves the
- *     metadata extent at MINI_NO_REFS, which accounts for the mini allocator
- *     existing rather than for anyone referring to it, so external references
- *     are counted on top of it.
+ *     metadata head, as mini_inc_ref() shows. Enumerating the metadata head
+ *     establishes AL_ONE_REF and accounts for the first holder, exactly as
+ *     mini_init() adopts the caller's fresh allocation. Later holders add one
+ *     reference each without enumerating the interior again.
  */
 platform_status
 mini_recover_references(cache *cc, uint64 meta_head, page_type type);

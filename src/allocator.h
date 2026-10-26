@@ -179,6 +179,8 @@ typedef struct allocator_ops {
    generic_ref_fn inc_ref;
    dec_ref_fn     dec_ref;
    generic_ref_fn get_ref;
+   /* Packed maps can answer allocation-state checks without a hash lookup. */
+   bool32 (*is_allocated)(allocator *al, uint64 addr);
 
    // After a mount, you must do either a recovery or a load
 
@@ -259,6 +261,15 @@ static inline refcount
 allocator_get_refcount(allocator *al, uint64 addr)
 {
    return al->ops->get_ref(al, addr);
+}
+
+static inline bool32
+allocator_is_allocated(allocator *al, uint64 addr)
+{
+   if (al->ops->is_allocated != NULL) {
+      return al->ops->is_allocated(al, addr);
+   }
+   return allocator_get_refcount(al, addr) != AL_FREE;
 }
 
 /*
@@ -361,7 +372,7 @@ allocator_page_valid(allocator *al, uint64 addr)
 
    uint64 base_addr = allocator_config_extent_base_addr(allocator_cfg, addr);
    if ((base_addr != 0) && (addr < allocator_cfg->capacity)) {
-      refcount rfc = allocator_get_refcount(al, base_addr);
+      bool32 rfc = allocator_is_allocated(al, base_addr);
       if (rfc == 0) {
          platform_error_log(
             "%s():%d: Trying to access an unreferenced extent."

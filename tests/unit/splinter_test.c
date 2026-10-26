@@ -1038,6 +1038,159 @@ blob_checksum_test_mini_deinit(cache          *cc,
                                                            : STATUS_TEST_FAILED;
 }
 
+/* The allocation returned by allocator_alloc() is the mini allocator's first
+ * owner. A second caller adds one real reference, including for a live log
+ * handle; there is no permanent synthetic reference on the metadata head. */
+CTEST2(splinter, test_mini_refcount_first_owner_and_sharing)
+{
+   cache     *cc             = (cache *)data->clock_cache;
+   allocator *al             = (allocator *)&data->al;
+   uint64     initial_in_use = allocator_in_use(al);
+   page_type  tree_types[]   = {PAGE_TYPE_BRANCH, PAGE_TYPE_MEMTABLE};
+   for (uint64 i = 0; i < ARRAY_SIZE(tree_types); i++) {
+      mini_allocator mini;
+      uint64         root;
+      ASSERT_TRUE(SUCCESS(btree_create(
+         cc, &data->system_cfg->btree_cfg, &mini, tree_types[i], &root)));
+      ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, root));
+      mini_release(&mini);
+      btree_inc_ref(cc, &data->system_cfg->btree_cfg, root);
+      ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, root));
+      ASSERT_FALSE(
+         btree_dec_ref(cc, &data->system_cfg->btree_cfg, root, tree_types[i]));
+      ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, root));
+      ASSERT_TRUE(
+         btree_dec_ref(cc, &data->system_cfg->btree_cfg, root, tree_types[i]));
+      ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, root));
+   }
+
+   const routing_config *filter_cfg =
+      data->system_cfg->splinter_cfg.trunk_node_cfg->filter_cfg;
+   routing_filter empty       = NULL_ROUTING_FILTER;
+   routing_filter filter      = NULL_ROUTING_FILTER;
+   uint32         fingerprint = 17;
+   ASSERT_TRUE(SUCCESS(
+      routing_filter_add(cc, filter_cfg, &empty, &filter, &fingerprint, 1, 0)));
+   uint64 filter_head = filter.meta_head;
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, filter_head));
+   routing_filter_inc_ref(cc, &filter);
+   ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, filter_head));
+   routing_filter_dec_ref(cc, &filter);
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, filter_head));
+   routing_filter_dec_ref(cc, &filter);
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, filter_head));
+
+   log_handle *log;
+   ASSERT_TRUE(SUCCESS(
+      shard_log_create(cc, &data->system_cfg->log_cfg, data->hid, &log)));
+   log_head head = log_get_head(log);
+   ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, head.meta_addr));
+   log_deinit(log);
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head.meta_addr));
+   shard_log_dec_ref(cc, &head);
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, head.meta_addr));
+   ASSERT_EQUAL(initial_in_use, allocator_in_use(al));
+}
+
+/* Repeated shared data entries cheaply force a second metadata extent. This
+ * checks the head's consumed last reference separately from continuation
+ * extents, and compares the full live and rebuilt maps with two head owners. */
+CTEST2(splinter, test_mini_refcount_recovery_and_continuation)
+{
+   cache            *cc             = (cache *)data->clock_cache;
+   allocator        *al             = (allocator *)&data->al;
+   allocator_config *cfg            = allocator_get_config(al);
+   uint64            initial_in_use = allocator_in_use(al);
+   uint64            extent_size    = cache_extent_size(cc);
+   uint64            head, attached;
+   ASSERT_TRUE(SUCCESS(allocator_alloc(al, &head, PAGE_TYPE_MISC)));
+   mini_allocator mini;
+   ASSERT_TRUE(SUCCESS(mini_init(&mini, cc, head, 0, 1, PAGE_TYPE_MISC, NULL)));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head));
+   ASSERT_TRUE(SUCCESS(allocator_alloc(al, &attached, PAGE_TYPE_MISC)));
+   uint64 attachments = 0;
+   do {
+      ASSERT_TRUE(SUCCESS(mini_attach_extent(&mini, 0, attached)));
+      attachments++;
+      ASSERT_TRUE(attachments <= extent_size / sizeof(uint64));
+   } while (allocator_config_extent_base_addr(cfg, mini.meta_tail) == head);
+   uint64 continuation = allocator_config_extent_base_addr(cfg, mini.meta_tail);
+   mini_release(&mini);
+   ASSERT_EQUAL(attachments + 1,
+                allocator_dec_ref(al, attached, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, continuation));
+   ASSERT_EQUAL(2, mini_inc_ref(cc, head));
+   ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, head));
+
+   refcount *expected =
+      TYPED_ARRAY_MALLOC(data->hid, expected, cfg->extent_capacity);
+   ASSERT_NOT_NULL(expected);
+   for (uint64 i = 0; i < cfg->extent_capacity; i++) {
+      expected[i] = allocator_get_refcount(al, i * extent_size);
+   }
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   ASSERT_TRUE(SUCCESS(allocator_recovery_begin(al)));
+   ASSERT_TRUE(SUCCESS(mini_recover_references(cc, head, PAGE_TYPE_MISC)));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head));
+   ASSERT_TRUE(SUCCESS(mini_recover_references(cc, head, PAGE_TYPE_MISC)));
+   allocator_recovery_finish(al);
+   for (uint64 i = 0; i < cfg->extent_capacity; i++) {
+      ASSERT_EQUAL(expected[i],
+                   allocator_get_refcount(al, i * extent_size),
+                   "extent %lu differs after mini recovery",
+                   i);
+   }
+   platform_free(data->hid, expected);
+   ASSERT_EQUAL(1, mini_dec_ref(cc, head, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head));
+   ASSERT_EQUAL(0, mini_dec_ref(cc, head, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, head));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, continuation));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, attached));
+   ASSERT_EQUAL(initial_in_use, allocator_in_use(al));
+}
+
+static const allocator_ops *mini_init_saved_ops;
+static uint64               mini_init_allocations_before_failure;
+
+static platform_status
+mini_init_fail_allocation(allocator *al, uint64 *addr, page_type type)
+{
+   if (mini_init_allocations_before_failure == 0) {
+      return STATUS_NO_SPACE;
+   }
+   mini_init_allocations_before_failure--;
+   return mini_init_saved_ops->alloc(al, addr, type);
+}
+
+CTEST2(splinter, test_mini_refcount_init_failure_preserves_owner)
+{
+   cache     *cc             = (cache *)data->clock_cache;
+   allocator *al             = (allocator *)&data->al;
+   uint64     initial_in_use = allocator_in_use(al);
+   for (uint64 failure_batch = 0; failure_batch < 3; failure_batch++) {
+      uint64 head;
+      ASSERT_TRUE(SUCCESS(allocator_alloc(al, &head, PAGE_TYPE_MISC)));
+      mini_init_saved_ops                  = al->ops;
+      allocator_ops fault_ops              = *al->ops;
+      fault_ops.alloc                      = mini_init_fail_allocation;
+      mini_init_allocations_before_failure = failure_batch;
+      al->ops                              = &fault_ops;
+      mini_allocator  mini;
+      platform_status rc =
+         mini_init(&mini, cc, head, 0, 3, PAGE_TYPE_MISC, NULL);
+      al->ops = mini_init_saved_ops;
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NO_SPACE));
+      ASSERT_EQUAL(initial_in_use + 1, allocator_in_use(al));
+      ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head));
+      ASSERT_EQUAL(AL_NO_REFS, allocator_dec_ref(al, head, PAGE_TYPE_MISC));
+      cache_extent_discard(cc, head, PAGE_TYPE_MISC);
+      ASSERT_EQUAL(AL_FREE, allocator_dec_ref(al, head, PAGE_TYPE_MISC));
+      ASSERT_EQUAL(initial_in_use, allocator_in_use(al));
+   }
+}
+
 CTEST2(splinter, test_blob_checksums)
 {
    cache            *cc  = (cache *)data->clock_cache;

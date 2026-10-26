@@ -80,6 +80,17 @@ CFLAGS += -D_GNU_SOURCE -ggdb -Wall -pthread -Wfatal-errors -Werror -Wvla
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
+# Experimental packed allocator; dense counts remain the default. Use separate
+# BUILD_ROOT values when comparing the two. See benchmarks/allocation_table.
+BUILD_RC_COMPACT ?= 0
+ifeq ($(filter $(BUILD_RC_COMPACT),0 1),)
+   $(error BUILD_RC_COMPACT must be 0 or 1)
+endif
+CFLAGS += -DSPLINTER_RC_COMPACT=$(BUILD_RC_COMPACT)
+
+help::
+	@echo '  BUILD_RC_COMPACT={0,1}: Experimental two-bit refcounts (Default: 0).'
+
 # track git ref in the built library. We don't put this into CFLAGS
 # directly because it causes false-positives in our config tracking.
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
@@ -449,6 +460,7 @@ UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	    \
                  $(OBJDIR)/$(SRCDIR)/allocator.o      \
                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o   \
+                 $(OBJDIR)/$(SRCDIR)/rc_refcount.o \
                  $(OBJDIR)/$(SRCDIR)/task.o           \
                  $(OBJDIR)/$(SRCDIR)/writeback_set.o  \
                  $(UTIL_SYS)                          \
@@ -473,6 +485,8 @@ $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) \
                                 $(OBJDIR)/$(SRCDIR)/histogram.o \
                                 $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/vector_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
+$(BINDIR)/$(UNITDIR)/rc_refcount_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ) $(OBJDIR)/$(SRCDIR)/rc_refcount.o
+
 $(BINDIR)/$(UNITDIR)/platform_threads_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)            \

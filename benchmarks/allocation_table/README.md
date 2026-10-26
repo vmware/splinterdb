@@ -1,5 +1,11 @@
 # Allocation-table representation and concurrent checkpoints
 
+The 2026-10-26 follow-up implements an opt-in packed allocator and removes the
+mini-allocator synthetic root reference. See [implementation and evaluation](IMPLEMENTATION.md).
+The study below records the original `6e550e1e` behavior; its raw-three mini-head
+counts and statement that production sources are unchanged describe that earlier
+investigation, not the follow-up branch.
+
 Investigation dated 2026-10-25, based on `6e550e1e`. Branch
 `robj/allocation-table`; isolated worktree
 `.cache/projects-20261025/worktrees/allocation-table`.

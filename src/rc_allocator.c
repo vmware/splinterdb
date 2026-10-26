@@ -52,6 +52,49 @@ rc_allocator_validate_format_version(uint16 format_version)
  */
 #define SHOULD_TRACE(addr) (0) // Do not trace anything
 
+/* The compact representation is deliberately opt-in while the public retain
+ * callbacks are infallible. The container itself has a failure-safe try_inc. */
+static inline bool32
+rc_allocator_has_refcounts(rc_allocator *al)
+{
+#if SPLINTER_RC_COMPACT
+   return al->compact.words != NULL;
+#else
+   return al->ref_count != NULL;
+#endif
+}
+
+static inline refcount
+rc_allocator_count_load(rc_allocator *al, uint64 extent)
+{
+#if SPLINTER_RC_COMPACT
+   return rc_refcount_get(&al->compact, extent);
+#else
+   return __atomic_load_n(&al->ref_count[extent], __ATOMIC_RELAXED);
+#endif
+}
+
+static inline bool32
+rc_allocator_count_allocated(rc_allocator *al, uint64 extent)
+{
+#if SPLINTER_RC_COMPACT
+   return rc_refcount_is_allocated(&al->compact, extent);
+#else
+   return rc_allocator_count_load(al, extent) != AL_FREE;
+#endif
+}
+
+static inline bool32
+rc_allocator_count_claim(rc_allocator *al, uint64 extent)
+{
+#if SPLINTER_RC_COMPACT
+   return rc_refcount_try_claim(&al->compact, extent);
+#else
+   return __sync_bool_compare_and_swap(
+      &al->ref_count[extent], AL_FREE, AL_ONE_REF);
+#endif
+}
+
 /*
  * Helper methods
  */
@@ -89,7 +132,7 @@ rc_allocator_checked_extent_number(rc_allocator *al, uint64 addr)
 {
    platform_assert(al != NULL);
    platform_assert(al->cfg != NULL);
-   platform_assert(al->ref_count != NULL);
+   platform_assert(rc_allocator_has_refcounts(al));
    platform_assert(rc_allocator_valid_extent_addr(al, addr),
                    "Invalid allocator extent address %lu (capacity %lu, "
                    "extent size %lu)",
@@ -159,9 +202,15 @@ rc_allocator_record_allocated_extent(rc_allocator *al)
 static platform_status
 rc_allocator_alloc_refcount_buffer(rc_allocator *al)
 {
-   if (al->ref_count != NULL) {
+   if (rc_allocator_has_refcounts(al)) {
       return STATUS_OK;
    }
+#if SPLINTER_RC_COMPACT
+   return rc_refcount_init(&al->compact,
+                           al->cfg->extent_capacity,
+                           al->heap_id,
+                           platform_get_module_id());
+#else
    uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
    platform_status status      = platform_buffer_init(&al->bh, buffer_size);
    if (!SUCCESS(status)) {
@@ -171,6 +220,7 @@ rc_allocator_alloc_refcount_buffer(rc_allocator *al)
    al->ref_count = platform_buffer_getaddr(&al->bh);
    memset(al->ref_count, 0, buffer_size);
    return STATUS_OK;
+#endif
 }
 
 /*
@@ -182,7 +232,9 @@ static void
 rc_allocator_reset_hand(rc_allocator *al)
 {
    uint64 hand = 0;
-   while (hand < al->cfg->extent_capacity && al->ref_count[hand] != AL_FREE) {
+   while (hand < al->cfg->extent_capacity
+          && rc_allocator_count_allocated(al, hand))
+   {
       hand++;
    }
    if (hand == al->cfg->extent_capacity) {
@@ -209,7 +261,11 @@ rc_allocator_init_refcounts(rc_allocator *al)
       return STATUS_BAD_PARAM;
    }
 
+#if SPLINTER_RC_COMPACT
+   rc_refcount_reset(&al->compact);
+#else
    memset(al->ref_count, 0, rc_allocator_refcount_buffer_size(al->cfg));
+#endif
    /*
     * Set, not accumulated, for the same reason rc_allocator_load_refcounts()
     * does it: this establishes a map rather than adding to one, and a rebuild
@@ -231,8 +287,8 @@ rc_allocator_init_refcounts(rc_allocator *al)
     * Reserve both so recovery never hands them out.
     */
    for (uint64 extent_no = 0; extent_no < reserved_extent_count; extent_no++) {
-      platform_assert(al->ref_count[extent_no] == AL_FREE);
-      al->ref_count[extent_no] = AL_ONE_REF;
+      bool32 claimed = rc_allocator_count_claim(al, extent_no);
+      platform_assert(claimed);
       rc_allocator_record_allocated_extent(al);
    }
 
@@ -360,6 +416,23 @@ rc_allocator_recovery_record_reference(rc_allocator *al,
    }
 
 
+#if SPLINTER_RC_COMPACT
+   refcount previous = rc_allocator_count_load(al, extent_no);
+   if (previous == UINT32_MAX) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   /* Recovery runs before ordinary allocator use. A first reference also
+    * installs the allocation floor, without a transient count of one. */
+   platform_status status = rc_refcount_set(
+      &al->compact, extent_no, previous == AL_FREE ? AL_ONE_REF : previous + 1);
+   if (!SUCCESS(status)) {
+      return status;
+   }
+   if (previous == AL_FREE) {
+      rc_allocator_record_allocated_extent(al);
+      __sync_add_and_fetch(&al->stats.extent_allocs[type], 1);
+   }
+#else
    refcount new_refcount = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
    if (new_refcount == 0) {
       platform_error_log("Allocator recovery refcount overflow for extent "
@@ -379,6 +452,7 @@ rc_allocator_recovery_record_reference(rc_allocator *al,
       __sync_add_and_fetch(&al->stats.extent_allocs[type], 1);
    }
 
+#endif
    return STATUS_OK;
 }
 
@@ -397,6 +471,53 @@ rc_allocator_recovery_finish(rc_allocator *al)
    al->map_is_valid = TRUE;
 }
 
+
+#if SPLINTER_RC_COMPACT
+/* Mount/persist are quiescent. Transfer the unchanged 32-bit disk layout in
+ * bounded, page-aligned chunks, so compression does not hide a dense staging
+ * allocation. Load failure leaves the map invalid for normal allocation. */
+static platform_status
+rc_allocator_transfer_counts(rc_allocator *al, bool32 write)
+{
+   uint64    bytes       = rc_allocator_refcount_buffer_size(al->cfg);
+   uint64    chunk_bytes = MIN(bytes, UINT64_C(1) << 20);
+   refcount *counts      = TYPED_ALIGNED_MALLOC(
+      al->heap_id, al->cfg->io_cfg->page_size, counts, chunk_bytes);
+   if (counts == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+   platform_status status = STATUS_OK;
+   for (uint64 offset = 0; offset < bytes; offset += chunk_bytes) {
+      uint64 transfer = MIN(chunk_bytes, bytes - offset);
+      uint64 first    = offset / sizeof(refcount);
+      uint64 n =
+         MIN(transfer / sizeof(refcount), al->cfg->extent_capacity - first);
+      uint64 addr = al->cfg->io_cfg->extent_size + offset;
+      if (write) {
+         memset(counts, 0, transfer);
+         for (uint64 i = 0; i < n; i++) {
+            counts[i] = rc_allocator_count_load(al, first + i);
+         }
+         status = io_write(al->io, counts, transfer, addr);
+      } else {
+         status = io_read(al->io, counts, transfer, addr);
+         if (SUCCESS(status)) {
+            for (uint64 i = 0; i < n; i++) {
+               status = rc_refcount_set(&al->compact, first + i, counts[i]);
+               if (!SUCCESS(status)) {
+                  break;
+               }
+            }
+         }
+      }
+      if (!SUCCESS(status)) {
+         break;
+      }
+   }
+   platform_free(al->heap_id, counts);
+   return status;
+}
+#endif
 
 /*
  *----------------------------------------------------------------------
@@ -420,6 +541,11 @@ rc_allocator_load_refcounts(rc_allocator *al)
       return status;
    }
 
+   al->map_is_valid = FALSE;
+#if SPLINTER_RC_COMPACT
+   rc_refcount_reset(&al->compact);
+   status = rc_allocator_transfer_counts(al, FALSE);
+#else
    // Load the persisted refcount map from its fixed reserved location.
    uint64 buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
    status =
@@ -427,6 +553,7 @@ rc_allocator_load_refcounts(rc_allocator *al)
               al->ref_count,
               buffer_size,
               RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size);
+#endif
    if (!SUCCESS(status)) {
       return status;
    }
@@ -441,11 +568,11 @@ rc_allocator_load_refcounts(rc_allocator *al)
     */
    uint64 reserved_extent_count = rc_allocator_reserved_extent_count(al->cfg);
    for (uint64 i = 0; i < reserved_extent_count; i++) {
-      if (al->ref_count[i] != AL_ONE_REF) {
+      if (rc_allocator_count_load(al, i) != AL_ONE_REF) {
          platform_error_log("Invalid persisted allocator map: reserved "
                             "extent %lu has refcount %u (expected %u)\n",
                             i,
-                            al->ref_count[i],
+                            rc_allocator_count_load(al, i),
                             AL_ONE_REF);
          return STATUS_INVALID_STATE;
       }
@@ -457,7 +584,7 @@ rc_allocator_load_refcounts(rc_allocator *al)
    al->stats.curr_allocated = 0;
    uint64 first_free        = al->cfg->extent_capacity;
    for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
-      if (al->ref_count[i] != 0) {
+      if (rc_allocator_count_allocated(al, i)) {
          al->stats.curr_allocated++;
       } else if (first_free == al->cfg->extent_capacity) {
          first_free = i;
@@ -489,10 +616,13 @@ rc_allocator_persist(rc_allocator *al, uint64 *state_addr)
 
    uint64 map_addr =
       RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size;
-   uint64 buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
-   uint64 io_size     = ROUNDUP(buffer_size, al->cfg->io_cfg->page_size);
-
-   platform_status status = io_write(al->io, al->ref_count, io_size, map_addr);
+#if SPLINTER_RC_COMPACT
+   platform_status status = rc_allocator_transfer_counts(al, TRUE);
+#else
+   uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
+   uint64          io_size = ROUNDUP(buffer_size, al->cfg->io_cfg->page_size);
+   platform_status status  = io_write(al->io, al->ref_count, io_size, map_addr);
+#endif
    if (!SUCCESS(status)) {
       return status;
    }
@@ -522,7 +652,23 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
    platform_assert(al->map_is_valid);
    uint64 extent_no = rc_allocator_checked_extent_number(al, addr);
 
+#if SPLINTER_RC_COMPACT
+   refcount        ref_count;
+   platform_status status =
+      rc_refcount_try_inc(&al->compact, extent_no, &ref_count);
+   /* Experimental adapter only: legacy ownership callbacks cannot propagate
+    * OOM. Do not return a fabricated count or continue after a failed retain.
+    * Keep BUILD_RC_COMPACT disabled in production until these callers can
+    * roll back a fallible retain. The container has no partial-count change. */
+   platform_assert(
+      SUCCESS(status),
+      "Experimental compact allocator retain failed at extent %lu: %s. "
+      "Fallible ownership callbacks are required before production use.",
+      extent_no,
+      platform_status_to_string(status));
+#else
    refcount ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
+#endif
    platform_assert(ref_count != 1 && ref_count != 0);
    if (SHOULD_TRACE(addr)) {
       platform_default_log("rc_allocator_inc_ref(%lu): %d -> %d\n",
@@ -540,7 +686,11 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
    rc_allocator_assert_valid_page_type(type);
    uint64 extent_no = rc_allocator_checked_extent_number(al, addr);
 
+#if SPLINTER_RC_COMPACT
+   refcount ref_count = rc_refcount_dec(&al->compact, extent_no);
+#else
    refcount ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
+#endif
 
    // We should have decremented the ref-count. If it rolls-over and
    // goes back to this value, it means the original value was 0. That
@@ -572,7 +722,7 @@ rc_allocator_get_ref(rc_allocator *al, uint64 addr)
     * declared valid, so get_ref() requires a live buffer but not a finished
     * rebuild. rc_allocator_checked_extent_number() enforces the former. */
    uint64 extent_no = rc_allocator_checked_extent_number(al, addr);
-   return __atomic_load_n(&al->ref_count[extent_no], __ATOMIC_RELAXED);
+   return rc_allocator_count_load(al, extent_no);
 }
 
 
@@ -662,9 +812,8 @@ rc_allocator_alloc(rc_allocator *al,   // IN
 
    for (uint64 offset = 0; offset < al->cfg->extent_capacity; offset++) {
       hand = (first_hand + offset) % al->cfg->extent_capacity;
-      if (__atomic_load_n(&al->ref_count[hand], __ATOMIC_RELAXED) == AL_FREE) {
-         extent_is_free = __sync_bool_compare_and_swap(
-            &al->ref_count[hand], AL_FREE, AL_ONE_REF);
+      if (!rc_allocator_count_allocated(al, hand)) {
+         extent_is_free = rc_allocator_count_claim(al, hand);
          if (extent_is_free) {
             break;
          }
@@ -736,6 +885,40 @@ rc_allocator_print_stats(rc_allocator *al)
    platform_default_log("| Allocator Stats                                                   |\n");
    platform_default_log("|%s|\n", dashes);
    // clang-format on
+
+   uint64   histogram[5] = {0};
+   refcount maximum      = 0;
+   for (uint64 extent = 0; extent < al->cfg->extent_capacity; extent++) {
+      refcount count = rc_allocator_count_load(al, extent);
+      uint64   bin   = count < 3 ? count : (count < 255 ? 3 : 4);
+      histogram[bin]++;
+      maximum = MAX(maximum, count);
+   }
+   platform_default_log(
+      "Refcount census (non-atomic): capacity=%lu free=%lu "
+      "retiring=%lu one=%lu raw3_254=%lu raw255plus=%lu max=%u\n",
+      al->cfg->extent_capacity,
+      histogram[0],
+      histogram[1],
+      histogram[2],
+      histogram[3],
+      histogram[4],
+      maximum);
+#if SPLINTER_RC_COMPACT
+   rc_refcount_usage usage;
+   rc_refcount_get_usage(&al->compact, &usage);
+   platform_default_log("Refcount storage: packed=%lu overflow=%lu "
+                        "entries=%lu slots=%lu container=%lu\n",
+                        usage.packed_bytes,
+                        usage.overflow_bytes,
+                        usage.overflow_entries,
+                        usage.overflow_slots,
+                        usage.container_bytes);
+#else
+   platform_default_log("Refcount storage: dense=%lu container=%lu\n",
+                        rc_allocator_refcount_buffer_size(al->cfg),
+                        sizeof(*al));
+#endif
 
    uint64 extent_size = al->cfg->io_cfg->extent_size; // bytes
    int64  curr_allocated =
@@ -812,7 +995,7 @@ rc_allocator_print_allocated(rc_allocator *al)
    uint64 extent_size    = al->cfg->io_cfg->extent_size;
 
    for (i = 0; i < al->cfg->extent_capacity; i++) {
-      ref = __atomic_load_n(&al->ref_count[i], __ATOMIC_RELAXED);
+      ref = rc_allocator_count_load(al, i);
       if (ref != 0) {
          nextents_found++;
          uint64 ext_addr = (i * extent_size);
@@ -889,6 +1072,14 @@ rc_allocator_get_ref_virtual(allocator *a, uint64 addr)
 {
    rc_allocator *al = (rc_allocator *)a;
    return rc_allocator_get_ref(al, addr);
+}
+
+static bool32
+rc_allocator_is_allocated_virtual(allocator *a, uint64 addr)
+{
+   rc_allocator *al     = (rc_allocator *)a;
+   uint64        extent = rc_allocator_checked_extent_number(al, addr);
+   return rc_allocator_count_allocated(al, extent);
 }
 
 platform_status
@@ -971,6 +1162,7 @@ const static allocator_ops rc_allocator_ops = {
    .inc_ref                   = rc_allocator_inc_ref_virtual,
    .dec_ref                   = rc_allocator_dec_ref_virtual,
    .get_ref                   = rc_allocator_get_ref_virtual,
+   .is_allocated              = rc_allocator_is_allocated_virtual,
    .recovery_begin            = rc_allocator_recovery_begin_virtual,
    .recovery_record_reference = rc_allocator_recovery_record_reference_virtual,
    .recovery_finish           = rc_allocator_recovery_finish_virtual,
@@ -1037,10 +1229,14 @@ rc_allocator_init(rc_allocator      *al,
 void
 rc_allocator_deinit(rc_allocator *al)
 {
+#if SPLINTER_RC_COMPACT
+   rc_refcount_deinit(&al->compact);
+#else
    if (al->ref_count) {
       platform_buffer_deinit(&al->bh);
       al->ref_count = NULL;
    }
+#endif
    platform_mutex_destroy(&al->lock);
 }
 
