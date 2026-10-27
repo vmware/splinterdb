@@ -96,13 +96,13 @@ CTEST2(rc_refcount, inline_escape_max_and_reset)
                       rc_refcount_try_inc(data->map, extent, &result)));
       ASSERT_EQUAL(42, result);
    }
-   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 32, UINT32_MAX)));
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 32, UINT64_MAX)));
    refcount result = 99;
    ASSERT_TRUE(STATUS_IS_EQ(STATUS_LIMIT_EXCEEDED,
                             rc_refcount_try_inc(data->map, 32, &result)));
    ASSERT_EQUAL(99, result);
-   ASSERT_EQUAL(UINT32_MAX, rc_refcount_get(data->map, 32));
-   ASSERT_EQUAL(UINT32_MAX - 1, rc_refcount_dec(data->map, 32));
+   ASSERT_EQUAL_U(UINT64_MAX, rc_refcount_get(data->map, 32));
+   ASSERT_EQUAL_U(UINT64_MAX - 1, rc_refcount_dec(data->map, 32));
    rc_refcount_reset(data->map);
    rc_refcount_usage usage;
    rc_refcount_get_usage(data->map, &usage);
@@ -113,6 +113,35 @@ CTEST2(rc_refcount, inline_escape_max_and_reset)
    for (uint64 extent = 0; extent < TEST_EXTENTS; extent++) {
       ASSERT_EQUAL(0, rc_refcount_get(data->map, extent));
    }
+}
+
+CTEST2(rc_refcount, wide_counts_cross_uint32_and_signed_boundary)
+{
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, UINT32_MAX - 1)));
+   refcount result = 0;
+   ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, 1, &result)));
+   ASSERT_EQUAL_U(UINT32_MAX, result);
+   ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, 1, &result)));
+   ASSERT_EQUAL_U((uint64)UINT32_MAX + 1, result);
+   ASSERT_EQUAL_U((uint64)UINT32_MAX + 1, rc_refcount_get(data->map, 1));
+   ASSERT_EQUAL_U(UINT32_MAX, rc_refcount_dec(data->map, 1));
+
+   const refcount high = UINT64_C(1) << 63;
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, high)));
+   ASSERT_EQUAL_U(high, rc_refcount_get(data->map, 1));
+   ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, 1, &result)));
+   ASSERT_EQUAL_U(high + 1, result);
+   ASSERT_EQUAL_U(high, rc_refcount_dec(data->map, 1));
+
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, UINT64_MAX - 1)));
+   ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, 1, &result)));
+   ASSERT_EQUAL_U(UINT64_MAX, result);
+   result = high + 37;
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_LIMIT_EXCEEDED,
+                            rc_refcount_try_inc(data->map, 1, &result)));
+   ASSERT_EQUAL_U(high + 37, result);
+   ASSERT_EQUAL_U(UINT64_MAX, rc_refcount_get(data->map, 1));
+   ASSERT_EQUAL_U(UINT64_MAX - 1, rc_refcount_dec(data->map, 1));
 }
 
 CTEST2(rc_refcount, every_inline_count_and_escape_boundary)
@@ -226,22 +255,20 @@ collision_keys(uint64 *keys, uint64 count)
 
 CTEST2(rc_refcount, collision_delete_and_growth)
 {
-   uint64 keys[32];
+   const refcount high = UINT64_C(1) << 40;
+   uint64         keys[32];
    collision_keys(keys, ARRAY_SIZE(keys));
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
-      ASSERT_TRUE(
-         SUCCESS(rc_refcount_set(data->map, keys[i], RC_REFCOUNT_ESCAPE + i)));
+      ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i], high + i)));
    }
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i += 2) {
       ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i], 2)));
       for (uint64 j = i + 1; j < ARRAY_SIZE(keys); j++) {
-         ASSERT_EQUAL(RC_REFCOUNT_ESCAPE + j,
-                      rc_refcount_get(data->map, keys[j]));
+         ASSERT_EQUAL(high + j, rc_refcount_get(data->map, keys[j]));
       }
    }
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
-      ASSERT_EQUAL((i % 2) ? RC_REFCOUNT_ESCAPE + i : 2,
-                   rc_refcount_get(data->map, keys[i]));
+      ASSERT_EQUAL((i % 2) ? high + i : 2, rc_refcount_get(data->map, keys[i]));
    }
    rc_refcount_usage usage;
    rc_refcount_get_usage(data->map, &usage);
@@ -249,8 +276,7 @@ CTEST2(rc_refcount, collision_delete_and_growth)
    ASSERT_EQUAL(64, usage.overflow_slots);
    /* Reinsert into the holes, then delete all entries in reverse order. */
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i += 2) {
-      ASSERT_TRUE(
-         SUCCESS(rc_refcount_set(data->map, keys[i], RC_REFCOUNT_ESCAPE + i)));
+      ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i], high + i)));
    }
    for (uint64 i = ARRAY_SIZE(keys); i > 0; i--) {
       ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i - 1], 0)));

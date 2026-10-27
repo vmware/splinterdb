@@ -3905,6 +3905,15 @@ core_mount(core_handle      *spl,
                          platform_status_to_string(rc));
       goto deinit_log;
    }
+   /* The old allocation snapshot can no longer be selected after a crash.
+    * Its temporary overflow extents may now return to the free pool. */
+   rc = allocator_release_snapshot(al);
+   if (!SUCCESS(rc)) {
+      platform_error_log(
+         "core_mount: releasing allocation snapshot failed: %s\n",
+         platform_status_to_string(rc));
+      goto deinit_log;
+   }
    return STATUS_OK;
 
    // The log is created last of all here, so it unwinds first.

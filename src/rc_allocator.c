@@ -31,9 +31,9 @@ rc_allocator_validate_format_version(uint16 format_version)
 }
 
 /*
- * The refcount map is the allocator's only durable structure.  It lives in a
- * fixed run of extents starting at extent 1 (extent 0 is reserved for the
- * superblock).  Whether the persisted map is trustworthy is recorded by the
+ * The durable refcount snapshot has a fixed four-bit map starting at extent 1
+ * (extent 0 holds the superblock), plus a temporary linked chain of overflow
+ * extents. Whether the persisted snapshot is trustworthy is recorded by the
  * superblock (allocation_state_addr), which the caller consults to choose a
  * clean vs recovery mount -- the allocator itself no longer keeps a
  * clean-state record or a bootstrap meta page.
@@ -153,19 +153,31 @@ rc_allocator_assert_valid_page_type(page_type type)
                    type);
 }
 
+#if !SPLINTER_RC_COMPACT
 static uint64
 rc_allocator_refcount_buffer_size(const allocator_config *cfg)
 {
    uint64 buffer_size = cfg->extent_capacity * sizeof(refcount);
    return ROUNDUP(buffer_size, cfg->io_cfg->page_size);
 }
+#endif
+
+static disk_geometry
+rc_allocator_geometry(const allocator_config *cfg)
+{
+   return (disk_geometry){.disk_size   = cfg->capacity,
+                          .page_size   = cfg->io_cfg->page_size,
+                          .extent_size = cfg->io_cfg->extent_size};
+}
 
 static uint64
 rc_allocator_refcount_extent_count(const allocator_config *cfg)
 {
-   uint64 buffer_size = rc_allocator_refcount_buffer_size(cfg);
-   return (buffer_size + cfg->io_cfg->extent_size - 1)
-          / cfg->io_cfg->extent_size;
+   /* The disk encoding is always four bits, independent of the RAM backend. */
+   uint64 tag_bytes = cfg->extent_capacity / 2 + cfg->extent_capacity % 2;
+   uint64 bytes =
+      cfg->io_cfg->page_size + ROUNDUP(tag_bytes, cfg->io_cfg->page_size);
+   return (bytes + cfg->io_cfg->extent_size - 1) / cfg->io_cfg->extent_size;
 }
 
 static uint64
@@ -266,6 +278,11 @@ rc_allocator_init_refcounts(rc_allocator *al)
 #else
    memset(al->ref_count, 0, rc_allocator_refcount_buffer_size(al->cfg));
 #endif
+   if (al->snapshot_extents != NULL) {
+      platform_free(al->heap_id, al->snapshot_extents);
+   }
+   al->snapshot_extents      = NULL;
+   al->snapshot_extent_count = al->snapshot_extent_capacity = 0;
    /*
     * Set, not accumulated, for the same reason rc_allocator_load_refcounts()
     * does it: this establishes a map rather than adding to one, and a rebuild
@@ -332,6 +349,13 @@ rc_allocator_valid_config(allocator_config *cfg)
       platform_error_log("Configured extent capacity %lu bytes is invalid.\n",
                          cfg->extent_capacity);
       return STATUS_BAD_PARAM;
+   }
+
+   disk_geometry            disk = rc_allocator_geometry(cfg);
+   rc_allocator_disk_layout layout;
+   rc = rc_allocator_disk_compute_layout(&disk, &layout);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
    if (rc_allocator_reserved_extent_count(cfg) > cfg->extent_capacity) {
@@ -418,7 +442,7 @@ rc_allocator_recovery_record_reference(rc_allocator *al,
 
 #if SPLINTER_RC_COMPACT
    refcount previous = rc_allocator_count_load(al, extent_no);
-   if (previous == UINT32_MAX) {
+   if (previous == UINT64_MAX) {
       return STATUS_LIMIT_EXCEEDED;
    }
    /* Recovery runs before ordinary allocator use. A first reference also
@@ -472,168 +496,276 @@ rc_allocator_recovery_finish(rc_allocator *al)
 }
 
 
-#if SPLINTER_RC_COMPACT
-/* Mount/persist are quiescent. Transfer the unchanged 32-bit disk layout in
- * bounded, page-aligned chunks, so compression does not hide a dense staging
- * allocation. Load failure leaves the map invalid for normal allocation. */
-static platform_status
-rc_allocator_transfer_counts(rc_allocator *al, bool32 write)
-{
-   uint64    bytes       = rc_allocator_refcount_buffer_size(al->cfg);
-   uint64    chunk_bytes = MIN(bytes, UINT64_C(1) << 20);
-   refcount *counts      = TYPED_ALIGNED_MALLOC(
-      al->heap_id, al->cfg->io_cfg->page_size, counts, chunk_bytes);
-   if (counts == NULL) {
-      return STATUS_NO_MEMORY;
-   }
-   platform_status status = STATUS_OK;
-   for (uint64 offset = 0; offset < bytes; offset += chunk_bytes) {
-      uint64 transfer = MIN(chunk_bytes, bytes - offset);
-      uint64 first    = offset / sizeof(refcount);
-      uint64 n =
-         MIN(transfer / sizeof(refcount), al->cfg->extent_capacity - first);
-      uint64 addr = al->cfg->io_cfg->extent_size + offset;
-      if (write) {
-         memset(counts, 0, transfer);
-         for (uint64 i = 0; i < n; i++) {
-            counts[i] = rc_allocator_count_load(al, first + i);
-         }
-         status = io_write(al->io, counts, transfer, addr);
-      } else {
-         status = io_read(al->io, counts, transfer, addr);
-         if (SUCCESS(status)) {
-            for (uint64 i = 0; i < n; i++) {
-               status = rc_refcount_set(&al->compact, first + i, counts[i]);
-               if (!SUCCESS(status)) {
-                  break;
-               }
-            }
-         }
-      }
-      if (!SUCCESS(status)) {
-         break;
-      }
-   }
-   platform_free(al->heap_id, counts);
-   return status;
-}
-#endif
-
-/*
- *----------------------------------------------------------------------
- * rc_allocator_load_refcounts --
- *
- *      Populate an attached allocator's refcount map by loading the persisted
- *      map from its fixed reserved location (the clean-mount path;
- *      see allocator_load_refcounts()).  Allocates the refcount buffer that
- *      attach (rc_allocator_mount) deliberately left NULL.  The caller has
- *      already confirmed via the superblock that the persisted map is valid;
- *      the allocator only touches its own map here.
- *----------------------------------------------------------------------
+/* The snapshot codec is shared by all RAM backends and the offline inspector.
  */
+static platform_status
+rc_allocator_snapshot_read(void *context, void *buf, uint64 bytes, uint64 addr)
+{
+   rc_allocator *al = context;
+   return io_read(al->io, buf, bytes, addr);
+}
+
+static platform_status
+rc_allocator_snapshot_count(void *context, uint64 extent, refcount count)
+{
+   rc_allocator *al = context;
+#if SPLINTER_RC_COMPACT
+   return rc_refcount_set(&al->compact, extent, count);
+#else
+   al->ref_count[extent] = count;
+   return STATUS_OK;
+#endif
+}
+
+static platform_status
+rc_allocator_snapshot_chain(void *context, uint64 addr)
+{
+   rc_allocator *al = context;
+   if (al->snapshot_extent_count == al->snapshot_extent_capacity) {
+      if (al->snapshot_extent_capacity > SIZE_MAX / (2 * sizeof(uint64))) {
+         return STATUS_NO_MEMORY;
+      }
+      uint64 capacity = al->snapshot_extent_capacity == 0
+                           ? 16
+                           : 2 * al->snapshot_extent_capacity;
+      if (capacity > SIZE_MAX / sizeof(uint64)) {
+         return STATUS_NO_MEMORY;
+      }
+      uint64 *extents = TYPED_ARRAY_MALLOC(al->heap_id, extents, capacity);
+      if (extents == NULL) {
+         return STATUS_NO_MEMORY;
+      }
+      if (al->snapshot_extent_count != 0) {
+         memcpy(extents,
+                al->snapshot_extents,
+                al->snapshot_extent_count * sizeof(*extents));
+      }
+      if (al->snapshot_extents != NULL) {
+         platform_free(al->heap_id, al->snapshot_extents);
+      }
+      al->snapshot_extents         = extents;
+      al->snapshot_extent_capacity = capacity;
+   }
+   al->snapshot_extents[al->snapshot_extent_count++] = addr;
+   return STATUS_OK;
+}
+
 platform_status
 rc_allocator_load_refcounts(rc_allocator *al)
 {
-   platform_assert(al != NULL);
-
    platform_status status = rc_allocator_alloc_refcount_buffer(al);
    if (!SUCCESS(status)) {
       return status;
    }
-
    al->map_is_valid = FALSE;
+   if (al->snapshot_extents != NULL) {
+      platform_free(al->heap_id, al->snapshot_extents);
+   }
+   al->snapshot_extents      = NULL;
+   al->snapshot_extent_count = al->snapshot_extent_capacity = 0;
 #if SPLINTER_RC_COMPACT
    rc_refcount_reset(&al->compact);
-   status = rc_allocator_transfer_counts(al, FALSE);
 #else
-   // Load the persisted refcount map from its fixed reserved location.
-   uint64 buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
-   status =
-      io_read(al->io,
-              al->ref_count,
-              buffer_size,
-              RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size);
+   memset(al->ref_count, 0, rc_allocator_refcount_buffer_size(al->cfg));
 #endif
+   disk_geometry             geometry = rc_allocator_geometry(al->cfg);
+   rc_allocator_disk_summary summary;
+   status = rc_allocator_disk_read(&geometry,
+                                   al->heap_id,
+                                   rc_allocator_snapshot_read,
+                                   rc_allocator_snapshot_count,
+                                   rc_allocator_snapshot_chain,
+                                   al,
+                                   &summary);
    if (!SUCCESS(status)) {
+      /* Partial import is deliberately unusable; recovery may reset it. */
+      if (al->snapshot_extents != NULL) {
+         platform_free(al->heap_id, al->snapshot_extents);
+      }
+      al->snapshot_extents      = NULL;
+      al->snapshot_extent_count = al->snapshot_extent_capacity = 0;
       return status;
    }
-
-   /*
-    * The persisted map is on-disk metadata and must not be trusted merely
-    * because the superblock says that a clean unmount published it.  In
-    * particular, marking one of the map's own extents free would let the
-    * regular allocation scan hand that extent out for user data, aliasing the
-    * allocator metadata.  These extents have exactly one permanent allocator
-    * reference and are never referenced by a tree.
-    */
-   uint64 reserved_extent_count = rc_allocator_reserved_extent_count(al->cfg);
-   for (uint64 i = 0; i < reserved_extent_count; i++) {
-      if (rc_allocator_count_load(al, i) != AL_ONE_REF) {
-         platform_error_log("Invalid persisted allocator map: reserved "
-                            "extent %lu has refcount %u (expected %u)\n",
-                            i,
-                            rc_allocator_count_load(al, i),
-                            AL_ONE_REF);
-         return STATUS_INVALID_STATE;
-      }
-   }
-
-   // Compute curr_allocated authoritatively from the loaded map (set, not
-   // accumulate), so this is correct even if the allocator's stats were not
-   // freshly zeroed.
-   al->stats.curr_allocated = 0;
-   uint64 first_free        = al->cfg->extent_capacity;
-   for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
-      if (rc_allocator_count_allocated(al, i)) {
-         al->stats.curr_allocated++;
-      } else if (first_free == al->cfg->extent_capacity) {
-         first_free = i;
-      }
-   }
-   __atomic_store_n(&al->hand,
-                    first_free == al->cfg->extent_capacity ? 0 : first_free,
-                    __ATOMIC_RELAXED);
+   al->stats.curr_allocated = summary.allocated;
+   al->stats.max_allocated  = summary.allocated;
+   /* Other page-type totals cannot be recovered from this map. */
+   al->stats.extent_allocs[PAGE_TYPE_MISC] += al->snapshot_extent_count;
+   rc_allocator_reset_hand(al);
    al->map_is_valid = TRUE;
    return STATUS_OK;
 }
 
-/*
- *----------------------------------------------------------------------
- * rc_allocator_persist --
- *
- *      Write the refcount map to its fixed reserved location and make it
- *      durable.  Returns the base address of the persisted map in *state_addr,
- *      which the caller records as the superblock's allocation_state_addr only
- *      after this returns -- so the "map is trustworthy" flag never becomes
- *      durable before the map itself.  Does not tear down the allocator; the
- *      caller invokes rc_allocator_deinit() separately.
- *----------------------------------------------------------------------
- */
+platform_status
+rc_allocator_release_snapshot(rc_allocator *al)
+{
+   platform_assert(al->map_is_valid);
+   /* Check the complete chain before changing any ownership. */
+   for (uint64 i = 0; i < al->snapshot_extent_count; i++) {
+      if (rc_allocator_count_load(
+             al, al->snapshot_extents[i] / al->cfg->io_cfg->extent_size)
+          != AL_ONE_REF)
+      {
+         return STATUS_INVALID_STATE;
+      }
+   }
+   for (uint64 i = 0; i < al->snapshot_extent_count; i++) {
+      uint64   addr  = al->snapshot_extents[i];
+      refcount count = allocator_dec_ref(&al->super, addr, PAGE_TYPE_MISC);
+      platform_assert(count == AL_NO_REFS);
+      count = allocator_dec_ref(&al->super, addr, PAGE_TYPE_MISC);
+      platform_assert(count == AL_FREE);
+   }
+   if (al->snapshot_extents != NULL) {
+      platform_free(al->heap_id, al->snapshot_extents);
+   }
+   al->snapshot_extents      = NULL;
+   al->snapshot_extent_count = al->snapshot_extent_capacity = 0;
+   return STATUS_OK;
+}
+
+/* Quiescent clean shutdown only. The caller must have durably invalidated any
+ * previous snapshot before this can overwrite the fixed map. No descriptor is
+ * published here: on success the caller publishes only after our barrier.
+ * Failed preparation leaves *state_addr unchanged and may require recovery. */
 platform_status
 rc_allocator_persist(rc_allocator *al, uint64 *state_addr)
 {
    platform_assert(al->map_is_valid);
-
-   uint64 map_addr =
-      RC_ALLOCATOR_REFCOUNT_MAP_EXTENT * al->cfg->io_cfg->extent_size;
-#if SPLINTER_RC_COMPACT
-   platform_status status = rc_allocator_transfer_counts(al, TRUE);
-#else
-   uint64          buffer_size = rc_allocator_refcount_buffer_size(al->cfg);
-   uint64          io_size = ROUNDUP(buffer_size, al->cfg->io_cfg->page_size);
-   platform_status status  = io_write(al->io, al->ref_count, io_size, map_addr);
-#endif
+   if (al->snapshot_extent_count != 0) {
+      /* A loaded/published snapshot must first be invalidated and released. */
+      return STATUS_BUSY;
+   }
+   disk_geometry            geometry = rc_allocator_geometry(al->cfg);
+   rc_allocator_disk_layout layout;
+   platform_status          status =
+      rc_allocator_disk_compute_layout(&geometry, &layout);
    if (!SUCCESS(status)) {
       return status;
    }
-   status = io_durable_barrier(al->io);
+   uint64 records = 0;
+   for (uint64 extent = 0; extent < al->cfg->extent_capacity; extent++) {
+      records +=
+         rc_allocator_count_load(al, extent) >= RC_ALLOCATOR_DISK_TAG_ESCAPE;
+   }
+   uint64 nodes = records / layout.records_per_node
+                  + (records % layout.records_per_node != 0);
+   uint64 chunk_bytes =
+      MIN(layout.tag_disk_bytes, RC_ALLOCATOR_DISK_CHUNK_BYTES);
+   uint8 *tags =
+      TYPED_ALIGNED_MALLOC(al->heap_id, geometry.page_size, tags, chunk_bytes);
+   uint8 *node = TYPED_ALIGNED_MALLOC(
+      al->heap_id, geometry.page_size, node, geometry.extent_size);
+   if (tags == NULL || node == NULL) {
+      status = STATUS_NO_MEMORY;
+      goto out;
+   }
+   if (nodes != 0) {
+      al->snapshot_extents =
+         TYPED_ARRAY_MALLOC(al->heap_id, al->snapshot_extents, nodes);
+      if (al->snapshot_extents == NULL) {
+         status = STATUS_NO_MEMORY;
+         goto out;
+      }
+      al->snapshot_extent_capacity = nodes;
+   }
+   /* These allocations are raw2, so they do not change the overflow population.
+    * Finish them before serializing tags, which must own the chain itself. */
+   for (uint64 i = 0; i < nodes; i++) {
+      uint64 addr;
+      status = allocator_alloc(&al->super, &addr, PAGE_TYPE_MISC);
+      if (!SUCCESS(status)) {
+         goto out;
+      }
+      al->snapshot_extents[al->snapshot_extent_count++] = addr;
+   }
+   XXH3_state_t chain_state;
+   XXH3_128bits_reset(&chain_state);
+   uint64 extent    = 0;
+   uint64 remaining = records;
+   for (uint64 i = 0; i < nodes; i++) {
+      uint64 count = MIN(remaining, layout.records_per_node);
+      uint64 next  = i + 1 < nodes ? al->snapshot_extents[i + 1] : 0;
+      rc_allocator_disk_init_node(node, &geometry, i, next, count);
+      for (uint64 record = 0; record < count; record++) {
+         while (extent < al->cfg->extent_capacity
+                && rc_allocator_count_load(al, extent)
+                      < RC_ALLOCATOR_DISK_TAG_ESCAPE)
+         {
+            extent++;
+         }
+         platform_assert(extent < al->cfg->extent_capacity);
+         uint8 *pair = node + RC_ALLOCATOR_DISK_NODE_HEADER_BYTES
+                       + record * RC_ALLOCATOR_DISK_RECORD_BYTES;
+         rc_allocator_disk_put_u64(pair, extent);
+         rc_allocator_disk_put_u64(pair + 8,
+                                   rc_allocator_count_load(al, extent));
+         extent++;
+      }
+      rc_allocator_disk_seal_block(node, geometry.extent_size);
+      XXH3_128bits_update(&chain_state, node, geometry.extent_size);
+      status =
+         io_write(al->io, node, geometry.extent_size, al->snapshot_extents[i]);
+      if (!SUCCESS(status)) {
+         goto out;
+      }
+      remaining -= count;
+   }
+   XXH128_hash_t chain_hash = XXH3_128bits_digest(&chain_state);
+   XXH3_state_t  tag_state;
+   XXH3_128bits_reset(&tag_state);
+   for (uint64 offset = 0; offset < layout.tag_disk_bytes;
+        offset += chunk_bytes)
+   {
+      uint64 transfer = MIN(chunk_bytes, layout.tag_disk_bytes - offset);
+      uint64 valid    = MIN(transfer, layout.tag_bytes - offset);
+      memset(tags, 0, transfer);
+      for (uint64 byte = 0; byte < valid; byte++) {
+         uint64   first = 2 * (offset + byte);
+         refcount low   = rc_allocator_count_load(al, first);
+         refcount high  = first + 1 < al->cfg->extent_capacity
+                             ? rc_allocator_count_load(al, first + 1)
+                             : 0;
+         tags[byte]     = MIN(low, RC_ALLOCATOR_DISK_TAG_ESCAPE)
+                      | (MIN(high, RC_ALLOCATOR_DISK_TAG_ESCAPE) << 4);
+      }
+      XXH3_128bits_update(&tag_state, tags, valid);
+      status = io_write(al->io,
+                        tags,
+                        transfer,
+                        geometry.extent_size + geometry.page_size + offset);
+      if (!SUCCESS(status)) {
+         goto out;
+      }
+   }
+   XXH128_hash_t tag_hash = XXH3_128bits_digest(&tag_state);
+   rc_allocator_disk_init_header(node,
+                                 &geometry,
+                                 records,
+                                 nodes,
+                                 nodes == 0 ? 0 : al->snapshot_extents[0],
+                                 tag_hash,
+                                 chain_hash);
+   status = io_write(al->io, node, geometry.page_size, geometry.extent_size);
+   if (SUCCESS(status)) {
+      status = io_durable_barrier(al->io);
+   }
+   if (SUCCESS(status) && state_addr != NULL) {
+      *state_addr = geometry.extent_size;
+   }
+out:
+   if (tags != NULL) {
+      platform_free(al->heap_id, tags);
+   }
+   if (node != NULL) {
+      platform_free(al->heap_id, node);
+   }
    if (!SUCCESS(status)) {
-      return status;
+      /* No caller may publish a failed persist. The old descriptor was already
+       * invalidated, so these private allocations may safely be rolled back. */
+      platform_status release_status = rc_allocator_release_snapshot(al);
+      platform_assert_status_ok(release_status);
    }
-   if (state_addr != NULL) {
-      *state_addr = map_addr;
-   }
-   return STATUS_OK;
+   return status;
 }
 
 
@@ -671,7 +803,7 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 #endif
    platform_assert(ref_count != 1 && ref_count != 0);
    if (SHOULD_TRACE(addr)) {
-      platform_default_log("rc_allocator_inc_ref(%lu): %d -> %d\n",
+      platform_default_log("rc_allocator_inc_ref(%lu): %lu -> %lu\n",
                            addr,
                            ref_count,
                            ref_count + 1);
@@ -697,7 +829,7 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
    // indicates that we are decrementing a ref-count for an extent where
    // no page was previously allocated.
    platform_assert(ref_count != (refcount)(-1),
-                   "extent_no=%lu, ref_count=%d (0x%x)\n",
+                   "extent_no=%lu, ref_count=%lu (0x%lx)\n",
                    extent_no,
                    ref_count,
                    ref_count);
@@ -707,7 +839,7 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
       __sync_add_and_fetch(&al->stats.extent_deallocs[type], 1);
    }
    if (SHOULD_TRACE(addr)) {
-      platform_default_log("rc_allocator_dec_ref(%lu): %d -> %d\n",
+      platform_default_log("rc_allocator_dec_ref(%lu): %lu -> %lu\n",
                            addr,
                            ref_count,
                            ref_count - 1);
@@ -896,7 +1028,7 @@ rc_allocator_print_stats(rc_allocator *al)
    }
    platform_default_log(
       "Refcount census (non-atomic): capacity=%lu free=%lu "
-      "retiring=%lu one=%lu raw3_254=%lu raw255plus=%lu max=%u\n",
+      "retiring=%lu one=%lu raw3_254=%lu raw255plus=%lu max=%lu\n",
       al->cfg->extent_capacity,
       histogram[0],
       histogram[1],
@@ -999,7 +1131,7 @@ rc_allocator_print_allocated(rc_allocator *al)
       if (ref != 0) {
          nextents_found++;
          uint64 ext_addr = (i * extent_size);
-         platform_default_log("%8lu %12lu     %u\n", i, ext_addr, ref);
+         platform_default_log("%8lu %12lu     %lu\n", i, ext_addr, ref);
       }
    }
 
@@ -1156,6 +1288,12 @@ rc_allocator_print_allocated_virtual(allocator *a)
    rc_allocator_print_allocated(al);
 }
 
+static platform_status
+rc_allocator_release_snapshot_virtual(allocator *a)
+{
+   return rc_allocator_release_snapshot((rc_allocator *)a);
+}
+
 const static allocator_ops rc_allocator_ops = {
    .get_config                = rc_allocator_get_config_virtual,
    .alloc                     = rc_allocator_alloc_virtual,
@@ -1168,6 +1306,7 @@ const static allocator_ops rc_allocator_ops = {
    .recovery_finish           = rc_allocator_recovery_finish_virtual,
    .load_refcounts            = rc_allocator_load_refcounts_virtual,
    .persist                   = rc_allocator_persist_virtual,
+   .release_snapshot          = rc_allocator_release_snapshot_virtual,
    .in_use                    = rc_allocator_in_use_virtual,
    .get_capacity              = rc_allocator_get_capacity_virtual,
    .assert_noleaks            = rc_allocator_assert_noleaks_virtual,
@@ -1229,6 +1368,11 @@ rc_allocator_init(rc_allocator      *al,
 void
 rc_allocator_deinit(rc_allocator *al)
 {
+   if (al->snapshot_extents != NULL) {
+      platform_free(al->heap_id, al->snapshot_extents);
+   }
+   al->snapshot_extents      = NULL;
+   al->snapshot_extent_count = al->snapshot_extent_capacity = 0;
 #if SPLINTER_RC_COMPACT
    rc_refcount_deinit(&al->compact);
 #else

@@ -87,7 +87,7 @@ ifeq ($(filter $(BUILD_RC_COMPACT),0 1),)
    $(error BUILD_RC_COMPACT must be 0 or 1)
 endif
 CFLAGS += -DSPLINTER_RC_COMPACT=$(BUILD_RC_COMPACT)
-BUILD_RC_BITS ?= 2
+BUILD_RC_BITS ?= 4
 ifeq ($(filter $(BUILD_RC_BITS),2 4 8),)
    $(error BUILD_RC_BITS must be 2, 4, or 8)
 endif
@@ -95,7 +95,7 @@ CFLAGS += -DSPLINTER_RC_BITS=$(BUILD_RC_BITS)
 
 help::
 	@echo '  BUILD_RC_COMPACT={0,1}: Experimental packed refcounts (Default: 0).'
-	@echo '  BUILD_RC_BITS={2,4,8}: Packed counter width (Default: 2).'
+	@echo '  BUILD_RC_BITS={2,4,8}: Packed counter width (Default: 4).'
 
 # track git ref in the built library. We don't put this into CFLAGS
 # directly because it causes false-positives in our config tracking.
@@ -466,6 +466,7 @@ UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	    \
                  $(OBJDIR)/$(SRCDIR)/allocator.o      \
                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o   \
+                 $(OBJDIR)/$(SRCDIR)/rc_allocator_disk.o \
                  $(OBJDIR)/$(SRCDIR)/rc_refcount.o \
                  $(OBJDIR)/$(SRCDIR)/task.o           \
                  $(OBJDIR)/$(SRCDIR)/writeback_set.o  \
@@ -492,6 +493,11 @@ $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) \
                                 $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/vector_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/rc_refcount_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ) $(OBJDIR)/$(SRCDIR)/rc_refcount.o
+$(BINDIR)/$(UNITDIR)/rc_allocator_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ) $(PLATFORM_IO_SYS) \
+                                        $(OBJDIR)/$(SRCDIR)/allocator.o \
+                                        $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
+                                        $(OBJDIR)/$(SRCDIR)/rc_refcount.o \
+                                        $(OBJDIR)/$(SRCDIR)/rc_allocator_disk.o
 
 $(BINDIR)/$(UNITDIR)/platform_threads_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 
@@ -613,6 +619,8 @@ $(BINDIR)/$(UNITDIR)/splinterdb_heap_id_mgmt_test: $(COMMON_TESTOBJ)         \
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
 unit/misc_test:                    $(BINDIR)/$(UNITDIR)/misc_test
+unit/rc_allocator_test:            $(BINDIR)/$(UNITDIR)/rc_allocator_test
+unit/rc_refcount_test:             $(BINDIR)/$(UNITDIR)/rc_refcount_test
 unit/platform_threads_test:        $(BINDIR)/$(UNITDIR)/platform_threads_test
 unit/btree_test:                   $(BINDIR)/$(UNITDIR)/btree_test
 unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test

@@ -202,15 +202,26 @@ test_rc_allocator_rejects_corrupt_reserved_extent(allocator_config *cfg,
                                                   io_handle        *io,
                                                   platform_heap_id  hid)
 {
-   platform_status result = STATUS_OK;
-   buffer_handle   buffer;
-   bool32          buffer_live = FALSE;
-   bool32          map_changed = FALSE;
-   rc_allocator    al;
-   bool32          al_live = FALSE;
+   platform_status          result = STATUS_OK;
+   buffer_handle            buffer, tag_buffer;
+   bool32                   buffer_live = FALSE, tag_buffer_live = FALSE;
+   bool32                   map_changed = FALSE;
+   rc_allocator             al;
+   bool32                   al_live = FALSE;
+   uint8                   *header = NULL, *tags = NULL;
+   uint8                    saved_header[RC_ALLOCATOR_DISK_HEADER_BYTES];
+   uint8                    saved_tag = 0;
+   disk_geometry            geometry  = {.disk_size = cfg->capacity,
+                                         .page_size = cfg->io_cfg->page_size,
+                                         .extent_size = cfg->io_cfg->extent_size};
+   rc_allocator_disk_layout layout;
+   platform_status rc = rc_allocator_disk_compute_layout(&geometry, &layout);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    ZERO_CONTENTS(&al);
-   platform_status rc = platform_buffer_init(&buffer, cfg->io_cfg->page_size);
+   rc = platform_buffer_init(&buffer, cfg->io_cfg->page_size);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -224,16 +235,40 @@ test_rc_allocator_rejects_corrupt_reserved_extent(allocator_config *cfg,
       goto cleanup;
    }
 
-   refcount *refs           = platform_buffer_getaddr(&buffer);
-   refcount  saved_refcount = refs[1];
-   if (saved_refcount != AL_ONE_REF) {
+   header = platform_buffer_getaddr(&buffer);
+   memcpy(saved_header, header, sizeof(saved_header));
+   rc = platform_buffer_init(&tag_buffer, layout.tag_disk_bytes);
+   if (!SUCCESS(rc)) {
+      result = rc;
+      goto cleanup;
+   }
+   tag_buffer_live = TRUE;
+   tags            = platform_buffer_getaddr(&tag_buffer);
+   uint64 tag_addr = map_addr + cfg->io_cfg->page_size;
+   rc              = io_read(io, tags, layout.tag_disk_bytes, tag_addr);
+   if (!SUCCESS(rc)) {
+      result = rc;
+      goto cleanup;
+   }
+   saved_tag = tags[0];
+   if ((saved_tag >> RC_ALLOCATOR_DISK_TAG_BITS) != AL_ONE_REF) {
       result = STATUS_TEST_FAILED;
       goto cleanup;
    }
 
-   refs[1]     = AL_FREE;
+   /* Extent 1 is the high nibble of the first tag byte. Recompute both
+    * checksums so this reaches reserved-extent validation, rather than merely
+    * rejecting damaged bytes. */
+   tags[0] &= RC_ALLOCATOR_DISK_TAG_ESCAPE;
+   checksum128 tag_hash = XXH3_128bits(tags, layout.tag_bytes);
+   rc_allocator_disk_put_u64(header + 88, tag_hash.low64);
+   rc_allocator_disk_put_u64(header + 96, tag_hash.high64);
+   rc_allocator_disk_seal_block(header, cfg->io_cfg->page_size);
    map_changed = TRUE;
-   rc          = io_write(io, refs, cfg->io_cfg->page_size, map_addr);
+   rc          = io_write(io, tags, cfg->io_cfg->page_size, tag_addr);
+   if (SUCCESS(rc)) {
+      rc = io_write(io, header, cfg->io_cfg->page_size, map_addr);
+   }
    if (SUCCESS(rc)) {
       rc = io_durable_barrier(io);
    }
@@ -261,11 +296,22 @@ cleanup:
       rc_allocator_deinit(&al);
    }
    if (map_changed) {
-      refs[1] = saved_refcount;
-      rc      = io_write(io, refs, cfg->io_cfg->page_size, map_addr);
+      tags[0] = saved_tag;
+      memcpy(header, saved_header, sizeof(saved_header));
+      rc = io_write(
+         io, tags, cfg->io_cfg->page_size, map_addr + cfg->io_cfg->page_size);
+      if (SUCCESS(rc)) {
+         rc = io_write(io, header, cfg->io_cfg->page_size, map_addr);
+      }
       if (SUCCESS(rc)) {
          rc = io_durable_barrier(io);
       }
+      if (SUCCESS(result) && !SUCCESS(rc)) {
+         result = rc;
+      }
+   }
+   if (tag_buffer_live) {
+      rc = platform_buffer_deinit(&tag_buffer);
       if (SUCCESS(result) && !SUCCESS(rc)) {
          result = rc;
       }
@@ -284,13 +330,16 @@ test_rc_allocator_recovery_bootstrap(allocator_config *cfg,
                                      io_handle        *io,
                                      platform_heap_id  hid)
 {
-   uint64 refcount_buffer_size =
-      ROUNDUP(cfg->extent_capacity * sizeof(refcount), cfg->io_cfg->page_size);
-   uint64 refcount_extent_count =
-      (refcount_buffer_size + cfg->io_cfg->extent_size - 1)
-      / cfg->io_cfg->extent_size;
-   // Extent 0 (superblock) + the refcount-map extents.
-   uint64          reserved_extent_count = 1 + refcount_extent_count;
+   disk_geometry            geometry = {.disk_size = cfg->capacity,
+                                        .page_size = cfg->io_cfg->page_size,
+                                        .extent_size = cfg->io_cfg->extent_size};
+   rc_allocator_disk_layout layout;
+   platform_status          layout_rc =
+      rc_allocator_disk_compute_layout(&geometry, &layout);
+   if (!SUCCESS(layout_rc)) {
+      return layout_rc;
+   }
+   uint64          reserved_extent_count = layout.reserved_extents;
    uint64          stale_extent_addr     = 0;
    platform_status rc                    = STATUS_OK;
    rc_allocator    al;
@@ -606,14 +655,9 @@ test_mini_recover_allocations(allocator_config  *allocator_cfg,
       goto cleanup;
    }
 
-   /*
-    * Exactly one reference per extent is mini_recover_allocations()'s own
-    * documented contract; reproducing a mini_allocator's full live-lifetime
-    * refcount (which may include self-references beyond this) is explicitly
-    * the job of a higher-level recovery walker, not this function.
-    */
-   if (allocator_get_refcount((allocator *)&recovery, meta_head)
-       != AL_ONE_REF + 1)
+   /* Recovery restores one owner for the metadata head and each data extent.
+    * The head has no additional self-reference. */
+   if (allocator_get_refcount((allocator *)&recovery, meta_head) != AL_ONE_REF)
    {
       platform_error_log(
          "cache_test: mini_recover_allocations did not recover the metadata "

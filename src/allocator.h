@@ -124,7 +124,7 @@ allocator_config_pages_share_extent(allocator_config *allocator_cfg,
 // ----------------------------------------------------------------------
 // Type declarations for allocator ops
 
-typedef uint32 refcount;
+typedef uint64 refcount;
 
 typedef struct allocator allocator;
 
@@ -191,6 +191,12 @@ typedef struct allocator_ops {
    generic_status_allocator_fn load_refcounts;
 
    persist_refcounts_fn persist;
+
+   /* Optional: reclaim storage retained for a loaded or persisted allocation
+    * snapshot. The caller must first durably invalidate the snapshot's
+    * publication and keep the allocator quiescent throughout this call.
+    * Loading a snapshot alone does not authorize releasing its storage. */
+   generic_status_allocator_fn release_snapshot;
 
    get_size_fn in_use;
 
@@ -324,6 +330,15 @@ allocator_persist(allocator *al, uint64 *state_addr)
    return al->ops->persist(al, state_addr);
 }
 
+/* Only after durable invalidation of the allocation snapshot, with no
+ * concurrent allocator users. Backends without snapshot storage need no op. */
+static inline platform_status
+allocator_release_snapshot(allocator *al)
+{
+   return al->ops->release_snapshot == NULL ? STATUS_OK
+                                            : al->ops->release_snapshot(al);
+}
+
 static inline uint64
 allocator_in_use(allocator *al)
 {
@@ -376,7 +391,7 @@ allocator_page_valid(allocator *al, uint64 addr)
       if (rfc == 0) {
          platform_error_log(
             "%s():%d: Trying to access an unreferenced extent."
-            " base_addr=%lu, addr=%lu, allocator_get_refcount()=%d\n",
+            " base_addr=%lu, addr=%lu, allocator_is_allocated()=%d\n",
             __func__,
             __LINE__,
             base_addr,

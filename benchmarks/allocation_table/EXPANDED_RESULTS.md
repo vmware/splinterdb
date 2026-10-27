@@ -2,6 +2,13 @@
 
 Measured 2026-10-26 (America/Los_Angeles) on topic branch `robj/allocation-table`. This report supersedes the earlier unpinned three-repetition sample.
 
+**Version scope:** these frozen benchmarks used 32-bit exact refcounts and the
+format-2 dense32 disk map. The branch subsequently changed exact counts to
+64 bits and introduced the format-3 four-bit disk snapshot with an overflow
+chain. The results and memory figures below describe the measured older
+binaries; they are not measurements of the current count width, disk format,
+clean-close cost or recovery performance.
+
 **The previous normalized-dense slowdown did not reproduce. Four-bit counters are a useful next prototype: they remove almost all observed hash activity, use one eighth of the dense array memory, and have a bounded throughput cost in the larger populated workload. No universal throughput winner is established.**
 
 Completed 184 throughput runs with 2.34 billion inserts and full reopened scans, plus three instrumented diagnostic runs with another 30 million inserts. Every run passed its scan checks. Diagnostic timings are excluded from throughput analysis.
@@ -66,7 +73,7 @@ Changes use geometric means of matched-run throughput ratios, with Student-t 95%
 
 Four-bit/original in the 30M case is also within ±3% including close: -0.55% [-2.33%, +1.26%]. The 1 TiB one-thread 2-bit and 8-bit comparisons also meet the ±3% criterion including close. Four-bit there has an interval extending above +3%, so strict two-sided equivalence is unresolved even though its lower bound excludes a 3% slowdown.
 
-Eight-thread small-cache intervals remain wide. In the 30M case the 2-bit and 8-bit intervals also remain wider than ±3%; do not infer a universal tie or claim that either is definitively faster. One slow 2-bit 30M run is retained. The observed 4-bit result makes it the best-supported next prototype, rather than a proved fastest implementation.
+Eight-thread small-cache intervals remain wide. In the 30M case the 2-bit and 8-bit intervals also remain wider than ±3%; do not infer a universal tie or claim that either is definitively faster. One slow 2-bit 30M run is retained. The width-to-width intervals do not establish a throughput advantage for 4-bit over 2-bit. Four bits is the selected compact default because it greatly reduces overflow activity at a modest additional memory cost; this is a design choice, not a measured throughput win.
 
 ## Why normalized dense appeared slower
 
@@ -109,9 +116,9 @@ These are ordinary small-record insertion workloads. More sharing from clones, s
 
 Packed containers request an additional 8,256 bytes. After reopened scans, 2-bit retained roughly 10–12 KiB of overflow capacity at 1 TiB, with two live entries; 4/8-bit had no overflow allocation in those post-reopen snapshots. These are not peak insertion footprints. Heap headers and temporary resize overlap are excluded.
 
-`BUILD_RC_BITS=2|4|8` selects the packed width with `BUILD_RC_COMPACT=1`; default width remains 2. The all-ones raw tag redirects to the hash table: 3/15/255. All variants still preserve full 32-bit refcounts in overflow. Every width, including 8-bit, uses 64-bit word CAS; an independent byte-atomic 8-bit backend was not tested.
+`BUILD_RC_BITS=2|4|8` selects the packed width with `BUILD_RC_COMPACT=1`; the selected default width is now 4. The measurements used explicit widths, so this default change does not alter the recorded results. The all-ones raw tag redirects to the hash table: 3/15/255. All measured variants preserve full 32-bit refcounts in overflow. Every width, including 8-bit, uses 64-bit word CAS; an independent byte-atomic 8-bit backend was not tested.
 
-The existing experimental OOM limitation remains: surrounding ownership retains are infallible, so an overflow allocation failure still fail-stops in the opt-in adapter. Wider counters reduce this exposure without making the API fallible. No production default or checkpoint protocol changed.
+The existing experimental OOM limitation remains: surrounding ownership retains are infallible, so an overflow allocation failure still fail-stops in the opt-in adapter. Wider counters reduce this exposure without making the API fallible. No production default or checkpoint protocol changed in the measured campaign.
 
 ## Validation and evidence
 

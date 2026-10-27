@@ -12,8 +12,8 @@ _Static_assert(RC_REFCOUNT_SHARD_COUNT == (1U << RC_REFCOUNT_SHARD_BITS),
                "shard count must match hash partition");
 _Static_assert(AL_FREE == 0 && AL_NO_REFS == 1 && AL_ONE_REF == 2,
                "packed tags must match allocator raw counts");
-_Static_assert(sizeof(refcount) == sizeof(uint32),
-               "overflow counts retain the uint32 domain");
+_Static_assert(sizeof(refcount) == sizeof(uint64),
+               "overflow counts retain the uint64 domain");
 
 typedef struct rc_refcount_entry {
    uint64   extent;
@@ -356,7 +356,7 @@ rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value)
       tag = rc_refcount_tag(map, extent);
       if (tag == RC_REFCOUNT_ESCAPE) {
          rc_refcount_entry *entry = rc_refcount_find_existing(shard, extent);
-         if (entry->count == UINT32_MAX) {
+         if (entry->count == UINT64_MAX) {
             platform_mutex_unlock(&shard->lock);
             return STATUS_LIMIT_EXCEEDED;
          }

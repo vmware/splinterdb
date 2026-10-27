@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "superblock.h"
+#include "rc_allocator_disk.h"
 
 static void
 usage(FILE *stream, const char *program)
@@ -29,9 +30,10 @@ usage(FILE *stream, const char *program)
            program);
 }
 
-static int
-read_exact(int fd, void *buffer, size_t bytes, uint64 offset)
+static platform_status
+read_map(void *context, void *buffer, uint64 bytes, uint64 offset)
 {
+   int    fd   = *(int *)context;
    size_t done = 0;
    while (done < bytes) {
       ssize_t result =
@@ -41,29 +43,33 @@ read_exact(int fd, void *buffer, size_t bytes, uint64 offset)
             continue;
          }
          fprintf(stderr, "Cannot read allocation map: %s\n", strerror(errno));
-         return EXIT_FAILURE;
+         return STATUS_IO_ERROR;
       }
       if (result == 0) {
          fprintf(stderr, "Cannot read allocation map: image is truncated\n");
-         return EXIT_FAILURE;
+         return STATUS_IO_ERROR;
       }
       done += result;
    }
-   return EXIT_SUCCESS;
+   return STATUS_OK;
 }
 
 static int
 print_space(int fd, const superblock *image)
 {
-   disk_geometry geometry       = image->geometry;
-   uint64        extent_count   = geometry.disk_size / geometry.extent_size;
-   uint64        map_bytes      = extent_count * sizeof(refcount);
-   uint64        map_disk_bytes = ROUNDUP(map_bytes, geometry.page_size);
-   uint64        reserved =
-      1 + (map_disk_bytes + geometry.extent_size - 1) / geometry.extent_size;
+   disk_geometry            geometry = image->geometry;
+   rc_allocator_disk_layout layout;
+   platform_status          status =
+      rc_allocator_disk_compute_layout(&geometry, &layout);
+   if (!SUCCESS(status)) {
+      fprintf(stderr, "Invalid allocator geometry\n");
+      return EXIT_FAILURE;
+   }
+   uint64 extent_count = layout.extent_count;
 
    printf("Format version: %lu\n", image->format_version);
    printf("Superblock generation: %lu\n", image->generation);
+   printf("Allocator format version: %u\n", image->allocator_format_version);
    printf("\nGeometry:\n");
    printf("  Capacity:         %lu bytes\n", geometry.disk_size);
    printf("  Page size:        %lu bytes\n", geometry.page_size);
@@ -74,8 +80,8 @@ print_space(int fd, const superblock *image)
    printf("  Total extents:    %lu\n", extent_count);
    printf("\nPage-type statistics: not stored in the image\n");
 
-   if (reserved > extent_count || geometry.disk_size > INT64_MAX) {
-      fprintf(stderr, "Invalid allocator geometry\n");
+   if (image->allocator_format_version != RC_ALLOCATOR_DISK_VERSION) {
+      fprintf(stderr, "Unsupported allocator format version\n");
       return EXIT_FAILURE;
    }
    printf("\nAllocation:\n");
@@ -99,36 +105,22 @@ print_space(int fd, const superblock *image)
    /* Images can grow lazily, so do not require their full capacity at EOF. */
    if (S_ISREG(statbuf.st_mode)
        && (uint64)statbuf.st_size
-             < image->allocation_state_addr + map_disk_bytes)
+             < image->allocation_state_addr + layout.fixed_bytes)
    {
       fprintf(stderr, "Cannot read allocation map: image is truncated\n");
       return EXIT_FAILURE;
    }
 
-   uint64   allocated = 0;
-   refcount refs[4096];
-   for (uint64 first = 0; first < extent_count;) {
-      uint64 count = MIN(ARRAY_SIZE(refs), extent_count - first);
-      if (read_exact(fd,
-                     refs,
-                     count * sizeof(refcount),
-                     image->allocation_state_addr + first * sizeof(refcount)))
-      {
-         return EXIT_FAILURE;
-      }
-      for (uint64 i = 0; i < count; i++) {
-         if (first + i < reserved && refs[i] < AL_ONE_REF) {
-            fprintf(stderr,
-                    "Invalid allocation map: reserved extent %lu "
-                    "is not referenced\n",
-                    first + i);
-            return EXIT_FAILURE;
-         }
-         /* AL_NO_REFS is still allocated until its final reference is freed. */
-         allocated += refs[i] != AL_FREE;
-      }
-      first += count;
+   rc_allocator_disk_summary summary;
+   status = rc_allocator_disk_read(
+      &geometry, PROCESS_PRIVATE_HEAP_ID, read_map, NULL, NULL, &fd, &summary);
+   if (!SUCCESS(status)) {
+      fprintf(stderr,
+              "Invalid allocation map: %s\n",
+              platform_status_to_string(status));
+      return EXIT_FAILURE;
    }
+   uint64 allocated = summary.allocated;
 
    uint64 free_extents = extent_count - allocated;
    printf("  Allocated:        %lu extents, %lu bytes (%.2f%%)\n",
@@ -139,10 +131,15 @@ print_space(int fd, const superblock *image)
           free_extents,
           free_extents * geometry.extent_size,
           100.0 * free_extents / extent_count);
-   printf(
-      "  Reserved metadata (included in allocated): %lu extents, %lu bytes\n",
-      reserved,
-      reserved * geometry.extent_size);
+   printf("  Fixed reserved metadata (included in allocated): %lu extents, %lu "
+          "bytes\n",
+          summary.reserved,
+          summary.reserved * geometry.extent_size);
+   printf("  Allocation overflow chain (included in allocated): "
+          "%lu extents, %lu bytes\n",
+          summary.chain_extents,
+          summary.chain_extents * geometry.extent_size);
+   printf("  Overflow refcount records: %lu\n", summary.overflow_records);
    printf(
       "  Allocation is measured in whole extents, including unused pages.\n");
    return EXIT_SUCCESS;

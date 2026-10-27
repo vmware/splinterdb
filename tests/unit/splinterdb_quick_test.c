@@ -45,6 +45,7 @@
 #include "config.h"
 #include "splinterdb_tests_private.h"
 #include "clockcache.h"
+#include "superblock.h"
 
 #if defined(__has_feature)
 #   if __has_feature(memory_sanitizer)
@@ -234,6 +235,87 @@ CTEST_TEARDOWN(splinterdb_quick)
       splinterdb_close(&data->kvsb, FALSE);
    }
    platform_deregister_thread();
+}
+
+/* The clean map is optional: failure after the durable tree is complete must
+ * force recovery on the next open without changing a successful data close. */
+typedef struct snapshot_close_fault {
+   const io_ops *original;
+   uint64        map_addr;
+   bool32        fail_barrier;
+   bool32        map_written;
+   bool32        failed;
+} snapshot_close_fault;
+
+static snapshot_close_fault *active_snapshot_close_fault;
+
+static platform_status
+snapshot_close_write(io_handle *io, void *buffer, uint64 bytes, uint64 addr)
+{
+   snapshot_close_fault *fault = active_snapshot_close_fault;
+   if (addr == fault->map_addr) {
+      if (!fault->fail_barrier) {
+         fault->failed = TRUE;
+         return STATUS_IO_ERROR;
+      }
+      fault->map_written = TRUE;
+   }
+   return fault->original->write(io, buffer, bytes, addr);
+}
+
+static platform_status
+snapshot_close_barrier(io_handle *io)
+{
+   snapshot_close_fault *fault = active_snapshot_close_fault;
+   if (fault->fail_barrier && fault->map_written && !fault->failed) {
+      fault->failed = TRUE;
+      return STATUS_IO_ERROR;
+   }
+   return fault->original->durable_barrier(io);
+}
+
+CTEST2(splinterdb_quick, test_allocation_snapshot_failure_rebuilds_on_open)
+{
+   for (unsigned barrier = 0; barrier < 2; barrier++) {
+      insert_string_kv(data->kvsb, "snapshot-key", "durable-value");
+      io_handle       *io = (io_handle *)splinterdb_get_io_handle(data->kvsb);
+      const allocator *al = splinterdb_get_allocator_handle(data->kvsb);
+      snapshot_close_fault fault = {
+         .original = io->ops,
+         .map_addr = allocator_get_config((allocator *)al)->io_cfg->extent_size,
+         .fail_barrier = barrier != 0,
+      };
+      io_ops fault_ops            = *io->ops;
+      fault_ops.write             = snapshot_close_write;
+      fault_ops.durable_barrier   = snapshot_close_barrier;
+      active_snapshot_close_fault = &fault;
+      io->ops                     = &fault_ops;
+      int close_rc                = splinterdb_close(&data->kvsb, FALSE);
+      active_snapshot_close_fault = NULL;
+      ASSERT_EQUAL(0, close_rc);
+      ASSERT_TRUE(fault.failed);
+      ASSERT_NULL(data->kvsb);
+
+      superblock image;
+      ASSERT_TRUE(
+         SUCCESS(superblock_read_bootstrap(data->cfg.filename, &image)));
+      ASSERT_EQUAL_U(0, image.allocation_state_addr);
+      ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+      splinterdb_lookup_result result;
+      splinterdb_lookup_result_init(data->kvsb, &result);
+      ASSERT_EQUAL(
+         0,
+         splinterdb_lookup(data->kvsb,
+                           slice_create(strlen("snapshot-key"), "snapshot-key"),
+                           &result));
+      ASSERT_TRUE(splinterdb_lookup_found(&result));
+      slice value;
+      ASSERT_EQUAL(0, splinterdb_lookup_result_value(&result, &value));
+      ASSERT_EQUAL_U(strlen("durable-value"), slice_length(value));
+      ASSERT_EQUAL(
+         0, memcmp(slice_data(value), "durable-value", slice_length(value)));
+      splinterdb_lookup_result_deinit(&result);
+   }
 }
 
 CTEST2(splinterdb_quick, test_get_config_returns_effective_config)

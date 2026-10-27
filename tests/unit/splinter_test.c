@@ -4984,8 +4984,9 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
    superblock_context_deinit(&sb);
 
    /*
-    * Ground truth.  core_unmount() persisted this very map, so the in-memory
-    * copy still standing here is byte-for-byte what a clean mount would load.
+    * Ground truth. core_unmount() persisted this map. Root-only recovery
+    * reconstructs the tree's ownership and fixed reserved extents; temporary
+    * snapshot overflow extents are deliberately absent from that result.
     */
    uint64    extent_size = acfg->io_cfg->extent_size;
    uint64    num_extents = allocator_get_capacity(alp) / extent_size;
@@ -4997,6 +4998,14 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
       if (expected[i] != AL_FREE) {
          num_referenced++;
       }
+   }
+
+   for (uint64 i = 0; i < data->al.snapshot_extent_count; i++) {
+      uint64 extent = data->al.snapshot_extents[i] / extent_size;
+      ASSERT_TRUE(extent < num_extents);
+      ASSERT_EQUAL_U(AL_ONE_REF, expected[extent]);
+      expected[extent] = AL_FREE;
+      num_referenced--;
    }
 
    /*
@@ -5036,7 +5045,7 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
          if (actual != expected[i]) {
             if (mismatches < 16) {
                platform_error_log("round %lu: extent %lu (addr %lu): persisted "
-                                  "refcount %u, rebuilt %u\n",
+                                  "refcount %lu, rebuilt %lu\n",
                                   round,
                                   i,
                                   i * extent_size,

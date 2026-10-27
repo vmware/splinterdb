@@ -15,12 +15,13 @@
 #include "allocator.h"
 #include "util.h"
 #include "rc_refcount.h"
+#include "rc_allocator_disk.h"
 
 #ifndef SPLINTER_RC_COMPACT
 #   define SPLINTER_RC_COMPACT 0
 #endif
 
-#define RC_ALLOCATOR_FORMAT_VERSION (2)
+#define RC_ALLOCATOR_FORMAT_VERSION (3)
 
 /* Validate the allocator version stored in the database superblock. */
 platform_status
@@ -69,6 +70,12 @@ typedef struct rc_allocator {
     */
    bool32 map_is_valid;
 
+   /* Loaded/persisted snapshot storage remains owned until its durable
+    * descriptor has been invalidated. Deinit drops only this address list. */
+   uint64 *snapshot_extents;
+   uint64  snapshot_extent_count;
+   uint64  snapshot_extent_capacity;
+
    // Stats -- not distributed for now
    rc_allocator_stats stats;
 } rc_allocator;
@@ -94,3 +101,7 @@ rc_allocator_mount(rc_allocator      *al,
                    io_handle         *io,
                    platform_heap_id   hid,
                    platform_module_id mid);
+
+/* Quiescent: caller must first durably invalidate the saved allocation map. */
+platform_status
+rc_allocator_release_snapshot(rc_allocator *al);

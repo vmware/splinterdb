@@ -9,11 +9,11 @@
 /*
  * The packed tags use the allocator's raw counts: 0 is free, 1 is the
  * allocation floor with no logical owners, and 2 is one logical owner.
- * The all-ones tag redirects to an exact uint32 count in a locked shard.
+ * The all-ones tag redirects to an exact uint64 count in a locked shard.
  * No address/key bits are discarded when matching an overflow entry.
  */
 #ifndef SPLINTER_RC_BITS
-#   define SPLINTER_RC_BITS 2
+#   define SPLINTER_RC_BITS 4
 #endif
 #if SPLINTER_RC_BITS != 2 && SPLINTER_RC_BITS != 4 && SPLINTER_RC_BITS != 8
 #   error "SPLINTER_RC_BITS must be 2, 4, or 8"
@@ -88,7 +88,7 @@ void
 rc_refcount_reset(rc_refcount *map);
 
 /* Quiescent load/recovery setter. An allocation failure leaves the logical
- * count unchanged. Raw values span the entire uint32 refcount domain. */
+ * count unchanged. Raw values span the entire uint64 refcount domain. */
 platform_status
 rc_refcount_set(rc_refcount *map, uint64 extent, refcount value);
 
@@ -106,7 +106,7 @@ rc_refcount_try_claim(rc_refcount *map, uint64 extent);
 /* Concurrent increment. On failure this operation does not change the
  * logical count, and leaves *new_value untouched. Returns NO_MEMORY for an
  * overflow-table growth failure, INVALID_STATE for a free extent, and
- * LIMIT_EXCEEDED for UINT32_MAX. Other threads may still update the extent. */
+ * LIMIT_EXCEEDED for UINT64_MAX. Other threads may still update the extent. */
 platform_status
 rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value);
 

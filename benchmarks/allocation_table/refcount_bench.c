@@ -133,7 +133,7 @@ dense_claim(void *map, uint64 extent)
 static platform_status
 dense_inc(void *map, uint64 extent, refcount *value)
 {
-   /* The benchmark never increments zero or UINT32_MAX. Match the existing
+   /* The benchmark never increments zero or UINT64_MAX. Match the existing
     * allocator's atomic arithmetic, rather than adding a dense CAS loop. */
    *value = __sync_add_and_fetch(&((dense_map *)map)->counts[extent], 1);
    return STATUS_OK;
