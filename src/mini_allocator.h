@@ -110,7 +110,7 @@ mini_attach_extent(mini_allocator *mini, uint64 batch, uint64 addr);
 uint64
 mini_next_addr(mini_allocator *mini, uint64 batch);
 
-refcount
+__attribute__((warn_unused_result)) platform_status
 mini_inc_ref(cache *cc, uint64 meta_head);
 refcount
 mini_dec_ref(cache *cc, uint64 meta_head, page_type type);

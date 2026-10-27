@@ -184,6 +184,46 @@ snapshot_allocate(rc_allocator *al, refcount count)
    return addr;
 }
 
+CTEST2(rc_allocator, retain_failure_preserves_count_and_output)
+{
+   allocator *al        = &data->source->super;
+   uint64     free_addr = data->reserved * data->io_cfg.extent_size;
+   refcount   result    = 91;
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_INVALID_STATE,
+                            allocator_inc_ref(al, free_addr, &result)));
+   ASSERT_EQUAL_U(91, result);
+   ASSERT_EQUAL_U(AL_FREE, allocator_get_refcount(al, free_addr));
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_INVALID_STATE,
+                            allocator_inc_ref(al, free_addr, NULL)));
+
+   uint64 addr   = snapshot_allocate(data->source, AL_ONE_REF);
+   uint64 extent = addr / data->io_cfg.extent_size;
+#if SPLINTER_DEBUG && SPLINTER_RC_COMPACT
+   snapshot_set_count(data->source, extent, RC_REFCOUNT_ESCAPE - 1);
+   data->source->compact.test_allocations_before_failure = 0;
+   platform_status rc = allocator_inc_ref(al, addr, &result);
+   data->source->compact.test_allocations_before_failure = -1;
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
+   ASSERT_EQUAL_U(91, result);
+   ASSERT_EQUAL_U(RC_REFCOUNT_ESCAPE - 1, allocator_get_refcount(al, addr));
+   ASSERT_TRUE(SUCCESS(allocator_inc_ref(al, addr, NULL)));
+   ASSERT_EQUAL_U(RC_REFCOUNT_ESCAPE, allocator_get_refcount(al, addr));
+#endif
+   snapshot_set_count(data->source, extent, UINT64_MAX);
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_LIMIT_EXCEEDED,
+                            allocator_inc_ref(al, addr, &result)));
+   ASSERT_EQUAL_U(91, result);
+   ASSERT_EQUAL_U(UINT64_MAX, allocator_get_refcount(al, addr));
+   ASSERT_TRUE(
+      STATUS_IS_EQ(STATUS_LIMIT_EXCEEDED, allocator_inc_ref(al, addr, NULL)));
+   snapshot_set_count(data->source, extent, UINT64_MAX - 1);
+   ASSERT_TRUE(SUCCESS(allocator_inc_ref(al, addr, &result)));
+   ASSERT_EQUAL_U(UINT64_MAX, result);
+   snapshot_set_count(data->source, extent, AL_ONE_REF);
+   ASSERT_TRUE(SUCCESS(allocator_inc_ref(al, addr, NULL)));
+   ASSERT_EQUAL_U(AL_ONE_REF + 1, allocator_get_refcount(al, addr));
+}
+
 static void snapshot_remount(struct CTEST_IMPL_DATA_SNAME(rc_allocator) * data)
 {
    if (data->loaded_attached) {
@@ -272,8 +312,11 @@ CTEST2(rc_allocator, wide_counts_multiple_overflow_extents_and_release)
    ASSERT_EQUAL_U(UINT64_MAX, unpublished);
    ASSERT_EQUAL_U(writes, data->io.writes);
    /* A release preflight must not free a prefix when a later node is shared. */
-   uint64 shared_node = data->loaded->snapshot_extents[chain_count - 1];
-   ASSERT_EQUAL_U(3, allocator_inc_ref(&data->loaded->super, shared_node));
+   uint64   shared_node  = data->loaded->snapshot_extents[chain_count - 1];
+   refcount shared_count = 0;
+   ASSERT_TRUE(SUCCESS(
+      allocator_inc_ref(&data->loaded->super, shared_node, &shared_count)));
+   ASSERT_EQUAL_U(3, shared_count);
    ASSERT_TRUE(STATUS_IS_EQ(STATUS_INVALID_STATE,
                             rc_allocator_release_snapshot(data->loaded)));
    ASSERT_EQUAL_U(before + chain_count, allocator_in_use(&data->loaded->super));

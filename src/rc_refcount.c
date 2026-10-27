@@ -336,7 +336,6 @@ platform_status
 rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value)
 {
    rc_refcount_check_extent(map, extent);
-   platform_assert(new_value != NULL);
    while (TRUE) {
       uint32 tag = rc_refcount_tag(map, extent);
       if (tag == AL_FREE) {
@@ -344,7 +343,9 @@ rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value)
       }
       if (tag < RC_REFCOUNT_ESCAPE - 1) {
          if (rc_refcount_change_tag(map, extent, tag, tag + 1)) {
-            *new_value = tag + 1;
+            if (new_value != NULL) {
+               *new_value = tag + 1;
+            }
             return STATUS_OK;
          }
          continue;
@@ -360,7 +361,10 @@ rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value)
             platform_mutex_unlock(&shard->lock);
             return STATUS_LIMIT_EXCEEDED;
          }
-         *new_value = ++entry->count;
+         entry->count++;
+         if (new_value != NULL) {
+            *new_value = entry->count;
+         }
          platform_mutex_unlock(&shard->lock);
          return STATUS_OK;
       }
@@ -383,7 +387,9 @@ rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value)
       if (rc_refcount_change_tag(
              map, extent, RC_REFCOUNT_ESCAPE - 1, RC_REFCOUNT_ESCAPE))
       {
-         *new_value = RC_REFCOUNT_ESCAPE;
+         if (new_value != NULL) {
+            *new_value = RC_REFCOUNT_ESCAPE;
+         }
          platform_mutex_unlock(&shard->lock);
          return STATUS_OK;
       }

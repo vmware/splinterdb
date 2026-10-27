@@ -90,6 +90,9 @@ rc_allocator_init(rc_allocator      *al,
 void
 rc_allocator_deinit(rc_allocator *al);
 
+__attribute__((warn_unused_result)) platform_status
+rc_allocator_inc_ref(rc_allocator *al, uint64 addr, refcount *new_count);
+
 /*
  * Attach to an existing device but do not read the persisted map.  The caller
  * then populates the map exactly once via allocator_load_refcounts() or

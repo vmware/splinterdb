@@ -118,7 +118,7 @@ Packed containers request an additional 8,256 bytes. After reopened scans, 2-bit
 
 `BUILD_RC_BITS=2|4|8` selects the packed width with `BUILD_RC_COMPACT=1`; the selected default width is now 4. The measurements used explicit widths, so this default change does not alter the recorded results. The all-ones raw tag redirects to the hash table: 3/15/255. All measured variants preserve full 32-bit refcounts in overflow. Every width, including 8-bit, uses 64-bit word CAS; an independent byte-atomic 8-bit backend was not tested.
 
-The existing experimental OOM limitation remains: surrounding ownership retains are infallible, so an overflow allocation failure still fail-stops in the opt-in adapter. Wider counters reduce this exposure without making the API fallible. No production default or checkpoint protocol changed in the measured campaign.
+During the measured campaign, surrounding ownership retains were infallible, so an overflow allocation failure fail-stopped in the opt-in adapter. The current branch subsequently added fallible retention and caller rollback; these frozen measurements do not measure that change. No production default or checkpoint protocol changed in the measured campaign.
 
 ## Validation and evidence
 

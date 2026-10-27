@@ -134,12 +134,20 @@ lookup_result_update(lookup_result    *result,
 
    if (merge_accumulator_is_null(&result->value)) {
       debug_assert(!message_is_blob(msg) || !ondisk_ref_is_null(msg_blob_ref));
+      /* Acquire before publishing the borrowed descriptor into result. A failed
+       * retain must never leave a message referring to an unowned blob. */
+      ondisk_ref      staged_ref;
+      platform_status status = ondisk_ref_copy(
+         &staged_ref, message_is_blob(msg) ? msg_blob_ref : NULL);
+      if (!SUCCESS(status)) {
+         return status;
+      }
       bool32 success = merge_accumulator_copy_message(&result->value, msg);
       if (!success) {
+         ondisk_ref_deinit(&staged_ref);
          return STATUS_NO_MEMORY;
       }
-      ondisk_ref_replace(&result->blob_ref,
-                         message_is_blob(msg) ? msg_blob_ref : NULL);
+      ondisk_ref_move(&result->blob_ref, &staged_ref);
       return STATUS_OK;
    }
 

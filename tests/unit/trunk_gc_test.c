@@ -43,6 +43,7 @@ typedef struct gc_allocator {
    allocator        super;
    allocator_config cfg;
    refcount         refs[GC_NUM_NODES];
+   bool32           fail_retain;
 } gc_allocator;
 
 typedef struct gc_cache {
@@ -99,6 +100,20 @@ static allocator *
 gc_get_allocator(const cache *cc)
 {
    return &((gc_cache *)cc)->al.super;
+}
+
+static platform_status
+gc_inc_ref(allocator *al, uint64 addr, refcount *new_count)
+{
+   gc_allocator *test_al = (gc_allocator *)al;
+   if (test_al->fail_retain) {
+      return STATUS_NO_MEMORY;
+   }
+   refcount count = ++test_al->refs[node_index(addr)];
+   if (new_count != NULL) {
+      *new_count = count;
+   }
+   return STATUS_OK;
 }
 
 static refcount
@@ -159,6 +174,7 @@ gc_discard(cache *cc, uint64 addr, page_type type)
 static const allocator_ops gc_allocator_ops = {
    .get_config = gc_allocator_get_config,
    .dec_ref    = gc_dec_ref,
+   .inc_ref    = gc_inc_ref,
 };
 static const cache_ops gc_cache_ops = {
    .get_config     = gc_get_config,
@@ -246,6 +262,38 @@ CTEST(trunk_gc, deferred_parent_can_enqueue_busy_child)
       ASSERT_TRUE(cc.discarded[i]);
    }
    ASSERT_TRUE(SUCCESS(context.allocator_cleanup_status));
+   batch_rwlock_deinit(&context.root_lock);
+   platform_deregister_thread();
+}
+
+CTEST(trunk_gc, snapshot_retain_failure_leaves_output_empty)
+{
+   platform_register_thread();
+   gc_allocator al = {.super = {.ops = &gc_allocator_ops}, .fail_retain = TRUE};
+   al.refs[0]      = AL_ONE_REF;
+   trunk_ondisk_node_ref root    = {.ref = {.addr = GC_EXTENT_SIZE}};
+   trunk_context         context = {.al = &al.super, .root = &root};
+   batch_rwlock_init(&context.root_lock);
+   trunk_snapshot  snapshot = {.root_addr = 12345};
+   platform_status rc       = trunk_snapshot_create(&context, &snapshot);
+   ASSERT_EQUAL(STATUS_NO_MEMORY.r, rc.r);
+   ASSERT_EQUAL(0, snapshot.root_addr);
+   ASSERT_EQUAL(AL_ONE_REF, al.refs[0]);
+   snapshot.root_addr = 12345;
+   rc = trunk_snapshot_create_from_addr(&al.super, GC_EXTENT_SIZE, &snapshot);
+   ASSERT_EQUAL(STATUS_NO_MEMORY.r, rc.r);
+   ASSERT_EQUAL(0, snapshot.root_addr);
+   ASSERT_EQUAL(AL_ONE_REF, al.refs[0]);
+
+   // A following mutation proves failed snapshot acquisition released its lock.
+   trunk_modification_begin(&context);
+   trunk_modification_end(&context);
+   al.fail_retain = FALSE;
+   ASSERT_TRUE(SUCCESS(trunk_snapshot_create(&context, &snapshot)));
+   ASSERT_EQUAL(GC_EXTENT_SIZE, snapshot.root_addr);
+   ASSERT_EQUAL(AL_ONE_REF + 1, al.refs[0]);
+   ASSERT_TRUE(SUCCESS(trunk_snapshot_release(&context, &snapshot)));
+   ASSERT_EQUAL(AL_ONE_REF, al.refs[0]);
    batch_rwlock_deinit(&context.root_lock);
    platform_deregister_thread();
 }

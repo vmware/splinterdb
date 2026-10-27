@@ -254,8 +254,9 @@ trunk_context_init(trunk_context      *context,
 platform_status
 trunk_context_deinit(trunk_context *context);
 
-/* Capture an owned reference to the current COW root without reading it. */
-platform_status
+/* Capture an owned reference to the current COW root without reading it.
+ * Failure leaves snapshot empty and does not change the root's ownership. */
+platform_status __attribute__((warn_unused_result))
 trunk_snapshot_create(trunk_context *context, trunk_snapshot *snapshot);
 
 /*
@@ -264,8 +265,9 @@ trunk_snapshot_create(trunk_context *context, trunk_snapshot *snapshot);
  * root_addr must already be referenced by the caller (its persisted refcount
  * accounts for it); this takes out an additional, independent reference. A
  * null root_addr (0) produces a null snapshot without touching the allocator.
+ * Failure leaves snapshot empty and does not change the caller's ownership.
  */
-platform_status
+platform_status __attribute__((warn_unused_result))
 trunk_snapshot_create_from_addr(allocator      *al,
                                 uint64          root_addr,
                                 trunk_snapshot *snapshot);
@@ -304,7 +306,7 @@ trunk_recover_allocations(const trunk_config *cfg,
 
 // Build a new trunk with the branch incorporated.  The new trunk is not yet
 // visible to queriers.
-platform_status
+platform_status __attribute__((warn_unused_result))
 trunk_incorporate_prepare(trunk_context *context, uint64 branch);
 
 // Must be called iff trunk_incorporate_prepare returned SUCCESS
@@ -355,7 +357,9 @@ typedef struct trunk_branch_info {
    uint16    format_version;
 } trunk_branch_info;
 
-platform_status
+// On failure, releases every reference acquired by this call and restores
+// *num_branches. Entries in the caller's original prefix are never modified.
+platform_status __attribute__((warn_unused_result))
 trunk_collect_branches(const trunk_context            *context,
                        const trunk_ondisk_node_handle *handle,
                        key                             tgt,

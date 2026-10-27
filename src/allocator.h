@@ -136,6 +136,9 @@ typedef platform_status (*alloc_fn)(allocator *al,
 
 typedef refcount (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
 typedef refcount (*generic_ref_fn)(allocator *al, uint64 addr);
+typedef platform_status (*inc_ref_fn)(allocator *al,
+                                      uint64     addr,
+                                      refcount  *new_count);
 
 /*
  * Record one logical reference to addr while rebuilding a recovery map (see
@@ -176,7 +179,7 @@ typedef struct allocator_ops {
    allocator_get_config_fn get_config;
 
    alloc_fn       alloc;
-   generic_ref_fn inc_ref;
+   inc_ref_fn     inc_ref;
    dec_ref_fn     dec_ref;
    generic_ref_fn get_ref;
    /* Packed maps can answer allocation-state checks without a hash lookup. */
@@ -251,10 +254,14 @@ allocator_alloc(allocator *al, uint64 *addr, page_type type)
    return al->ops->alloc(al, addr, type);
 }
 
-static inline refcount
-allocator_inc_ref(allocator *al, uint64 addr)
+/* Acquire one reference to an allocated extent. On failure the count and
+ * optional output remain unchanged. A concurrent owner may still change the
+ * count. Returns INVALID_STATE for a free extent, LIMIT_EXCEEDED at UINT64_MAX,
+ * or NO_MEMORY if the packed overflow table cannot grow. */
+__attribute__((warn_unused_result)) static inline platform_status
+allocator_inc_ref(allocator *al, uint64 addr, refcount *new_count)
 {
-   return al->ops->inc_ref(al, addr);
+   return al->ops->inc_ref(al, addr, new_count);
 }
 
 static inline refcount

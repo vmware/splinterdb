@@ -52,8 +52,7 @@ rc_allocator_validate_format_version(uint16 format_version)
  */
 #define SHOULD_TRACE(addr) (0) // Do not trace anything
 
-/* The compact representation is deliberately opt-in while the public retain
- * callbacks are infallible. The container itself has a failure-safe try_inc. */
+/* Both representations expose the same fallible ownership interface. */
 static inline bool32
 rc_allocator_has_refcounts(rc_allocator *al)
 {
@@ -773,42 +772,52 @@ out:
  *----------------------------------------------------------------------
  * rc_allocator_[inc,dec,get]_ref --
  *
- *      Increments/decrements/fetches the ref count of the given address and
- *      returns the new one. If the ref_count goes to 0, then the extent is
- *      freed.
+ *      Retain returns status and optionally the new count. Release/fetch
+ *      return the resulting count. Releasing the final allocation floor frees
+ *      the extent.
  *----------------------------------------------------------------------
  */
-refcount
-rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
+platform_status
+rc_allocator_inc_ref(rc_allocator *al, uint64 addr, refcount *new_count)
 {
    platform_assert(al->map_is_valid);
-   uint64 extent_no = rc_allocator_checked_extent_number(al, addr);
-
+   uint64   extent_no = rc_allocator_checked_extent_number(al, addr);
+   refcount updated;
 #if SPLINTER_RC_COMPACT
-   refcount        ref_count;
    platform_status status =
-      rc_refcount_try_inc(&al->compact, extent_no, &ref_count);
-   /* Experimental adapter only: legacy ownership callbacks cannot propagate
-    * OOM. Do not return a fabricated count or continue after a failed retain.
-    * Keep BUILD_RC_COMPACT disabled in production until these callers can
-    * roll back a fallible retain. The container has no partial-count change. */
-   platform_assert(
-      SUCCESS(status),
-      "Experimental compact allocator retain failed at extent %lu: %s. "
-      "Fallible ownership callbacks are required before production use.",
-      extent_no,
-      platform_status_to_string(status));
-#else
-   refcount ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
-#endif
-   platform_assert(ref_count != 1 && ref_count != 0);
-   if (SHOULD_TRACE(addr)) {
-      platform_default_log("rc_allocator_inc_ref(%lu): %lu -> %lu\n",
-                           addr,
-                           ref_count,
-                           ref_count + 1);
+      rc_refcount_try_inc(&al->compact, extent_no, &updated);
+   if (!SUCCESS(status)) {
+      return status;
    }
-   return ref_count;
+#else
+   refcount previous = rc_allocator_count_load(al, extent_no);
+   while (TRUE) {
+      if (previous == AL_FREE) {
+         return STATUS_INVALID_STATE;
+      }
+      if (previous == UINT64_MAX) {
+         return STATUS_LIMIT_EXCEEDED;
+      }
+      updated = previous + 1;
+      if (__atomic_compare_exchange_n(&al->ref_count[extent_no],
+                                      &previous,
+                                      updated,
+                                      FALSE,
+                                      __ATOMIC_SEQ_CST,
+                                      __ATOMIC_RELAXED))
+      {
+         break;
+      }
+   }
+#endif
+   if (new_count != NULL) {
+      *new_count = updated;
+   }
+   if (SHOULD_TRACE(addr)) {
+      platform_default_log(
+         "rc_allocator_inc_ref(%lu): %lu -> %lu\n", addr, updated - 1, updated);
+   }
+   return STATUS_OK;
 }
 
 refcount
@@ -1185,11 +1194,11 @@ rc_allocator_alloc_virtual(allocator *a, uint64 *addr, page_type type)
    return rc_allocator_alloc(al, addr, type);
 }
 
-refcount
-rc_allocator_inc_ref_virtual(allocator *a, uint64 addr)
+platform_status
+rc_allocator_inc_ref_virtual(allocator *a, uint64 addr, refcount *new_count)
 {
    rc_allocator *al = (rc_allocator *)a;
-   return rc_allocator_inc_ref(al, addr);
+   return rc_allocator_inc_ref(al, addr, new_count);
 }
 
 refcount

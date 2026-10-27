@@ -493,6 +493,7 @@ $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) \
                                 $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/vector_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/rc_refcount_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ) $(OBJDIR)/$(SRCDIR)/rc_refcount.o
+$(BINDIR)/$(UNITDIR)/ondisk_ref_test: $(COMMON_UNIT_TESTOBJ) $(LIBDIR)/libsplinterdb.so
 $(BINDIR)/$(UNITDIR)/rc_allocator_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ) $(PLATFORM_IO_SYS) \
                                         $(OBJDIR)/$(SRCDIR)/allocator.o \
                                         $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
@@ -619,6 +620,7 @@ $(BINDIR)/$(UNITDIR)/splinterdb_heap_id_mgmt_test: $(COMMON_TESTOBJ)         \
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
 unit/misc_test:                    $(BINDIR)/$(UNITDIR)/misc_test
+unit/ondisk_ref_test:              $(BINDIR)/$(UNITDIR)/ondisk_ref_test
 unit/rc_allocator_test:            $(BINDIR)/$(UNITDIR)/rc_allocator_test
 unit/rc_refcount_test:             $(BINDIR)/$(UNITDIR)/rc_refcount_test
 unit/platform_threads_test:        $(BINDIR)/$(UNITDIR)/platform_threads_test

@@ -373,6 +373,156 @@ CTEST2(splinterdb_quick, test_get_cost_stats)
  * The 2nd term is the test-case name, e.g., 'test_basic_flow'.
  * ***********************************************************************
  */
+/* Exercise the public propagation paths without depending on a particular
+ * counter width or hash shard capacity. The allocator remains quiescent while
+ * this wrapper injects one error at a chosen acquisition in the call. */
+typedef struct retain_fault {
+   const allocator_ops *original;
+   uint64               before_failure;
+   uint64               failures;
+   platform_status      status;
+} retain_fault;
+
+static retain_fault *active_retain_fault;
+
+static platform_status
+retain_fault_inc(allocator *al, uint64 addr, refcount *new_count)
+{
+   retain_fault *fault = active_retain_fault;
+   if (fault->before_failure == 0) {
+      fault->failures++;
+      return fault->status;
+   }
+   fault->before_failure--;
+   return fault->original->inc_ref(al, addr, new_count);
+}
+
+static refcount *
+retain_test_counts(allocator *al)
+{
+   allocator_config *cfg    = allocator_get_config(al);
+   refcount         *counts = calloc(cfg->extent_capacity, sizeof(*counts));
+   ASSERT_NOT_NULL(counts);
+   for (uint64 i = 0; i < cfg->extent_capacity; i++) {
+      counts[i] = allocator_get_refcount(al, i * cfg->io_cfg->extent_size);
+   }
+   return counts;
+}
+
+static void
+retain_test_check_counts(allocator *al, const refcount *counts)
+{
+   allocator_config *cfg = allocator_get_config(al);
+   for (uint64 i = 0; i < cfg->extent_capacity; i++) {
+      ASSERT_EQUAL_U(counts[i],
+                     allocator_get_refcount(al, i * cfg->io_cfg->extent_size));
+   }
+}
+
+CTEST2(splinterdb_quick, test_blob_lookup_and_update_retain_failures)
+{
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   char         payload[8192] = {1};
+   slice        key           = slice_create(11, "retain-blob");
+   slice        value         = slice_create(sizeof(payload), payload);
+   ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, key, value, NULL));
+   refcount     *counts    = retain_test_counts(core->al);
+   allocator_ops fault_ops = *core->al->ops;
+   fault_ops.inc_ref       = retain_fault_inc;
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(data->kvsb, &result);
+   const platform_status failures[] = {STATUS_NO_MEMORY, STATUS_LIMIT_EXCEEDED};
+   for (uint64 status_no = 0; status_no < ARRAY_SIZE(failures); status_no++) {
+      // Failure at zero tests the temporary btree owner; at one tests the
+      // result's independent owner and rollback of that temporary reference.
+      for (uint64 fail_after = 0; fail_after < 2; fail_after++) {
+         for (uint64 operation = 0; operation < 3; operation++) {
+            retain_fault fault  = {.original       = core->al->ops,
+                                   .before_failure = fail_after,
+                                   .status         = failures[status_no]};
+            active_retain_fault = &fault;
+            core->al->ops       = &fault_ops;
+            int           rc;
+            lookup_result async_result;
+            if (operation == 0) {
+               rc = splinterdb_lookup(data->kvsb, key, &result);
+            } else if (operation == 1) {
+               lookup_result_init(&async_result,
+                                  core->cfg.data_cfg,
+                                  SPLINTERDB_LOOKUP_VALUE,
+                                  0,
+                                  NULL);
+               platform_status status =
+                  async_call_sync_callback(cache_cleanup(core->cc),
+                                           core_lookup_async,
+                                           core,
+                                           key_create_from_slice(TRUE, key),
+                                           &async_result);
+               rc = status.r;
+            } else {
+               rc = splinterdb_insert(
+                  data->kvsb, key, slice_create(11, "replacement"), &result);
+            }
+            core->al->ops       = fault.original;
+            active_retain_fault = NULL;
+            ASSERT_EQUAL(failures[status_no].r, rc);
+            ASSERT_EQUAL(1, fault.failures);
+            if (operation == 1) {
+               ASSERT_FALSE(lookup_result_found(&async_result));
+               lookup_result_deinit(&async_result);
+            } else {
+               assert_lookup_result_not_found(&result);
+            }
+            retain_test_check_counts(core->al, counts);
+         }
+      }
+   }
+   // A successful retry also verifies the failed update left the value intact
+   // and released the leaf, insert, lookup, and stats locks.
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, key, &result));
+   assert_lookup_result_matches_slice(&result, value);
+   splinterdb_lookup_result_deinit(&result);
+   retain_test_check_counts(core->al, counts);
+   free(counts);
+}
+
+CTEST2(splinterdb_quick, test_iterator_retain_failure_unwinds_prefix)
+{
+   ASSERT_EQUAL(0, insert_some_keys(8, data->kvsb));
+   core_handle *core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+   // With no background workers, rotation leaves a second live memtable.
+   ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+   refcount     *counts             = retain_test_counts(core->al);
+   allocator_ops fault_ops          = *core->al->ops;
+   fault_ops.inc_ref                = retain_fault_inc;
+   const platform_status failures[] = {STATUS_NO_MEMORY, STATUS_LIMIT_EXCEEDED};
+   for (uint64 status_no = 0; status_no < ARRAY_SIZE(failures); status_no++) {
+      // The second acquisition fails after the active memtable was retained.
+      for (uint64 fail_after = 0; fail_after < 2; fail_after++) {
+         retain_fault fault            = {.original       = core->al->ops,
+                                          .before_failure = fail_after,
+                                          .status         = failures[status_no]};
+         active_retain_fault           = &fault;
+         core->al->ops                 = &fault_ops;
+         splinterdb_iterator *iterator = NULL;
+         int rc              = splinterdb_iterator_init(data->kvsb, &iterator);
+         core->al->ops       = fault.original;
+         active_retain_fault = NULL;
+         ASSERT_EQUAL(failures[status_no].r, rc);
+         ASSERT_NULL(iterator);
+         ASSERT_EQUAL(1, fault.failures);
+         retain_test_check_counts(core->al, counts);
+      }
+   }
+   splinterdb_iterator *iterator = NULL;
+   ASSERT_EQUAL(0, splinterdb_iterator_init(data->kvsb, &iterator));
+   ASSERT_EQUAL(0, check_current_tuple(iterator, 0));
+   splinterdb_iterator_deinit(iterator);
+   retain_test_check_counts(core->al, counts);
+   ASSERT_EQUAL(0, insert_some_keys(9, data->kvsb));
+   free(counts);
+}
+
 CTEST2(splinterdb_quick, test_checkpoint_log_grace_default)
 {
    const core_handle *core = splinterdb_get_trunk_handle(data->kvsb);
@@ -837,6 +987,73 @@ CTEST2(splinterdb_quick, test_fetch_and_update_catches_up_after_rotation)
    ASSERT_EQUAL(0, args.rc);
    assert_lookup_result_matches_slice(&old_result, skipped);
    splinterdb_lookup_result_deinit(&old_result);
+}
+
+CTEST2(splinterdb_quick, test_fetch_and_update_catch_up_retain_failure)
+{
+   const platform_status failures[] = {STATUS_NO_MEMORY, STATUS_LIMIT_EXCEEDED};
+   for (uint64 status_no = 0; status_no < ARRAY_SIZE(failures); status_no++) {
+      for (uint64 fail_after = 0; fail_after < 2; fail_after++) {
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+         final_merge_data_config *cfg = &data->final_merge_cfg;
+         memset(cfg, 0, sizeof(*cfg));
+         default_data_config_init(&cfg->super);
+         cfg->super.merge_tuples       = final_merge_test_merge;
+         cfg->super.merge_tuples_final = final_merge_test_finalize;
+         data->cfg.data_cfg            = &cfg->super;
+         ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+
+         slice key         = slice_create(12, "catch-up-key");
+         slice lower       = slice_create(5, "lower");
+         slice skipped     = slice_create(7, "skipped");
+         slice replacement = slice_create(11, "replacement");
+         ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, lower, NULL));
+         core_handle *core =
+            (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+         ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+         ASSERT_EQUAL(0, splinterdb_update(data->kvsb, key, skipped, NULL));
+
+         splinterdb_lookup_result old_result;
+         splinterdb_lookup_result_init(data->kvsb, &old_result);
+         fetch_and_update_thread_args args = {.kvsb       = data->kvsb,
+                                              .key        = key,
+                                              .value      = replacement,
+                                              .old_result = &old_result};
+         cfg->finalize_block_once          = TRUE;
+         pthread_t thread;
+         ASSERT_EQUAL(
+            0, pthread_create(&thread, NULL, fetch_and_update_thread, &args));
+         while (!__atomic_load_n(&cfg->finalize_blocked, __ATOMIC_ACQUIRE)) {
+            platform_sleep_ns(1000);
+         }
+         // Two intervening rotations make catch-up acquire two generations.
+         // The second failure case must release the already-acquired prefix.
+         ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+         ASSERT_TRUE(SUCCESS(memtable_force_rotation(&core->mt_ctxt, NULL)));
+         refcount     *counts    = retain_test_counts(core->al);
+         retain_fault  fault     = {.original       = core->al->ops,
+                                    .before_failure = fail_after,
+                                    .status         = failures[status_no]};
+         allocator_ops fault_ops = *core->al->ops;
+         fault_ops.inc_ref       = retain_fault_inc;
+         active_retain_fault     = &fault;
+         core->al->ops           = &fault_ops;
+         __atomic_store_n(&cfg->finalize_release, TRUE, __ATOMIC_RELEASE);
+         ASSERT_EQUAL(0, pthread_join(thread, NULL));
+         core->al->ops       = fault.original;
+         active_retain_fault = NULL;
+
+         ASSERT_EQUAL(failures[status_no].r, args.rc);
+         ASSERT_EQUAL(1, fault.failures);
+         ASSERT_FALSE(splinterdb_lookup_found(&old_result));
+         retain_test_check_counts(core->al, counts);
+         free(counts);
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, key, &old_result));
+         assert_lookup_result_matches_slice(&old_result, skipped);
+         ASSERT_EQUAL(0, splinterdb_insert(data->kvsb, key, replacement, NULL));
+         splinterdb_lookup_result_deinit(&old_result);
+      }
+   }
 }
 
 CTEST2(splinterdb_quick, test_fetch_and_update_rejects_incorporated_boundary)

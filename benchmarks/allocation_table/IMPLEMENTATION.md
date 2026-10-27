@@ -4,8 +4,9 @@ Implementation dated 2026-10-26 on `robj/allocation-table`, based on the origina
 `6e550e1e` source and the preceding design investigation `5733e6d9`.
 
 The branch now contains a real packed backend wired into `rc_allocator`, selected
-with `make BUILD_RC_COMPACT=1`. The default remains `BUILD_RC_COMPACT=0` while the
-existing infallible ownership APIs cannot recover from overflow-table OOM.
+with `make BUILD_RC_COMPACT=1`. The default remains `BUILD_RC_COMPACT=0`; compact operation is selected
+explicitly. Both backends now expose fallible extent retention, and ownership
+callers propagate failures with rollback.
 Both builds include the independently useful mini-allocator ownership cleanup.
 The current implementation uses 64-bit exact refcounts and allocator disk format
 3. Those changes followed the throughput campaign: the frozen results below
@@ -120,38 +121,43 @@ a successful write retains chain ownership because durability can be ambiguous.
 Full layout, checksum definitions and lifecycle details are in
 [allocation snapshot format](SNAPSHOT_FORMAT.md).
 
-## Fallible incref
+## Fallible extent retention
 
-The container's `rc_refcount_try_inc()` is fallible: failed growth leaves the
-logical count and output parameter unchanged. Quiescent import/recovery also
-returns allocation errors and never marks an incomplete map valid.
+`allocator_inc_ref(al, addr, new_count)` returns `platform_status`, with an
+optional output count. Allocation failure, a free extent, or saturation leaves
+both the count and output unchanged. Compact counts delegate to
+`rc_refcount_try_inc`; dense counts use a checked CAS loop. The former fail-stop
+adapter has been removed. Public internal retain entry points are marked
+`warn_unused_result` so ignored failures are compiler errors in normal builds.
 
-The surrounding allocator API is still infallible. The opt-in adapter emits an
-unconditional assertion diagnostic and stops on a failed retain; it does not
-fabricate success. **This is an experimental OOM limitation, not recoverable
-production behavior.** No dense fallback or worst-case preallocated overflow
-capacity is hidden in the memory figures.
+Mini, B-tree, routing-filter and memtable retains return status. Mini attachment
+unlocks its batch without appending on retain failure; a later append failure
+releases its acquired reference. Log creation unwinds its mini and groups if the
+live handle cannot acquire its additional owner. B-tree blob lookup, asynchronous
+lookup, and old-value capture release page handles and return acquisition errors.
+Old-value capture runs before the insertion callback and mutation.
 
-Making all retains fallible is a separate ownership-rollback change. The old four
-raw increment call sites fan out through mini/btree/filter retains, `ondisk_ref`
-callbacks and copy/replace, lookup-result replacement, iterator acquisition loops,
-and trunk serialization. Removing the synthetic mini increment leaves three raw
-call sites, but first sharing can now occur in ordinary lookup-result copies.
+`ondisk_ref_init` and `ondisk_ref_copy` leave null destinations on failure;
+`ondisk_ref_replace` preserves the old owner. `ondisk_ref_move` transfers an
+already-owned reference without another fallible acquisition. Lookup results
+stage their blob owner before copying the borrowed message descriptor and publish
+both only after success.
 
-Required examples of correct failure behavior:
+Trunk bundle/node acquisition rolls back only the successful prefix. Node
+serialization retains every outgoing reference before publication; a failed
+attempt discards its private serialized extent without traversing borrowed
+references. Snapshot failure leaves an empty snapshot. Iterator capture restores
+its original branch count and releases captured references and locks. Compaction
+setup propagates the original error and unwinds its acquired inputs and state.
 
-- Failed `ondisk_ref_init` must leave a null destination.
-- Failed replacement must retain the old owner and message, without exposing a
-  new descriptor whose owner was never acquired.
-- A trunk serialization failure must release precisely the acquired prefix of
-  child references before discarding its unpublished output; current code has an
-  explicit boundary after which no fallible work remains.
-- `mini_attach_extent` must restore its batch lock/state on a failed retain.
+This changes internal APIs, not disk format 3 or the public API signatures.
+Existing mini allocation semantics still apply to blob construction: successful
+prefix attachments remain owned by the destination mini until its teardown if a
+later construction step fails. No failed descriptor is published; abort cleanup
+must release the destination mini as usual.
 
-Sticky per-extent reservations could move allocation earlier, but retaining a
-normal overflow record at count 2 conflicts with the requested encoding/invariant.
-A separate reservation structure adds memory and lifetime machinery. Reserving
-for every potentially shared extent also destroys the sparse-memory premise.
+Current failure coverage and validation are recorded in
+[fallible retain implementation](FALLIBLE_RETAINS.md).
 
 ## Format-3 and 64-bit validation (2026-10-26)
 

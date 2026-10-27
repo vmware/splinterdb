@@ -267,8 +267,8 @@ routing_filter_dec_ref(cache *cc, routing_filter *filter);
 platform_status
 routing_filter_recover_allocations(cache *cc, routing_filter *filter);
 
-void
-routing_filter_inc_ref(cache *cc, routing_filter *filter);
+__attribute__((warn_unused_result)) platform_status
+routing_filter_inc_ref(cache *cc, const routing_filter *filter);
 
 uint32
 routing_filter_estimate_unique_keys_from_count(uint32 fingerprint_size,

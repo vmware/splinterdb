@@ -2230,7 +2230,7 @@ cache_batch_test_discard(cache *cc, uint64 addr)
    platform_assert(allocator_dec_ref(al, addr, PAGE_TYPE_MISC) == AL_NO_REFS);
    cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
    // Keep the extent reserved for the next iteration of this test.
-   allocator_inc_ref(al, addr);
+   platform_assert_status_ok(allocator_inc_ref(al, addr, NULL));
 }
 
 static void

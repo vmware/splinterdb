@@ -144,6 +144,21 @@ CTEST2(rc_refcount, wide_counts_cross_uint32_and_signed_boundary)
    ASSERT_EQUAL_U(UINT64_MAX - 1, rc_refcount_dec(data->map, 1));
 }
 
+CTEST2(rc_refcount, retain_optional_output)
+{
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_INVALID_STATE,
+                            rc_refcount_try_inc(data->map, 1, NULL)));
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, RC_REFCOUNT_ESCAPE - 1)));
+   ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, 1, NULL)));
+   ASSERT_EQUAL_U(RC_REFCOUNT_ESCAPE, rc_refcount_get(data->map, 1));
+   ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, 1, NULL)));
+   ASSERT_EQUAL_U(RC_REFCOUNT_ESCAPE + 1, rc_refcount_get(data->map, 1));
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, UINT64_MAX)));
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_LIMIT_EXCEEDED,
+                            rc_refcount_try_inc(data->map, 1, NULL)));
+   ASSERT_EQUAL_U(UINT64_MAX, rc_refcount_get(data->map, 1));
+}
+
 CTEST2(rc_refcount, every_inline_count_and_escape_boundary)
 {
    const uint64 extent = RC_REFCOUNT_COUNTS_PER_WORD - 1;

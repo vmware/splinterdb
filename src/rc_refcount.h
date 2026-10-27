@@ -104,10 +104,11 @@ bool32
 rc_refcount_try_claim(rc_refcount *map, uint64 extent);
 
 /* Concurrent increment. On failure this operation does not change the
- * logical count, and leaves *new_value untouched. Returns NO_MEMORY for an
- * overflow-table growth failure, INVALID_STATE for a free extent, and
- * LIMIT_EXCEEDED for UINT64_MAX. Other threads may still update the extent. */
-platform_status
+ * logical count, and leaves the optional *new_value untouched. Returns
+ * NO_MEMORY for an overflow-table growth failure, INVALID_STATE for a free
+ * extent, and LIMIT_EXCEEDED for UINT64_MAX. Other threads may still update the
+ * extent. */
+__attribute__((warn_unused_result)) platform_status
 rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value);
 
 /* Concurrent, allocation-free decrement. A zero input is a caller error. */

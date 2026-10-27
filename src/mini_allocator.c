@@ -730,9 +730,13 @@ mini_attach_extent(mini_allocator *mini, uint64 batch, uint64 addr)
    debug_assert(batch < mini->num_batches);
    debug_assert(addr % cache_extent_size(mini->cc) == 0);
 
-   uint64 old_next_addr = mini_lock_batch_get_next_addr(mini, batch);
-   allocator_inc_ref(mini->al, addr);
-   platform_status rc = mini_append_entry(mini, batch, addr);
+   uint64          old_next_addr = mini_lock_batch_get_next_addr(mini, batch);
+   platform_status rc            = allocator_inc_ref(mini->al, addr, NULL);
+   if (!SUCCESS(rc)) {
+      mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
+      return rc;
+   }
+   rc = mini_append_entry(mini, batch, addr);
    if (!SUCCESS(rc)) {
       (void)allocator_dec_ref(mini->al, addr, mini->types[batch]);
       mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
@@ -1025,19 +1029,18 @@ mini_for_each(cache           *cc,
  *      MINI_NO_REFS), the mini allocator is destroyed.
  *
  * Results:
- *      Remaining external ref count (internal ref count - MINI_NO_REFS)
+ *      Increment returns status without changing ownership on failure.
+ *      Decrement returns the remaining external count (raw - MINI_NO_REFS).
  *
  * Side effects:
  *      Deallocation/cache side effects when external ref count hits 0
  *-----------------------------------------------------------------------------
  */
-refcount
+platform_status
 mini_inc_ref(cache *cc, uint64 meta_head)
 {
-   allocator *al  = cache_get_allocator(cc);
-   refcount   ref = allocator_inc_ref(al, base_addr(cc, meta_head));
-   platform_assert(ref > MINI_NO_REFS);
-   return ref - MINI_NO_REFS;
+   return allocator_inc_ref(
+      cache_get_allocator(cc), base_addr(cc, meta_head), NULL);
 }
 
 static void
