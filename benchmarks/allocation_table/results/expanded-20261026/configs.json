@@ -1,0 +1,22 @@
+{
+  "baseline": {
+    "keys": 10000000,
+    "cache_mib": 128,
+    "disk_gib": 8
+  },
+  "cache1g": {
+    "keys": 10000000,
+    "cache_mib": 1024,
+    "disk_gib": 8
+  },
+  "capacity1t": {
+    "keys": 10000000,
+    "cache_mib": 1024,
+    "disk_gib": 1024
+  },
+  "large30m": {
+    "keys": 30000000,
+    "cache_mib": 4096,
+    "disk_gib": 128
+  }
+}

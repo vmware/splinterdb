@@ -5,10 +5,8 @@
 #include "platform_typed_alloc.h"
 #include "poison.h"
 
-#define RC_REFCOUNT_ESCAPE          3U
-#define RC_REFCOUNT_COUNTS_PER_WORD 32U
-#define RC_REFCOUNT_INITIAL_SLOTS   16U
-#define RC_REFCOUNT_SHARD_BITS      6U
+#define RC_REFCOUNT_INITIAL_SLOTS 16U
+#define RC_REFCOUNT_SHARD_BITS    6U
 
 _Static_assert(RC_REFCOUNT_SHARD_COUNT == (1U << RC_REFCOUNT_SHARD_BITS),
                "shard count must match hash partition");
@@ -19,7 +17,7 @@ _Static_assert(sizeof(refcount) == sizeof(uint32),
 
 typedef struct rc_refcount_entry {
    uint64   extent;
-   refcount count; /* 0 means empty; occupied entries always have count >= 3 */
+   refcount count; /* 0 means empty; occupied counts are at least ESCAPE */
 } rc_refcount_entry;
 
 #if SPLINTER_DEBUG
@@ -71,7 +69,8 @@ rc_refcount_tag(rc_refcount *map, uint64 extent)
 {
    uint64 word = __atomic_load_n(
       &map->words[extent / RC_REFCOUNT_COUNTS_PER_WORD], __ATOMIC_RELAXED);
-   return (word >> (2 * (extent % RC_REFCOUNT_COUNTS_PER_WORD))) & 3U;
+   return (word >> (SPLINTER_RC_BITS * (extent % RC_REFCOUNT_COUNTS_PER_WORD)))
+          & RC_REFCOUNT_ESCAPE;
 }
 
 /* Only the requested lane changes. An unrelated lane's mutation retries
@@ -83,10 +82,10 @@ rc_refcount_change_tag(rc_refcount *map,
                        uint32       new_tag)
 {
    uint64 *word     = &map->words[extent / RC_REFCOUNT_COUNTS_PER_WORD];
-   uint32  shift    = 2 * (extent % RC_REFCOUNT_COUNTS_PER_WORD);
-   uint64  mask     = UINT64_C(3) << shift;
+   uint32  shift    = SPLINTER_RC_BITS * (extent % RC_REFCOUNT_COUNTS_PER_WORD);
+   uint64  mask     = (uint64)RC_REFCOUNT_ESCAPE << shift;
    uint64  old_word = __atomic_load_n(word, __ATOMIC_RELAXED);
-   while (((old_word >> shift) & 3U) == old_tag) {
+   while (((old_word >> shift) & RC_REFCOUNT_ESCAPE) == old_tag) {
       uint64 new_word = (old_word & ~mask) | ((uint64)new_tag << shift);
       if (__atomic_compare_exchange_n(word,
                                       &old_word,
@@ -343,9 +342,9 @@ rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value)
       if (tag == AL_FREE) {
          return STATUS_INVALID_STATE;
       }
-      if (tag == AL_NO_REFS) {
-         if (rc_refcount_change_tag(map, extent, AL_NO_REFS, AL_ONE_REF)) {
-            *new_value = AL_ONE_REF;
+      if (tag < RC_REFCOUNT_ESCAPE - 1) {
+         if (rc_refcount_change_tag(map, extent, tag, tag + 1)) {
+            *new_value = tag + 1;
             return STATUS_OK;
          }
          continue;
@@ -365,7 +364,7 @@ rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value)
          platform_mutex_unlock(&shard->lock);
          return STATUS_OK;
       }
-      if (tag != AL_ONE_REF) {
+      if (tag != RC_REFCOUNT_ESCAPE - 1) {
          platform_mutex_unlock(&shard->lock);
          continue;
       }
@@ -381,13 +380,16 @@ rc_refcount_try_inc(rc_refcount *map, uint64 extent, refcount *new_value)
       shard->used++;
       debug_code(
          rc_refcount_run_hook(map, RC_REFCOUNT_TEST_PROMOTE_INSERTED, extent));
-      if (rc_refcount_change_tag(map, extent, AL_ONE_REF, RC_REFCOUNT_ESCAPE)) {
+      if (rc_refcount_change_tag(
+             map, extent, RC_REFCOUNT_ESCAPE - 1, RC_REFCOUNT_ESCAPE))
+      {
          *new_value = RC_REFCOUNT_ESCAPE;
          platform_mutex_unlock(&shard->lock);
          return STATUS_OK;
       }
       /* A concurrent inline decrement won. Remove the tentative entry before
-       * releasing the lock; no tag-3 reader can observe this failed insert. */
+       * releasing the lock; no escaped reader can observe this failed insert.
+       */
       rc_refcount_erase(shard, entry);
       platform_mutex_unlock(&shard->lock);
    }
@@ -420,13 +422,13 @@ rc_refcount_dec(rc_refcount *map, uint64 extent)
       }
       /* Publish the inline count while locked. Low-tag operations may proceed,
        * but a fresh promotion waits for us to erase the old overflow entry. */
-      platform_assert(
-         rc_refcount_change_tag(map, extent, RC_REFCOUNT_ESCAPE, AL_ONE_REF));
+      platform_assert(rc_refcount_change_tag(
+         map, extent, RC_REFCOUNT_ESCAPE, RC_REFCOUNT_ESCAPE - 1));
       debug_code(
          rc_refcount_run_hook(map, RC_REFCOUNT_TEST_DEMOTE_PUBLISHED, extent));
       rc_refcount_erase(shard, entry);
       platform_mutex_unlock(&shard->lock);
-      return AL_ONE_REF;
+      return RC_REFCOUNT_ESCAPE - 1;
    }
 }
 

@@ -6,6 +6,7 @@ builds. Missing acknowledgements cancel the reservation; time never substitutes
 for permission. Parent must stop all child agents before invoking this runner.
 """
 import argparse
+import csv
 import fcntl
 import hashlib
 import json
@@ -33,6 +34,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--coordination", type=Path, required=True)
     parser.add_argument("--locks", type=Path, required=True)
+    parser.add_argument("--discard-verified-databases", action="store_true",
+                        help="remove each new database only after its full reopened scan passes")
+    parser.add_argument("--suite", choices=["all", "insertion"], default="all")
+    parser.add_argument("--threads", type=int, nargs="+", default=[1, 8])
+    parser.add_argument("--command-timeout", type=int, default=600)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--keys", type=int, default=2000000)
     parser.add_argument("--ack-timeout", type=int, default=120)
@@ -41,8 +47,10 @@ def main():
     def terminate(signum, frame):
         raise SystemExit(128 + signum)
     signal.signal(signal.SIGTERM, terminate)
-    if min(args.repetitions, args.keys, args.ack_timeout) < 1:
-        parser.error("repetitions, keys and ack timeout must be positive")
+    if (min(args.repetitions, args.keys, args.ack_timeout,
+            args.command_timeout, *args.threads) < 1
+            or max(args.threads) > 32):
+        parser.error("counts/timeouts must be positive and threads must be between 1 and 32")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     manifest = json.loads(args.manifest.read_text())
@@ -68,7 +76,9 @@ def main():
             if not status.startswith(("complete", "idle", "inactive", "done")):
                 participants.append(path.stem)
         request = dict(request_id=request_id, owner="allocation-table",
-                       purpose="packed refcounts and mini ownership comparison",
+                       purpose=("macro insertion throughput: original/dense/compact"
+                                if args.suite == "insertion" else
+                                "packed refcounts and mini ownership comparison"),
                        requested_at=time.time(), participants=sorted(participants),
                        expected_duration_minutes=args.expected_minutes)
         atomic_json(coord / "benchmark-request.json", request)
@@ -102,7 +112,16 @@ def main():
                 atomic_json(output / "environment.json", dict(
                     uname=list(os.uname()), cpu_affinity=sorted(os.sched_getaffinity(0)),
                     lscpu=subprocess.check_output(["lscpu", "--json"], text=True),
-                    started=time.time(), keys=args.keys, repetitions=args.repetitions))
+                    started=time.time(), keys=args.keys, repetitions=args.repetitions,
+                    suite=args.suite, threads=args.threads,
+                    discard_verified_databases=args.discard_verified_databases,
+                    processes=subprocess.check_output(["ps", "-eo", "pid,ppid,pcpu,comm,args"], text=True),
+                    meminfo=Path("/proc/meminfo").read_text(),
+                    cpu_policy={str(path): path.read_text().strip() for path in [
+                        Path("/sys/devices/cpu_core/cpus"),
+                        Path("/sys/devices/cpu_atom/cpus"),
+                        Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"),
+                        Path("/sys/devices/system/cpu/intel_pstate/status")] if path.exists()}))
 
                 def invoke(command, name, environment=None):
                     started = time.time()
@@ -110,7 +129,10 @@ def main():
                         proc = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
                                                 env=environment, start_new_session=True)
                         try:
-                            returncode = proc.wait(timeout=180)
+                            returncode = proc.wait(timeout=args.command_timeout)
+                        except subprocess.TimeoutExpired:
+                            returncode = 124
+                            log.write("\nRUNNER: command timed out\n")
                         finally:
                             if proc.poll() is None:
                                 os.killpg(proc.pid, signal.SIGKILL)
@@ -124,35 +146,43 @@ def main():
                         raise RuntimeError("comparison failed: " + name)
                     return (output / (name + ".log")).read_text()
 
-                micro = manifest["micro"]["binary"]
-                with (output / "micro.jsonl").open("w") as results:
-                    for rep in range(args.repetitions):
-                        for extents in [65536, 1048576, 8388608]:
-                            for threads in [1, 4, 16]:
-                                for work in ["get", "allocated", "claim", "promote", "high", "hot"]:
-                                    order = ["dense", "compact"] if rep % 2 == 0 else ["compact", "dense"]
-                                    checksums = []
-                                    for backend in order:
-                                        ops = max(1, (200000 if work == "hot" else 2000000) // threads)
-                                        name = f"micro-{rep}-{extents}-{threads}-{work}-{backend}"
-                                        command = [micro, "--backend", backend, "--workload", work,
-                                                   "--extents", str(extents), "--threads", str(threads),
-                                                   "--ops", str(ops), "--seed", str(42 + rep)]
-                                        if work in ("get", "allocated"):
-                                            command += ["--high-count", str(extents // 100)]
-                                        record = json.loads(invoke(command, name))
-                                        record["rep"] = rep
-                                        results.write(json.dumps(record) + "\n")
-                                        results.flush()
-                                        checksums.append(record["checksum"])
-                                    if work != "hot" and checksums[0] != checksums[1]:
-                                        raise RuntimeError("backend operation streams differ")
-                            print("Micro repetition", rep + 1, "extents", extents, "complete", flush=True)
-                environment = dict(os.environ, KVBENCH_STATS_BEFORE_CLOSE="1")
+                if args.suite == "all":
+                    micro = manifest["micro"]["binary"]
+                    with (output / "micro.jsonl").open("w") as results:
+                        for rep in range(args.repetitions):
+                            for extents in [65536, 1048576, 8388608]:
+                                for threads in [1, 4, 16]:
+                                    for work in ["get", "allocated", "claim", "promote", "high", "hot"]:
+                                        order = ["dense", "compact"] if rep % 2 == 0 else ["compact", "dense"]
+                                        checksums = []
+                                        for backend in order:
+                                            ops = max(1, (200000 if work == "hot" else 2000000) // threads)
+                                            name = f"micro-{rep}-{extents}-{threads}-{work}-{backend}"
+                                            command = [micro, "--backend", backend, "--workload", work,
+                                                       "--extents", str(extents), "--threads", str(threads),
+                                                       "--ops", str(ops), "--seed", str(42 + rep)]
+                                            if work in ("get", "allocated"):
+                                                command += ["--high-count", str(extents // 100)]
+                                            record = json.loads(invoke(command, name))
+                                            record["rep"] = rep
+                                            results.write(json.dumps(record) + "\n")
+                                            results.flush()
+                                            checksums.append(record["checksum"])
+                                        if work != "hot" and checksums[0] != checksums[1]:
+                                            raise RuntimeError("backend operation streams differ")
+                                print("Micro repetition", rep + 1, "extents", extents, "complete", flush=True)
+                environment = dict(os.environ)
+                # An untimed census between insertion and close can drain background
+                # work and bias the combined throughput, so disable it here.
+                environment.pop("KVBENCH_STATS_BEFORE_CLOSE", None)
                 variants = ["original", "dense", "compact"]
+                orders = [variants, variants[1:] + variants[:1], variants[2:] + variants[:2],
+                          ["original", "compact", "dense"],
+                          ["compact", "dense", "original"],
+                          ["dense", "original", "compact"]]
                 for rep in range(args.repetitions):
-                    for threads in [1, 8]:
-                        order = variants[rep % 3:] + variants[:rep % 3]
+                    for threads in args.threads:
+                        order = orders[rep % len(orders)]
                         for variant in order:
                             name = f"database-{rep}-{threads}-{variant}"
                             command = [manifest["variants"][variant]["binary"], "--create",
@@ -161,9 +191,33 @@ def main():
                                        "--threads", str(threads), "--mt-bg", "1", "--normal-bg", "4",
                                        "--memtable-mib", "16", "--secs", "3", "--warmup", "1",
                                        "--seed", str(42 + rep), "--vtag", variant, "--rep", str(rep + 1),
-                                       "--csv", str(output / "database.csv"), "load:random", "warm",
-                                       "point:uniform", "range:uniform:32", "ow:uniform", "warm"]
-                            invoke(command, name, environment)
+                                       "--csv", str(output / "database.csv"), "load:random", "warm"]
+                            if args.suite == "all":
+                                command += ["point:uniform", "range:uniform:32", "ow:uniform", "warm"]
+                            log = invoke(command, name, environment)
+                            with (output / "database.csv").open() as data:
+                                rows = [row for row in csv.DictReader(data)
+                                        if row["version"] == variant
+                                        and int(row["rep"]) == rep + 1
+                                        and int(row["threads"]) == threads]
+                            expected = 2 if args.suite == "insertion" else 6
+                            if len(rows) != expected or any(
+                                    int(row["errors"]) or int(row["violations"])
+                                    or (row["phase"] in ("load:random", "warm")
+                                        and int(row["ops"]) != args.keys)
+                                    for row in rows):
+                                raise RuntimeError("database correctness failure: " + name)
+                            if any(marker in log for marker in ["FINDING:", "VIOLATION:", "ERROR:", "FATAL:"]):
+                                raise RuntimeError("database diagnostic failure: " + name)
+                            if args.discard_verified_databases:
+                                database = output / (name + ".db")
+                                info = database.stat()
+                                database.unlink()
+                                with (output / "discarded-databases.jsonl").open("a") as journal:
+                                    journal.write(json.dumps(dict(
+                                        path=str(database), verified=True,
+                                        apparent_bytes=info.st_size, allocated_bytes=info.st_blocks * 512,
+                                        discarded_at=time.time())) + "\n")
                             print("Database", name, "complete", flush=True)
                 completed = True
         finally:

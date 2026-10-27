@@ -180,3 +180,5 @@ src/trunk.h.orig
 # Allocation-table experiment build roots.
 /build-rc-*/
 /build-mini-*/
+
+/benchmarks/allocation_table/__pycache__/

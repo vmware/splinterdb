@@ -67,7 +67,13 @@ CTEST2(rc_refcount, failed_init_empty_reset_and_partial_word)
 
 CTEST2(rc_refcount, inline_escape_max_and_reset)
 {
-   uint64 extents[] = {0, 1, 31, 32, 63, 64, TEST_EXTENTS - 1};
+   uint64 extents[] = {0,
+                       1,
+                       RC_REFCOUNT_COUNTS_PER_WORD - 1,
+                       RC_REFCOUNT_COUNTS_PER_WORD,
+                       2 * RC_REFCOUNT_COUNTS_PER_WORD - 1,
+                       2 * RC_REFCOUNT_COUNTS_PER_WORD,
+                       TEST_EXTENTS - 1};
    for (uint64 i = 0; i < ARRAY_SIZE(extents); i++) {
       uint64 extent = extents[i];
       ASSERT_FALSE(rc_refcount_is_allocated(data->map, extent));
@@ -100,13 +106,51 @@ CTEST2(rc_refcount, inline_escape_max_and_reset)
    rc_refcount_reset(data->map);
    rc_refcount_usage usage;
    rc_refcount_get_usage(data->map, &usage);
-   ASSERT_EQUAL(TEST_EXTENTS / 4, usage.packed_bytes);
+   ASSERT_EQUAL(TEST_EXTENTS * SPLINTER_RC_BITS / 8, usage.packed_bytes);
    ASSERT_EQUAL(0, usage.overflow_bytes);
    ASSERT_EQUAL(0, usage.overflow_entries);
    ASSERT_EQUAL(0, usage.overflow_slots);
    for (uint64 extent = 0; extent < TEST_EXTENTS; extent++) {
       ASSERT_EQUAL(0, rc_refcount_get(data->map, extent));
    }
+}
+
+CTEST2(rc_refcount, every_inline_count_and_escape_boundary)
+{
+   const uint64 extent = RC_REFCOUNT_COUNTS_PER_WORD - 1;
+   ASSERT_TRUE(rc_refcount_try_claim(data->map, extent - 1));
+   ASSERT_TRUE(rc_refcount_try_claim(data->map, extent + 1));
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, extent, AL_NO_REFS)));
+   debug_code(data->map->test_allocations_before_failure = 0);
+   for (refcount count = AL_ONE_REF; count < RC_REFCOUNT_ESCAPE; count++) {
+      refcount result = 0;
+      ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, extent, &result)));
+      ASSERT_EQUAL(count, result);
+      ASSERT_EQUAL(count, rc_refcount_get(data->map, extent));
+   }
+   rc_refcount_usage usage;
+   rc_refcount_get_usage(data->map, &usage);
+   ASSERT_EQUAL(0, usage.overflow_entries);
+   ASSERT_EQUAL(0, usage.overflow_slots);
+   debug_code(data->map->test_allocations_before_failure = -1);
+   for (refcount count = RC_REFCOUNT_ESCAPE; count <= RC_REFCOUNT_ESCAPE + 2;
+        count++)
+   {
+      refcount result = 0;
+      ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, extent, &result)));
+      ASSERT_EQUAL(count, result);
+   }
+   rc_refcount_get_usage(data->map, &usage);
+   ASSERT_EQUAL(1, usage.overflow_entries);
+   for (refcount count = RC_REFCOUNT_ESCAPE + 1; count > 0; count--) {
+      ASSERT_EQUAL(count, rc_refcount_dec(data->map, extent));
+      ASSERT_EQUAL(count, rc_refcount_get(data->map, extent));
+      rc_refcount_get_usage(data->map, &usage);
+      ASSERT_EQUAL(count >= RC_REFCOUNT_ESCAPE, usage.overflow_entries);
+   }
+   ASSERT_EQUAL(0, rc_refcount_dec(data->map, extent));
+   ASSERT_EQUAL(AL_ONE_REF, rc_refcount_get(data->map, extent - 1));
+   ASSERT_EQUAL(AL_ONE_REF, rc_refcount_get(data->map, extent + 1));
 }
 
 static uint64
@@ -185,16 +229,19 @@ CTEST2(rc_refcount, collision_delete_and_growth)
    uint64 keys[32];
    collision_keys(keys, ARRAY_SIZE(keys));
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
-      ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i], 3 + i)));
+      ASSERT_TRUE(
+         SUCCESS(rc_refcount_set(data->map, keys[i], RC_REFCOUNT_ESCAPE + i)));
    }
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i += 2) {
       ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i], 2)));
       for (uint64 j = i + 1; j < ARRAY_SIZE(keys); j++) {
-         ASSERT_EQUAL(3 + j, rc_refcount_get(data->map, keys[j]));
+         ASSERT_EQUAL(RC_REFCOUNT_ESCAPE + j,
+                      rc_refcount_get(data->map, keys[j]));
       }
    }
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i++) {
-      ASSERT_EQUAL((i % 2) ? 3 + i : 2, rc_refcount_get(data->map, keys[i]));
+      ASSERT_EQUAL((i % 2) ? RC_REFCOUNT_ESCAPE + i : 2,
+                   rc_refcount_get(data->map, keys[i]));
    }
    rc_refcount_usage usage;
    rc_refcount_get_usage(data->map, &usage);
@@ -202,7 +249,8 @@ CTEST2(rc_refcount, collision_delete_and_growth)
    ASSERT_EQUAL(64, usage.overflow_slots);
    /* Reinsert into the holes, then delete all entries in reverse order. */
    for (uint64 i = 0; i < ARRAY_SIZE(keys); i += 2) {
-      ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i], 3 + i)));
+      ASSERT_TRUE(
+         SUCCESS(rc_refcount_set(data->map, keys[i], RC_REFCOUNT_ESCAPE + i)));
    }
    for (uint64 i = ARRAY_SIZE(keys); i > 0; i--) {
       ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i - 1], 0)));
@@ -255,7 +303,8 @@ CTEST2(rc_refcount, neighboring_lanes_and_shared_counter)
    worker_args args[THREADS];
    for (uint64 round = 0; round < 2; round++) {
       if (round == 1) {
-         ASSERT_TRUE(rc_refcount_try_claim(data->map, 1));
+         ASSERT_TRUE(
+            SUCCESS(rc_refcount_set(data->map, 1, RC_REFCOUNT_ESCAPE - 1)));
       }
       for (uint64 i = 0; i < THREADS; i++) {
          args[i] = (worker_args){.map          = data->map,
@@ -269,7 +318,7 @@ CTEST2(rc_refcount, neighboring_lanes_and_shared_counter)
          ASSERT_EQUAL(0, pthread_join(threads[i], NULL));
       }
       for (uint64 i = 0; i < THREADS; i++) {
-         ASSERT_EQUAL(round == 0 ? 0 : 2,
+         ASSERT_EQUAL(round == 0 ? 0 : RC_REFCOUNT_ESCAPE - 1,
                       rc_refcount_get(data->map, round == 0 ? i + 1 : 1));
       }
    }
@@ -284,7 +333,7 @@ CTEST2(rc_refcount, shared_heap_fork)
    ASSERT_NOT_NULL(map);
    ASSERT_TRUE(
       SUCCESS(rc_refcount_init(map, 65, heap_id, platform_get_module_id())));
-   ASSERT_TRUE(rc_refcount_try_claim(map, 1));
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(map, 1, RC_REFCOUNT_ESCAPE - 1)));
    worker_args args  = {.map = map, .extent = 1, .iterations = 4096};
    pid_t       child = fork();
    ASSERT_TRUE(child >= 0);
@@ -301,7 +350,7 @@ CTEST2(rc_refcount, shared_heap_fork)
    ASSERT_EQUAL(child, waitpid(child, &status, 0));
    ASSERT_TRUE(WIFEXITED(status));
    ASSERT_EQUAL(0, WEXITSTATUS(status));
-   ASSERT_EQUAL(2, rc_refcount_get(map, 1));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, rc_refcount_get(map, 1));
    rc_refcount_deinit(map);
    platform_free(heap_id, map);
    platform_heap_destroy(&heap_id);
@@ -312,32 +361,36 @@ CTEST2(rc_refcount, allocation_failure_preserves_count)
 {
    uint64 keys[12];
    collision_keys(keys, ARRAY_SIZE(keys));
-   ASSERT_TRUE(rc_refcount_try_claim(data->map, keys[0]));
+   ASSERT_TRUE(
+      SUCCESS(rc_refcount_set(data->map, keys[0], RC_REFCOUNT_ESCAPE - 1)));
    data->map->test_allocations_before_failure = 0;
    refcount value                             = 77;
    ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY,
                             rc_refcount_try_inc(data->map, keys[0], &value)));
    ASSERT_EQUAL(77, value);
-   ASSERT_EQUAL(2, rc_refcount_get(data->map, keys[0]));
-   ASSERT_TRUE(
-      STATUS_IS_EQ(STATUS_NO_MEMORY, rc_refcount_set(data->map, keys[0], 10)));
-   ASSERT_EQUAL(2, rc_refcount_get(data->map, keys[0]));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, rc_refcount_get(data->map, keys[0]));
+   ASSERT_TRUE(STATUS_IS_EQ(
+      STATUS_NO_MEMORY,
+      rc_refcount_set(data->map, keys[0], RC_REFCOUNT_ESCAPE + 10)));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, rc_refcount_get(data->map, keys[0]));
    data->map->test_allocations_before_failure = 1;
    for (uint64 i = 0; i < 11; i++) {
-      ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[i], 3 + i)));
+      ASSERT_TRUE(
+         SUCCESS(rc_refcount_set(data->map, keys[i], RC_REFCOUNT_ESCAPE + i)));
    }
-   ASSERT_TRUE(rc_refcount_try_claim(data->map, keys[11]));
+   ASSERT_TRUE(
+      SUCCESS(rc_refcount_set(data->map, keys[11], RC_REFCOUNT_ESCAPE - 1)));
    ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY,
                             rc_refcount_try_inc(data->map, keys[11], &value)));
    ASSERT_EQUAL(77, value);
-   ASSERT_EQUAL(2, rc_refcount_get(data->map, keys[11]));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, rc_refcount_get(data->map, keys[11]));
    for (uint64 i = 0; i < 11; i++) {
-      ASSERT_EQUAL(3 + i, rc_refcount_get(data->map, keys[i]));
+      ASSERT_EQUAL(RC_REFCOUNT_ESCAPE + i, rc_refcount_get(data->map, keys[i]));
    }
    /* Deletion and reusing existing capacity must not allocate. */
    ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, keys[0], 2)));
    ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, keys[11], &value)));
-   ASSERT_EQUAL(3, value);
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE, value);
 }
 
 typedef struct race_gate {
@@ -436,36 +489,36 @@ race_worker(void *arg)
 
 CTEST2(rc_refcount, stale_escape_reader_rechecks_after_demotion)
 {
-   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, 3)));
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, RC_REFCOUNT_ESCAPE)));
    race_gate gate;
    gate_init(&gate, data->map, RC_REFCOUNT_TEST_ESCAPE_OBSERVED);
    race_operation reader = {.map = data->map, .op = 'g'};
    pthread_t      thread;
    ASSERT_EQUAL(0, pthread_create(&thread, NULL, race_worker, &reader));
    gate_wait(&gate, FALSE);
-   ASSERT_EQUAL(2, rc_refcount_dec(data->map, 1));
-   ASSERT_EQUAL(1, rc_refcount_dec(data->map, 1));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, rc_refcount_dec(data->map, 1));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 2, rc_refcount_dec(data->map, 1));
    gate_release(&gate);
    ASSERT_EQUAL(0, pthread_join(thread, NULL));
-   ASSERT_EQUAL(1, reader.result);
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 2, reader.result);
    gate_destroy(&gate, data->map);
 }
 
 CTEST2(rc_refcount, failed_promotion_removes_tentative_entry)
 {
-   ASSERT_TRUE(rc_refcount_try_claim(data->map, 1));
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, RC_REFCOUNT_ESCAPE - 1)));
    race_gate gate;
    gate_init(&gate, data->map, RC_REFCOUNT_TEST_PROMOTE_INSERTED);
    race_operation increment = {.map = data->map, .op = 'i'};
    pthread_t      thread;
    ASSERT_EQUAL(0, pthread_create(&thread, NULL, race_worker, &increment));
    gate_wait(&gate, FALSE);
-   ASSERT_EQUAL(1, rc_refcount_dec(data->map, 1));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 2, rc_refcount_dec(data->map, 1));
    gate_release(&gate);
    ASSERT_EQUAL(0, pthread_join(thread, NULL));
    ASSERT_TRUE(SUCCESS(increment.status));
-   ASSERT_EQUAL(2, increment.result);
-   ASSERT_EQUAL(2, rc_refcount_get(data->map, 1));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, increment.result);
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, rc_refcount_get(data->map, 1));
    rc_refcount_usage usage;
    rc_refcount_get_usage(data->map, &usage);
    ASSERT_EQUAL(0, usage.overflow_entries);
@@ -474,18 +527,18 @@ CTEST2(rc_refcount, failed_promotion_removes_tentative_entry)
 
 CTEST2(rc_refcount, promotion_waits_for_demotion_entry_removal)
 {
-   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, 3)));
+   ASSERT_TRUE(SUCCESS(rc_refcount_set(data->map, 1, RC_REFCOUNT_ESCAPE)));
    race_gate gate;
    gate_init(&gate, data->map, RC_REFCOUNT_TEST_DEMOTE_PUBLISHED);
    race_operation decrement = {.map = data->map, .op = 'd'};
    pthread_t      down;
    ASSERT_EQUAL(0, pthread_create(&down, NULL, race_worker, &decrement));
    gate_wait(&gate, FALSE);
-   ASSERT_EQUAL(2, rc_refcount_get(data->map, 1));
-   ASSERT_EQUAL(1, rc_refcount_dec(data->map, 1));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, rc_refcount_get(data->map, 1));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 2, rc_refcount_dec(data->map, 1));
    refcount value;
    ASSERT_TRUE(SUCCESS(rc_refcount_try_inc(data->map, 1, &value)));
-   ASSERT_EQUAL(2, value);
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, value);
    race_operation increment = {.map = data->map, .op = 'i'};
    pthread_t      up;
    ASSERT_EQUAL(0, pthread_create(&up, NULL, race_worker, &increment));
@@ -493,10 +546,10 @@ CTEST2(rc_refcount, promotion_waits_for_demotion_entry_removal)
    gate_release(&gate);
    ASSERT_EQUAL(0, pthread_join(down, NULL));
    ASSERT_EQUAL(0, pthread_join(up, NULL));
-   ASSERT_EQUAL(2, decrement.result);
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE - 1, decrement.result);
    ASSERT_TRUE(SUCCESS(increment.status));
-   ASSERT_EQUAL(3, increment.result);
-   ASSERT_EQUAL(3, rc_refcount_get(data->map, 1));
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE, increment.result);
+   ASSERT_EQUAL(RC_REFCOUNT_ESCAPE, rc_refcount_get(data->map, 1));
    rc_refcount_usage usage;
    rc_refcount_get_usage(data->map, &usage);
    ASSERT_EQUAL(1, usage.overflow_entries);

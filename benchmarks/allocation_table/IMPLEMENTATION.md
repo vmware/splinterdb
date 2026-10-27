@@ -10,12 +10,19 @@ Both builds include the independently useful mini-allocator ownership cleanup.
 
 ## Representation and concurrency
 
-`src/rc_refcount.{h,c}` stores 32 two-bit tags per 64-bit word:
+`src/rc_refcount.{h,c}` supports `BUILD_RC_BITS=2` (default), `4`, or `8`.
+Each 64-bit CAS word stores 32, 16, or 8 tags respectively. For the default
+two-bit representation:
 
 - 0: free;
 - 1: allocated, no logical references, awaiting final reclamation;
 - 2: one reference (`AL_ONE_REF`);
 - 3: an exact raw count >=3 in the overflow table.
+
+For wider tags, the all-ones raw value remains the escape: 15 for four bits,
+255 for eight bits. Inline values run through 14 or 254, so they represent up
+to 13 or 253 logical owners after accounting for the allocation floor. Wider
+inline increments/decrements use the same packed-word CAS protocol.
 
 The overflow table is partitioned into 64 cache-line-aligned shards. Each shard
 uses a mutex, full 64-bit extent identities, linear probing, a power-of-two
@@ -169,21 +176,42 @@ full-map validation. Memory reports include requested container, array and retai
 hash capacity, excluding heap headers and temporary growth overlap.
 
 Database comparisons use the original build, normalized dense counts, and
-normalized packed counts; this separates normalization from compression. All use
+normalized packed counts; this isolates packing from the shared ownership and validity-check changes. All use
 the same statistics setting, cache, memtable and background-thread configuration.
-Allocator statistics now include an O(configured-extents) count census, taken
-outside the timed operation phases; it is not continuous instrumentation.
+Allocator statistics include an O(configured-extents) count census; it is not
+continuous instrumentation. The comparison runner disables printing it before
+close to avoid an untimed gap in which background work could drain.
 
 ## Measurement status
 
-The frozen comparison runner requested a quiet window, but blob-keys,
-public-blobs, blob-callbacks, and insertion-stalls still registered as active
-without providing fresh acknowledgements. It cancelled the reservation after
-120 seconds and ran **zero measurements**. The user has been asked to confirm
-whether those sessions and their children have finished or are fully paused.
-Evidence is `.cache/rc-comparison-20261026-a/{request,release}.json`.
+The expanded campaign completed 184 throughput runs (2.34 billion inserts and
+reopened scans) plus three separate diagnostic runs, under exclusive locks and
+fresh peer pause acknowledgements. See [expanded results](EXPANDED_RESULTS.md)
+for the larger-cache/capacity matrix, paired uncertainty intervals, counter-width
+comparisons and dense ablations. The original normalized-dense slowdown did not
+reproduce. Four-bit counters reduced measured hash shard acquisitions by 99.40%
+and met the ±3% throughput-equivalence criterion in the 30M-record/4GiB-cache case.
+Other comparisons have wider intervals; no universal throughput winner is claimed.
 
-No speedup, regression, tail-latency or representative sharing-density claim is
-supported yet. The implementation and correctness evidence are ready; quantitative
-adoption advice awaits the coordinated comparison. The earlier sizing formulas
-remain analytical estimates, not measured workload footprints.
+The earlier three-repetition sample remains in [insertion results](INSERTION_RESULTS.md)
+as historical evidence. Cancelled reservations ran zero measurements and are
+excluded. No microbenchmark speed claims or production checkpoint changes are made.
+
+## Expanded counter-width validation
+
+The 2/4/8-bit extension passed 66 debug container cases (11 per width on each
+private/shared heap) and 42 release container cases (7 per width on each heap).
+For each of four-bit and eight-bit backends, 66 integration tests passed:
+three mini ownership cases, one recovery-map equivalence case, and 62 quick
+public-API cases. Width-boundary tests exercise promotion, demotion, failed
+promotion, stale escaped readers, saturation, and every inline count while
+injected allocation failure proves that inline updates do not allocate.
+Evidence is in `.cache/rc-expanded-validation/`.
+
+The controlled macro harness uses fixed foreground CPU placement and a separate
+background CPU pool, waits for foreground affinity setup before measurement,
+and prints allocator statistics only after persisted verification. The seven
+frozen variants include original, ownership-only, full dense, full dense with
+the original validity dispatch, and packed 2/4/8-bit counters. These benchmark
+ablations are isolated source snapshots; production code retains the normal
+validity API. Detailed expanded results are reported separately when complete.

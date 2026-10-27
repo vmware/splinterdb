@@ -87,9 +87,15 @@ ifeq ($(filter $(BUILD_RC_COMPACT),0 1),)
    $(error BUILD_RC_COMPACT must be 0 or 1)
 endif
 CFLAGS += -DSPLINTER_RC_COMPACT=$(BUILD_RC_COMPACT)
+BUILD_RC_BITS ?= 2
+ifeq ($(filter $(BUILD_RC_BITS),2 4 8),)
+   $(error BUILD_RC_BITS must be 2, 4, or 8)
+endif
+CFLAGS += -DSPLINTER_RC_BITS=$(BUILD_RC_BITS)
 
 help::
-	@echo '  BUILD_RC_COMPACT={0,1}: Experimental two-bit refcounts (Default: 0).'
+	@echo '  BUILD_RC_COMPACT={0,1}: Experimental packed refcounts (Default: 0).'
+	@echo '  BUILD_RC_BITS={2,4,8}: Packed counter width (Default: 2).'
 
 # track git ref in the built library. We don't put this into CFLAGS
 # directly because it causes false-positives in our config tracking.
