@@ -80,23 +80,6 @@ CFLAGS += -D_GNU_SOURCE -ggdb -Wall -pthread -Wfatal-errors -Werror -Wvla
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
-# Experimental packed allocator; dense counts remain the default. Use separate
-# BUILD_ROOT values when comparing the two. See benchmarks/allocation_table.
-BUILD_RC_COMPACT ?= 0
-ifeq ($(filter $(BUILD_RC_COMPACT),0 1),)
-   $(error BUILD_RC_COMPACT must be 0 or 1)
-endif
-CFLAGS += -DSPLINTER_RC_COMPACT=$(BUILD_RC_COMPACT)
-BUILD_RC_BITS ?= 4
-ifeq ($(filter $(BUILD_RC_BITS),2 4 8),)
-   $(error BUILD_RC_BITS must be 2, 4, or 8)
-endif
-CFLAGS += -DSPLINTER_RC_BITS=$(BUILD_RC_BITS)
-
-help::
-	@echo '  BUILD_RC_COMPACT={0,1}: Experimental packed refcounts (Default: 0).'
-	@echo '  BUILD_RC_BITS={2,4,8}: Packed counter width (Default: 4).'
-
 # track git ref in the built library. We don't put this into CFLAGS
 # directly because it causes false-positives in our config tracking.
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"

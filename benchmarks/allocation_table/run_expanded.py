@@ -123,7 +123,7 @@ def main():
         signal.signal(signal.SIGTERM, terminate)
         participants = active_projects(coord)
         request = dict(request_id=request_id, owner="allocation-table",
-                       purpose="controlled allocator width/ownership insertion comparison",
+                       purpose="controlled allocation-table insertion comparison",
                        requested_at=time.time(), participants=participants,
                        expected_duration_minutes=args.expected_minutes)
         dump(coord / "benchmark-request.json", request)

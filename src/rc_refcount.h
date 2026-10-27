@@ -7,20 +7,14 @@
 #include "platform_mutex.h"
 
 /*
- * The packed tags use the allocator's raw counts: 0 is free, 1 is the
+ * The four-bit packed tags use the allocator's raw counts: 0 is free, 1 is the
  * allocation floor with no logical owners, and 2 is one logical owner.
  * The all-ones tag redirects to an exact uint64 count in a locked shard.
  * No address/key bits are discarded when matching an overflow entry.
  */
-#ifndef SPLINTER_RC_BITS
-#   define SPLINTER_RC_BITS 4
-#endif
-#if SPLINTER_RC_BITS != 2 && SPLINTER_RC_BITS != 4 && SPLINTER_RC_BITS != 8
-#   error "SPLINTER_RC_BITS must be 2, 4, or 8"
-#endif
-
-#define RC_REFCOUNT_ESCAPE          ((1U << SPLINTER_RC_BITS) - 1)
-#define RC_REFCOUNT_COUNTS_PER_WORD (64U / SPLINTER_RC_BITS)
+#define RC_REFCOUNT_BITS            4U
+#define RC_REFCOUNT_ESCAPE          ((1U << RC_REFCOUNT_BITS) - 1)
+#define RC_REFCOUNT_COUNTS_PER_WORD (64U / RC_REFCOUNT_BITS)
 #define RC_REFCOUNT_SHARD_COUNT     64
 
 struct rc_refcount_entry;

@@ -116,7 +116,7 @@ These are ordinary small-record insertion workloads. More sharing from clones, s
 
 Packed containers request an additional 8,256 bytes. After reopened scans, 2-bit retained roughly 10–12 KiB of overflow capacity at 1 TiB, with two live entries; 4/8-bit had no overflow allocation in those post-reopen snapshots. These are not peak insertion footprints. Heap headers and temporary resize overlap are excluded.
 
-`BUILD_RC_BITS=2|4|8` selects the packed width with `BUILD_RC_COMPACT=1`; the selected default width is now 4. The measurements used explicit widths, so this default change does not alter the recorded results. The all-ones raw tag redirects to the hash table: 3/15/255. All measured variants preserve full 32-bit refcounts in overflow. Every width, including 8-bit, uses 64-bit word CAS; an independent byte-atomic 8-bit backend was not tested.
+At the measured revision, `BUILD_RC_BITS=2|4|8` selected the packed width with `BUILD_RC_COMPACT=1`. Those experimental options have since been removed; the final production representation is fixed at four bits. The historical measurements used explicit widths and are unchanged. The all-ones raw tag redirects to the hash table: 3/15/255. All measured variants preserve full 32-bit refcounts in overflow. Every width, including 8-bit, uses 64-bit word CAS; an independent byte-atomic 8-bit backend was not tested.
 
 During the measured campaign, surrounding ownership retains were infallible, so an overflow allocation failure fail-stopped in the opt-in adapter. The current branch subsequently added fallible retention and caller rollback; these frozen measurements do not measure that change. No production default or checkpoint protocol changed in the measured campaign.
 

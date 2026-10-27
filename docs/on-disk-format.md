@@ -44,8 +44,29 @@ may use the current creation configuration.
 The application must supply matching key comparison, key hash algorithm, merge
 semantics and key/value encodings on reopen. Function pointers and application
 schemas cannot be persisted as portable identities. The persisted hash seed is
-passed to the supplied hash callback. This change does not introduce a portable
-byte-order encoding or promise compatibility between arbitrary architectures.
+passed to the supplied hash callback. Allocation snapshots use explicit
+little-endian fields, but other structures retain their existing encodings;
+this does not promise database compatibility between arbitrary architectures.
+
+## Allocation snapshots
+
+Allocator format 3 uses four-bit extent counters and a linked list of overflow
+extents containing sorted `(extent_number, uint64_raw_count)` pairs. Counters
+0..14 are inline; 15 redirects to an exact overflow count. This disk format is
+independent of the hash-table layout used in memory. The RAM allocator also uses
+four-bit counters exclusively; there is no representation configuration.
+
+Clean shutdown writes and makes the allocation snapshot durable before publishing
+its address. If snapshot allocation or writing fails, the marker remains invalid
+and next mount rebuilds allocation state from the durable graph. Clean mount
+validates a saved snapshot, durably invalidates its descriptor, then reclaims its
+temporary overflow extents. A malformed snapshot selected by a valid marker
+returns an error. This is not a concurrent allocation checkpoint.
+
+Allocator versions 1 and 2 are rejected, including images with the same outer
+superblock version. There is no migration reader. Export with the corresponding
+older build before recreating a database. The complete encoding and checksums are
+specified in [allocation snapshot format 3](../benchmarks/allocation_table/SNAPSHOT_FORMAT.md).
 
 ## Format ownership
 
@@ -70,8 +91,8 @@ it never silently falls back to an older record with supported components.
 Routing-filter instance-capacity calculation now lives in the routing-filter
 module instead of reconstructing its encoding configuration in the trunk.
 Routing-filter descriptor validation and mini-allocator private-header
-validation were already correctly owned. No on-disk layout or version changed
-in this follow-up.
+validation were already correctly owned. The format-ownership refactoring itself
+did not change layouts; allocator format 3 is described separately above.
 
 Direct B-tree regressions cover old/future versions and null roots before any
 cache access, including safe iterator cleanup. The core corruption regression

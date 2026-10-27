@@ -1,10 +1,16 @@
 # Allocation-table representation and concurrent checkpoints
 
-The 2026-10-26 follow-up implements an opt-in packed allocator and removes the
-mini-allocator synthetic root reference. See [implementation and evaluation](IMPLEMENTATION.md).
-The study below records the original `6e550e1e` behavior; its raw-three mini-head
-counts and statement that production sources are unchanged describe that earlier
-investigation, not the follow-up branch.
+SplinterDB now uses fixed four-bit allocation counters with exact 64-bit overflow
+counts. There is no selectable dense backend or counter width. Start with the
+[current implementation](IMPLEMENTATION.md), [snapshot format](SNAPSHOT_FORMAT.md),
+[fallible ownership contracts](FALLIBLE_RETAINS.md), and
+[final validation and throughput results](FINAL_RESULTS.md).
+
+## Original design investigation (2026-10-25)
+
+The study below records the original `6e550e1e` behavior and proposals before
+implementation. Its recommendations, API descriptions, raw-three mini heads,
+and statements that production sources are unchanged are historical.
 
 Investigation dated 2026-10-25, based on `6e550e1e`. Branch
 `robj/allocation-table`; isolated worktree

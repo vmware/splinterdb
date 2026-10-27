@@ -10,16 +10,11 @@
 #pragma once
 
 #include "platform_hash.h"
-#include "platform_buffer.h"
 #include "platform_mutex.h"
 #include "allocator.h"
 #include "util.h"
 #include "rc_refcount.h"
 #include "rc_allocator_disk.h"
-
-#ifndef SPLINTER_RC_COMPACT
-#   define SPLINTER_RC_COMPACT 0
-#endif
 
 #define RC_ALLOCATOR_FORMAT_VERSION (3)
 
@@ -47,14 +42,9 @@ typedef struct rc_allocator_stats {
 typedef struct rc_allocator {
    allocator         super;
    allocator_config *cfg;
-#if SPLINTER_RC_COMPACT
-   rc_refcount compact;
-#else
-   buffer_handle bh;
-   refcount     *ref_count;
-#endif
-   uint64     hand;
-   io_handle *io;
+   rc_refcount       compact;
+   uint64            hand;
+   io_handle        *io;
 
    /* Serializes refcount-map mutations that must be atomic (e.g. stats). */
    platform_mutex   lock;

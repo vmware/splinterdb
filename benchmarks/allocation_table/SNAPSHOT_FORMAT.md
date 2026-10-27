@@ -11,15 +11,13 @@ reports measured format 2 and are not performance evidence for this encoding.
 Exact RAM refcounts and overflow values are unsigned 64-bit integers. Raw 0 means
 free, raw 1 means allocated but with no logical owners while reclamation finishes,
 and raw 2 (`AL_ONE_REF`) means one logical owner. There is one allocation floor
-above the number of logical owners. The RAM backend can be dense64 or use 2-, 4-
-or 8-bit tags; 4 is the selected compact default and compact operation remains
-opt-in with `BUILD_RC_COMPACT=1`.
+above the number of logical owners. RAM uses fixed four-bit tags and an overflow
+hash table; there is no backend or counter-width configuration.
 
-Disk tags are always four bits. Values 0..14 are exact raw counts. Tag 15 means
-an exact raw count of at least 15 is stored in the overflow records. RAM overflow
-entries with counts 3..14 therefore serialize inline, while RAM eight-bit inline
-counts 15..254 serialize as overflow records. This separation makes all RAM
-variants share one disk format.
+Disk tags are also four bits. Values 0..14 are exact raw counts. Tag 15 means an
+exact raw count of at least 15 is stored in the overflow records. Records contain
+extent identities and counts, not hash buckets or capacity; the disk encoding
+is independent of the in-memory hash-table implementation.
 
 Let `P` be page size, `E` extent size, `N = disk_size / E`, and:
 
@@ -180,15 +178,15 @@ report the chain separately.
 
 ## Compatibility and validation status
 
-Allocator format is bumped to 3 for every RAM width and for the dense backend.
+The fixed-four-bit allocator uses allocation snapshot format 3.
 There is no automatic format-1/2 migration. A version mismatch is rejected before
 ordinary use. The inspector uses the same codec instead of interpreting native
 `sizeof(refcount)` arrays, preventing a uint64 RAM type from changing disk
 interpretation accidentally.
 
-The codec and inspector objects compile in debug mode, and source
-formatting/whitespace checks pass. Eight inspector checks passed against the
-current debug library/tool: clean public-API create/close with 1,000 records;
+The codec and inspector compile in the final normal build. At the format-3
+snapshot implementation step, eight inspector checks passed against that
+revision's debug library/tool: clean public-API create/close with 1,000 records;
 a separately encoded valid chain with raw counts 15, 2^40 and UINT64_MAX;
 dirty allocation-state unavailability; old-format rejection; corrupted header,
 tags and node; and truncated map. The valid chain's allocation total increased by
@@ -197,6 +195,9 @@ verified identical file SHA-256 before and after inspection. Fixture source,
 commands, binary hashes and logs are in
 `.cache/rc-snapshot-validation/inspector/validation.json` and its directory.
 
-Additional corruption, I/O failure, rollback, shared-heap, cross-width, ASan and
-public-API reopen validation passed; see [the validation record](IMPLEMENTATION.md#format-3-and-64-bit-validation-2026-10-26)
-for scope, counts, evidence locations and limitations.
+Historical corruption, I/O failure, rollback, shared-heap, cross-width, ASan and
+public-API reopen validation is recorded in the
+[snapshot validation manifest](results/snapshot-20261026/validation.json).
+The experimental width variants have since been removed; see
+[the final validation report](FINAL_RESULTS.md) for normal fixed-four-bit builds,
+current throughput, evidence locations and limitations.

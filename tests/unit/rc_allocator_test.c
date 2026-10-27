@@ -168,11 +168,7 @@ CTEST_TEARDOWN(rc_allocator)
 static void
 snapshot_set_count(rc_allocator *al, uint64 extent, refcount count)
 {
-#if SPLINTER_RC_COMPACT
    ASSERT_TRUE(SUCCESS(rc_refcount_set(&al->compact, extent, count)));
-#else
-   __atomic_store_n(&al->ref_count[extent], count, __ATOMIC_RELAXED);
-#endif
 }
 
 static uint64
@@ -198,7 +194,7 @@ CTEST2(rc_allocator, retain_failure_preserves_count_and_output)
 
    uint64 addr   = snapshot_allocate(data->source, AL_ONE_REF);
    uint64 extent = addr / data->io_cfg.extent_size;
-#if SPLINTER_DEBUG && SPLINTER_RC_COMPACT
+#if SPLINTER_DEBUG
    snapshot_set_count(data->source, extent, RC_REFCOUNT_ESCAPE - 1);
    data->source->compact.test_allocations_before_failure = 0;
    platform_status rc = allocator_inc_ref(al, addr, &result);
@@ -675,7 +671,7 @@ CTEST2(rc_allocator, truncated_snapshot_rejected)
 }
 
 
-#if SPLINTER_DEBUG && SPLINTER_RC_COMPACT
+#if SPLINTER_DEBUG
 CTEST2(rc_allocator, overflow_import_oom_leaves_map_invalid)
 {
    uint64 addr       = snapshot_allocate(data->source, UINT64_MAX);

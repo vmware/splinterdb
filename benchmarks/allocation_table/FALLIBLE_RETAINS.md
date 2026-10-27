@@ -1,9 +1,11 @@
 # Fallible extent retention
 
 Implemented on `robj/allocation-table`, based on `528b5344`, validated 2026-10-27.
-The compact backend remains opt-in (`BUILD_RC_COMPACT=1`), with four-bit tags by
-default. Disk format 3 and exact 64-bit counts remain as specified in
-[SNAPSHOT_FORMAT.md](SNAPSHOT_FORMAT.md).
+The final branch uses four-bit tags exclusively, with no representation build
+option. Disk format 3 and exact 64-bit counts are specified in
+[SNAPSHOT_FORMAT.md](SNAPSHOT_FORMAT.md). The validation below records the
+2026-10-27 implementation before removing the experimental alternatives; final
+normal-build validation is in [FINAL_RESULTS.md](FINAL_RESULTS.md).
 
 ## API and ownership contracts
 
@@ -19,9 +21,9 @@ default. Disk format 3 and exact 64-bit counts remain as specified in
 
 Retain status is `STATUS_NO_MEMORY` if overflow allocation fails,
 `STATUS_LIMIT_EXCEEDED` at `UINT64_MAX`, or `STATUS_INVALID_STATE` for a free
-extent. Other threads may independently modify counts. Both dense and compact
-backends preserve failed-attempt semantics; dense uses a checked CAS with the
-same sequentially consistent success ordering as its former atomic increment.
+extent. Other threads may independently modify counts. The four-bit container preserves failed-attempt semantics. The earlier dense
+control also used a checked CAS with the same sequentially consistent success
+ordering as its former atomic increment.
 Optional output pointers are supported through the allocator and compact
 container. Retain entry points have `warn_unused_result`; the former assertion
 adapter is removed.

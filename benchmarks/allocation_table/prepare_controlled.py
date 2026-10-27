@@ -2,6 +2,10 @@
 """Link the same controlled insertion harness against all comparison libraries.
 
 Caller holds shared benchmark/machine locks. No measurements are run.
+Input manifests identify explicit frozen libraries; this script does not select
+production allocator variants or infer removed build knobs. For the final
+original-versus-four-bit comparison use prepare_final.py. Historical width
+libraries must come from their archived source/manifests.
 """
 import argparse
 import hashlib
@@ -18,32 +22,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--libraries", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--packed-tree", type=Path)
     args = parser.parse_args()
     tree = Path(__file__).resolve().parents[2]
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     definitions = json.loads(args.libraries.read_text())
     variants = definitions["variants"]
-    if args.packed_tree:
-        packed = args.packed_tree.resolve()
-        for bits in [2, 4, 8]:
-            library = packed / ("build-rc-expanded-" + str(bits)) / "release/lib/libsplinterdb.a"
-            variants["compact" + str(bits)] = dict(
-                source=str(packed), library=str(library), library_sha256=sha(library),
-                bits=bits, compact=True,
-                source_sha256={str(p.relative_to(packed)): sha(p)
-                               for directory in [packed / "src", packed / "include"]
-                               for p in sorted(directory.rglob("*")) if p.is_file()},
-                makefile_sha256=sha(packed / "Makefile"))
-    harness = tree / "benchmarks/allocation_table/kvbench_controlled.c"
+    harness = output / "kvbench_controlled.c"
+    harness.write_bytes((tree / "benchmarks/allocation_table/kvbench_controlled.c").read_bytes())
     flags = ["cc", "-D_GNU_SOURCE", "-DXXH_STATIC_LINKING_ONLY",
              "-DSPLINTERDB_PLATFORM_DIR=platform_linux", "-O3", "-ffast-math",
              "-flto", "-march=native", "-Wall", "-Werror", "-pthread",
              "-DKVBENCH_SPACE_MODE"]
     manifest = {"compiler": subprocess.check_output(["cc", "--version"], text=True),
                 "harness": str(harness), "harness_sha256": sha(harness), "variants": {}}
-    (output / "kvbench_controlled.c").write_bytes(harness.read_bytes())
     for name, item in variants.items():
         source = Path(item["source"])
         library = Path(item["library"])

@@ -106,7 +106,7 @@ CTEST2(rc_refcount, inline_escape_max_and_reset)
    rc_refcount_reset(data->map);
    rc_refcount_usage usage;
    rc_refcount_get_usage(data->map, &usage);
-   ASSERT_EQUAL(TEST_EXTENTS * SPLINTER_RC_BITS / 8, usage.packed_bytes);
+   ASSERT_EQUAL(TEST_EXTENTS * RC_REFCOUNT_BITS / 8, usage.packed_bytes);
    ASSERT_EQUAL(0, usage.overflow_bytes);
    ASSERT_EQUAL(0, usage.overflow_entries);
    ASSERT_EQUAL(0, usage.overflow_slots);

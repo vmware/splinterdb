@@ -69,7 +69,7 @@ rc_refcount_tag(rc_refcount *map, uint64 extent)
 {
    uint64 word = __atomic_load_n(
       &map->words[extent / RC_REFCOUNT_COUNTS_PER_WORD], __ATOMIC_RELAXED);
-   return (word >> (SPLINTER_RC_BITS * (extent % RC_REFCOUNT_COUNTS_PER_WORD)))
+   return (word >> (RC_REFCOUNT_BITS * (extent % RC_REFCOUNT_COUNTS_PER_WORD)))
           & RC_REFCOUNT_ESCAPE;
 }
 
@@ -82,7 +82,7 @@ rc_refcount_change_tag(rc_refcount *map,
                        uint32       new_tag)
 {
    uint64 *word     = &map->words[extent / RC_REFCOUNT_COUNTS_PER_WORD];
-   uint32  shift    = SPLINTER_RC_BITS * (extent % RC_REFCOUNT_COUNTS_PER_WORD);
+   uint32  shift    = RC_REFCOUNT_BITS * (extent % RC_REFCOUNT_COUNTS_PER_WORD);
    uint64  mask     = (uint64)RC_REFCOUNT_ESCAPE << shift;
    uint64  old_word = __atomic_load_n(word, __ATOMIC_RELAXED);
    while (((old_word >> shift) & RC_REFCOUNT_ESCAPE) == old_tag) {

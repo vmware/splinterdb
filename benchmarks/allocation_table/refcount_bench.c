@@ -25,6 +25,10 @@
 #include "platform_threads.h"
 #include "rc_refcount.h"
 
+_Static_assert(RC_REFCOUNT_ESCAPE == 15,
+               "benchmark requires fixed four-bit tags");
+#define HIGH_RAW_COUNT ((refcount)RC_REFCOUNT_ESCAPE + 5)
+
 typedef enum workload {
    WORK_GET,
    WORK_ALLOCATED,
@@ -133,10 +137,26 @@ dense_claim(void *map, uint64 extent)
 static platform_status
 dense_inc(void *map, uint64 extent, refcount *value)
 {
-   /* The benchmark never increments zero or UINT64_MAX. Match the existing
-    * allocator's atomic arithmetic, rather than adding a dense CAS loop. */
-   *value = __sync_add_and_fetch(&((dense_map *)map)->counts[extent], 1);
-   return STATUS_OK;
+   // Standalone dense64 control, not a selectable production allocator.
+   // Give it the same fallible count/output contract as the packed backend.
+   refcount *count = &((dense_map *)map)->counts[extent];
+   refcount  old   = __atomic_load_n(count, __ATOMIC_RELAXED);
+   while (TRUE) {
+      if (old == AL_FREE) {
+         return STATUS_INVALID_STATE;
+      }
+      if (old == UINT64_MAX) {
+         return STATUS_LIMIT_EXCEEDED;
+      }
+      if (__atomic_compare_exchange_n(
+             count, &old, old + 1, FALSE, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED))
+      {
+         if (value != NULL) {
+            *value = old + 1;
+         }
+         return STATUS_OK;
+      }
+   }
 }
 
 static refcount
@@ -189,7 +209,10 @@ initial_count(const benchmark *b, uint64 extent)
    if (b->work == WORK_CLAIM) {
       return AL_FREE;
    }
-   return extent < b->high_count ? 8 : AL_ONE_REF;
+   if (b->work == WORK_PROMOTE) {
+      return RC_REFCOUNT_ESCAPE - 1;
+   }
+   return extent < b->high_count ? HIGH_RAW_COUNT : AL_ONE_REF;
 }
 
 static void *
@@ -266,8 +289,10 @@ run_worker(void *argument)
                          "increment failed");
             after = b->ops.dec(b->map, extent);
             if (b->work == WORK_HOT) {
-               if (value < 9 || value > 8 + b->threads || after < 8
-                   || after >= 8 + b->threads)
+               if (value < HIGH_RAW_COUNT + 1
+                   || value > HIGH_RAW_COUNT + b->threads
+                   || after < HIGH_RAW_COUNT
+                   || after >= HIGH_RAW_COUNT + b->threads)
                {
                   fail("hot shared extent count outside concurrent bounds");
                }
@@ -314,6 +339,8 @@ usage(FILE *out)
    fprintf(
       out,
       "Usage: refcount_bench --backend dense|compact\n"
+      "  dense is a standalone dense64 checked-CAS control, not production.\n"
+      "  compact is the production fixed four-bit container (escape raw15).\n"
       "  --workload get|allocated|claim|promote|high|hot\n"
       "  [--extents N] [--threads N] [--ops N_PER_THREAD] [--seed N]\n"
       "  [--high-count N] [--validate]\n"
@@ -418,7 +445,7 @@ setup(benchmark *b)
       if (map == NULL)
          fail("dense container allocation failed");
       map->capacity = b->extents;
-      /* Match the real dense allocator's page-aligned buffer. */
+      /* Keep the standalone dense control's buffer page aligned. */
       if (posix_memalign(
              (void **)&map->counts, 4096, b->extents * sizeof(*map->counts))
           != 0)
@@ -464,7 +491,8 @@ setup(benchmark *b)
       rc_refcount *map    = b->map;
       uint64       warmed = 0;
       for (; warmed < b->extents; warmed++) {
-         check_status(rc_refcount_set(map, warmed, 3), "warm promotion tables");
+         check_status(rc_refcount_set(map, warmed, RC_REFCOUNT_ESCAPE),
+                      "warm promotion tables");
          bool ready = true;
          for (uint64 shard = 0; shard < RC_REFCOUNT_SHARD_COUNT; shard++) {
             if (map->shards[shard].capacity * 7 / 10 < b->threads) {
@@ -478,8 +506,22 @@ setup(benchmark *b)
          }
       }
       for (uint64 e = 0; e < warmed; e++) {
-         check_status(rc_refcount_set(map, e, AL_ONE_REF),
+         check_status(rc_refcount_set(map, e, initial_count(b, e)),
                       "clear warm entries");
+      }
+   }
+   if (b->work == WORK_PROMOTE && strcmp(b->backend, "compact") == 0) {
+      rc_refcount_usage usage;
+      refcount          promoted = 0;
+      check_status(b->ops.inc(b->map, 0, &promoted), "verify promotion");
+      rc_refcount_get_usage(b->map, &usage);
+      if (promoted != RC_REFCOUNT_ESCAPE || usage.overflow_entries != 1) {
+         fail("promotion did not create exactly one escaped count");
+      }
+      refcount demoted = b->ops.dec(b->map, 0);
+      rc_refcount_get_usage(b->map, &usage);
+      if (demoted != RC_REFCOUNT_ESCAPE - 1 || usage.overflow_entries != 0) {
+         fail("demotion did not remove the escaped count");
       }
    }
    if (pthread_mutex_init(&b->start_lock, NULL) != 0
@@ -554,6 +596,8 @@ main(int argc, char **argv)
    uint64 factor  = b.work == WORK_CLAIM ? 3 : (b.work >= WORK_PROMOTE ? 2 : 1);
    uint64 logical = b.operations * b.threads;
    printf("{\"backend\":\"%s\",\"workload\":\"%s\",\"extents\":%" PRIu64
+          ",\"count_bits\":64,\"packed_tag_bits\":4,\"escape_raw_count\":15"
+          ",\"backend_role\":\"%s\""
           ",\"threads\":%" PRIu64 ",\"ops_per_thread\":%" PRIu64
           ",\"logical_operations\":%" PRIu64
           ",\"primitive_operations\":%" PRIu64 ",\"high_count\":%" PRIu64
@@ -561,6 +605,8 @@ main(int argc, char **argv)
           b.backend,
           b.workload_name,
           b.extents,
+          strcmp(b.backend, "dense") == 0 ? "standalone_dense64_cas_control"
+                                          : "production_four_bit_container",
           b.threads,
           b.operations,
           logical,

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Create controlled dense-allocator source snapshots and build release libraries.
+"""Reproduce historical 32-bit/format-2 dense allocator ablations only.
 
 Run under shared campaign locks. No performance measurements are made here.
+Every variant is pinned to a historical commit; these are not selectable
+production backends and must not be relabeled as the current implementation.
+Use prepare_final.py for the current fixed-four-bit implementation.
 """
 import argparse
 import hashlib
@@ -25,6 +28,7 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     manifest = {"compiler": subprocess.check_output(["cc", "--version"], text=True),
+                "scope": "historical 32-bit exact counts and format2 only",
                 "variants": {}}
     definitions = [
         ("original", "5733e6d9", "Original ownership and allocator implementation"),
