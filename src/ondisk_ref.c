@@ -37,7 +37,7 @@ ondisk_ref_init_internal(ondisk_ref *ref,
                          uint64      addr,
                          page_type   type,
                          const void *arg,
-                         void (*inc)(const ondisk_ref *ref),
+                         platform_status (*inc)(const ondisk_ref *ref),
                          void (*dec)(const ondisk_ref *ref))
 {
    ref->cc   = cc;
@@ -49,13 +49,14 @@ ondisk_ref_init_internal(ondisk_ref *ref,
    ref->dec  = dec;
 }
 
-static void
+static platform_status
 ondisk_ref_inc(const ondisk_ref *ref)
 {
    if (!ondisk_ref_is_null(ref)) {
       ondisk_ref_assert_valid(ref);
-      ref->inc(ref);
+      return ref->inc(ref);
    }
+   return STATUS_OK;
 }
 
 static void
@@ -76,17 +77,21 @@ ondisk_ref_init_null(ondisk_ref *ref)
    ondisk_ref_clear(ref);
 }
 
-void
+platform_status
 ondisk_ref_init(ondisk_ref *ref,
                 cache      *cc,
                 uint64      addr,
                 page_type   type,
                 const void *arg,
-                void (*inc)(const ondisk_ref *ref),
+                platform_status (*inc)(const ondisk_ref *ref),
                 void (*dec)(const ondisk_ref *ref))
 {
    ondisk_ref_init_internal(ref, cc, addr, type, arg, inc, dec);
-   ondisk_ref_inc(ref);
+   platform_status status = ondisk_ref_inc(ref);
+   if (!SUCCESS(status)) {
+      ondisk_ref_clear(ref);
+   }
+   return status;
 }
 
 void
@@ -95,7 +100,7 @@ ondisk_ref_init_adopt(ondisk_ref *ref,
                       uint64      addr,
                       page_type   type,
                       const void *arg,
-                      void (*inc)(const ondisk_ref *ref),
+                      platform_status (*inc)(const ondisk_ref *ref),
                       void (*dec)(const ondisk_ref *ref))
 {
    ondisk_ref_init_internal(ref, cc, addr, type, arg, inc, dec);
@@ -111,33 +116,50 @@ ondisk_ref_deinit(ondisk_ref *ref)
    }
 }
 
-void
+platform_status
 ondisk_ref_copy(ondisk_ref *dst, const ondisk_ref *src)
 {
    debug_assert(dst != src);
+   ondisk_ref_clear(dst);
    if (ondisk_ref_is_null(src)) {
-      ondisk_ref_init_null(dst);
-      return;
+      return STATUS_OK;
    }
-   ondisk_ref_inc(src);
+   platform_status status = ondisk_ref_inc(src);
+   if (!SUCCESS(status)) {
+      return status;
+   }
    ondisk_ref_copy_fields(dst, src);
+   return STATUS_OK;
+}
+
+platform_status
+ondisk_ref_replace(ondisk_ref *dst, const ondisk_ref *src)
+{
+   if (dst == src) {
+      return STATUS_OK;
+   }
+   ondisk_ref      replacement;
+   platform_status status = ondisk_ref_copy(&replacement, src);
+   if (!SUCCESS(status)) {
+      return status;
+   }
+   ondisk_ref_move(dst, &replacement);
+   return STATUS_OK;
 }
 
 void
-ondisk_ref_replace(ondisk_ref *dst, const ondisk_ref *src)
+ondisk_ref_move(ondisk_ref *dst, ondisk_ref *src)
 {
    if (dst == src) {
       return;
    }
-
-   bool32 has_src = !ondisk_ref_is_null(src);
-   if (has_src) {
-      ondisk_ref_inc(src);
+   if (!ondisk_ref_is_null(src)) {
+      ondisk_ref_assert_valid(src);
    }
-
    ondisk_ref_deinit(dst);
-   if (has_src) {
+   if (!ondisk_ref_is_null(src)) {
       ondisk_ref_copy_fields(dst, src);
+      ondisk_ref_clear(src);
    } else {
       ondisk_ref_clear(dst);
    }

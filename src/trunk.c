@@ -2103,14 +2103,26 @@ cleanup:
    return rc;
 }
 
-static void
+__attribute__((warn_unused_result)) static platform_status
 bundle_inc_all_branch_refs(const trunk_context *context, bundle *bndl)
 {
    for (uint64 i = 0; i < vector_length(&bndl->branches); i++) {
-      branch_ref bref = vector_get(&bndl->branches, i);
-      btree_inc_ref(
+      branch_ref      bref = vector_get(&bndl->branches, i);
+      platform_status rc   = btree_inc_ref(
          context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
+      if (!SUCCESS(rc)) {
+         // The remaining entries are borrowed; release only our acquired
+         // prefix.
+         for (uint64 j = 0; j < i; j++) {
+            btree_dec_ref(context->cc,
+                          context->cfg->btree_cfg,
+                          branch_ref_addr(vector_get(&bndl->branches, j)),
+                          bundle_branch_type(bndl));
+         }
+         return rc;
+      }
    }
+   return STATUS_OK;
 }
 
 static void
@@ -2124,15 +2136,24 @@ bundle_dec_all_branch_refs(const trunk_context *context, bundle *bndl)
    }
 }
 
-static void
+__attribute__((warn_unused_result)) static platform_status
 bundle_inc_all_refs(trunk_context *context, bundle *bndl)
 {
-   if (routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER)) {
+   bool32 has_maplet =
+      !routing_filters_equal(&bndl->maplet, &NULL_ROUTING_FILTER);
+   if (!has_maplet) {
       platform_assert(vector_length(&bndl->branches) <= 1);
    } else {
-      routing_filter_inc_ref(context->cc, &bndl->maplet);
+      platform_status rc = routing_filter_inc_ref(context->cc, &bndl->maplet);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
-   bundle_inc_all_branch_refs(context, bndl);
+   platform_status rc = bundle_inc_all_branch_refs(context, bndl);
+   if (!SUCCESS(rc) && has_maplet) {
+      routing_filter_dec_ref(context->cc, &bndl->maplet);
+   }
+   return rc;
 }
 
 static void
@@ -2299,38 +2320,67 @@ trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr)
       context, addr, TRUNK_HEIGHT_UNKNOWN);
 }
 
-static void
+__attribute__((warn_unused_result)) static platform_status
 trunk_addr_inc_ref(allocator *al, uint64 addr)
 {
-   allocator_inc_ref(al, addr);
+   return allocator_inc_ref(al, addr, NULL);
 }
 
-static void
+__attribute__((warn_unused_result)) static platform_status
 trunk_ondisk_node_inc_ref(trunk_context *context, uint64 addr)
 {
-   trunk_addr_inc_ref(context->al, addr);
+   return trunk_addr_inc_ref(context->al, addr);
 }
 
-static void
+__attribute__((warn_unused_result)) static platform_status
 trunk_node_inc_all_refs(trunk_context *context, trunk_node *node)
 {
+   platform_status rc             = STATUS_OK;
+   uint64          children       = 0;
+   uint64          pivots         = 0;
+   uint64          inflight_start = trunk_node_first_live_inflight_bundle(node);
+   uint64          inflight       = inflight_start;
    if (!trunk_node_is_leaf(node)) {
-      for (uint64 i = 0; i < vector_length(&node->pivots) - 1; i++) {
-         trunk_pivot *pvt = vector_get(&node->pivots, i);
-         trunk_ondisk_node_inc_ref(context, pvt->child_addr);
+      for (; children < vector_length(&node->pivots) - 1; children++) {
+         trunk_pivot *pvt = vector_get(&node->pivots, children);
+         rc               = trunk_ondisk_node_inc_ref(context, pvt->child_addr);
+         if (!SUCCESS(rc)) {
+            goto rollback;
+         }
       }
    }
-   for (uint64 i = 0; i < vector_length(&node->pivot_bundles); i++) {
-      bundle *bndl = vector_get_ptr(&node->pivot_bundles, i);
-      bundle_inc_all_refs(context, bndl);
+   for (; pivots < vector_length(&node->pivot_bundles); pivots++) {
+      rc = bundle_inc_all_refs(context,
+                               vector_get_ptr(&node->pivot_bundles, pivots));
+      if (!SUCCESS(rc)) {
+         goto rollback;
+      }
    }
-   uint64 inflight_start = trunk_node_first_live_inflight_bundle(node);
-   for (uint64 i = inflight_start; i < vector_length(&node->inflight_bundles);
-        i++)
-   {
-      bundle *bndl = vector_get_ptr(&node->inflight_bundles, i);
-      bundle_inc_all_refs(context, bndl);
+   for (; inflight < vector_length(&node->inflight_bundles); inflight++) {
+      rc = bundle_inc_all_refs(
+         context, vector_get_ptr(&node->inflight_bundles, inflight));
+      if (!SUCCESS(rc)) {
+         goto rollback;
+      }
    }
+   return STATUS_OK;
+
+rollback:
+   // A failed bundle has already unwound its own acquisitions. No reference
+   // at or beyond these cursors belongs to this attempted node serialization.
+   for (uint64 i = inflight_start; i < inflight; i++) {
+      bundle_dec_all_refs(context, vector_get_ptr(&node->inflight_bundles, i));
+   }
+   for (uint64 i = 0; i < pivots; i++) {
+      bundle_dec_all_refs(context, vector_get_ptr(&node->pivot_bundles, i));
+   }
+   for (uint64 i = 0; i < children; i++) {
+      trunk_pivot    *pvt = vector_get(&node->pivots, i);
+      platform_status cleanup_rc =
+         trunk_ondisk_node_dec_ref(context, pvt->child_addr);
+      trunk_record_allocator_cleanup_error(context, cleanup_rc);
+   }
+   return rc;
 }
 
 /*
@@ -2516,12 +2566,12 @@ trunk_recover_allocations(const trunk_config *cfg,
    return trunk_recover_node_refs(&context, root_addr, TRUNK_HEIGHT_UNKNOWN);
 }
 
-static void
+__attribute__((warn_unused_result)) static platform_status
 trunk_ondisk_node_ref_inc(const ondisk_ref *ref)
 {
    trunk_context *context = (trunk_context *)ref->arg;
    debug_assert(ref->type == PAGE_TYPE_TRUNK);
-   trunk_ondisk_node_inc_ref(context, ref->addr);
+   return trunk_ondisk_node_inc_ref(context, ref->addr);
 }
 
 static void
@@ -2533,19 +2583,21 @@ trunk_ondisk_node_ref_dec(const ondisk_ref *ref)
    trunk_record_allocator_cleanup_error(context, rc);
 }
 
-static trunk_ondisk_node_ref *
-trunk_ondisk_node_ref_create(trunk_context *context,
-                             key            k,
-                             uint64         child_addr,
-                             bool32         adopt)
+__attribute__((warn_unused_result)) static platform_status
+trunk_ondisk_node_ref_create(trunk_context          *context,
+                             key                     k,
+                             uint64                  child_addr,
+                             bool32                  adopt,
+                             trunk_ondisk_node_ref **out)
 {
+   *out                          = NULL;
    platform_heap_id       hid    = context->hid;
    trunk_ondisk_node_ref *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, result, key.bytes, ondisk_key_required_data_capacity(k));
    if (result == NULL) {
       platform_error_log(
          "%s():%d: TYPED_FLEXIBLE_STRUCT_ZALLOC() failed", __func__, __LINE__);
-      return NULL;
+      return STATUS_NO_MEMORY;
    }
    if (adopt) {
       ondisk_ref_init_adopt(&result->ref,
@@ -2556,16 +2608,22 @@ trunk_ondisk_node_ref_create(trunk_context *context,
                             trunk_ondisk_node_ref_inc,
                             trunk_ondisk_node_ref_dec);
    } else {
-      ondisk_ref_init(&result->ref,
-                      context->cc,
-                      child_addr,
-                      PAGE_TYPE_TRUNK,
-                      context,
-                      trunk_ondisk_node_ref_inc,
-                      trunk_ondisk_node_ref_dec);
+      platform_status rc = ondisk_ref_init(&result->ref,
+                                           context->cc,
+                                           child_addr,
+                                           PAGE_TYPE_TRUNK,
+                                           context,
+                                           trunk_ondisk_node_ref_inc,
+                                           trunk_ondisk_node_ref_dec);
+      if (!SUCCESS(rc)) {
+         // Initialization did not acquire ownership. Never deinit this wrapper.
+         platform_free(hid, result);
+         return rc;
+      }
    }
    copy_key_to_ondisk_key(&result->key, k);
-   return result;
+   *out = result;
+   return STATUS_OK;
 }
 
 static void
@@ -2736,9 +2794,12 @@ trunk_node_record_and_report_maxes(trunk_context *context, trunk_node *node)
    }
 }
 
-static trunk_ondisk_node_ref *
-trunk_node_serialize(trunk_context *context, trunk_node *node)
+__attribute__((warn_unused_result)) static platform_status
+trunk_node_serialize(trunk_context          *context,
+                     trunk_node             *node,
+                     trunk_ondisk_node_ref **out)
 {
+   *out = NULL;
    platform_status        rc;
    uint64                 header_addr = 0;
    page_handle            header_storage, current_storage;
@@ -2754,7 +2815,7 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
                          "capacity",
                          __func__,
                          __LINE__);
-      return NULL;
+      return STATUS_LIMIT_EXCEEDED;
    }
 
    // if (node_height(node) == 0) {
@@ -2904,17 +2965,22 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
       page_offset += bundle_size;
    }
 
-   result = trunk_ondisk_node_ref_create(
-      context, trunk_node_pivot_key(node, 0), header_addr, TRUE);
-   if (result == NULL) {
+   rc = trunk_ondisk_node_ref_create(
+      context, trunk_node_pivot_key(node, 0), header_addr, TRUE, &result);
+   if (!SUCCESS(rc)) {
       platform_error_log(
          "%s():%d: ondisk_node_ref_create() failed", __func__, __LINE__);
       goto cleanup;
    }
 
-   // No fallible work remains. Until this point, rollback owns only the new
-   // extent, even if its serialized contents refer to children or branches.
-   trunk_node_inc_all_refs(context, node);
+   // Acquire every outgoing reference before publishing the new node. This
+   // helper unwinds its acquired prefix on failure; the serialized bytes still
+   // describe borrowed objects until the entire acquisition succeeds.
+   rc = trunk_node_inc_all_refs(context, node);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   // No fallible work remains, and result now owns a fully referenced node.
 
    if (context->stats) {
       uint64 num_pages = 1
@@ -2937,9 +3003,15 @@ trunk_node_serialize(trunk_context *context, trunk_node *node)
    cache_unclaim(context->cc, header_page);
    cache_unget(context->cc, header_page);
 
-   return result;
+   *out = result;
+   return STATUS_OK;
 
 cleanup:
+   if (result != NULL) {
+      // The provisional wrapper was never published. Its outgoing references
+      // were not acquired, so destroy only the wrapper, not its described tree.
+      platform_free(context->hid, result);
+   }
    if (current_page != NULL && current_page != header_page) {
       cache_unlock(context->cc, current_page);
       cache_unclaim(context->cc, current_page);
@@ -2960,7 +3032,7 @@ cleanup:
       ref = allocator_dec_ref(context->al, header_addr, PAGE_TYPE_TRUNK);
       platform_assert(ref == AL_FREE);
    }
-   return NULL;
+   return rc;
 }
 
 static platform_status
@@ -2979,12 +3051,11 @@ serialize_nodes(trunk_context                *context,
       goto finish;
    }
    for (uint64 i = 0; i < vector_length(nodes); i++) {
-      trunk_ondisk_node_ref *odnref =
-         trunk_node_serialize(context, vector_get_ptr(nodes, i));
-      if (odnref == NULL) {
+      trunk_ondisk_node_ref *odnref = NULL;
+      rc = trunk_node_serialize(context, vector_get_ptr(nodes, i), &odnref);
+      if (!SUCCESS(rc)) {
          platform_error_log(
             "%s():%d: node_serialize() failed", __func__, __LINE__);
-         rc = STATUS_NO_MEMORY;
          goto finish;
       }
       rc = vector_append(result, odnref);
@@ -3274,15 +3345,18 @@ platform_status
 trunk_snapshot_create(trunk_context *context, trunk_snapshot *snapshot)
 {
    snapshot->root_addr = 0;
+   platform_status rc  = STATUS_OK;
 
    trunk_read_begin(context);
    if (context->root != NULL) {
-      snapshot->root_addr = context->root->ref.addr;
-      trunk_addr_inc_ref(context->al, snapshot->root_addr);
+      rc = trunk_addr_inc_ref(context->al, context->root->ref.addr);
+      if (SUCCESS(rc)) {
+         snapshot->root_addr = context->root->ref.addr;
+      }
    }
    trunk_read_end(context);
 
-   return STATUS_OK;
+   return rc;
 }
 
 platform_status
@@ -3290,9 +3364,13 @@ trunk_snapshot_create_from_addr(allocator      *al,
                                 uint64          root_addr,
                                 trunk_snapshot *snapshot)
 {
-   snapshot->root_addr = root_addr;
+   snapshot->root_addr = 0;
    if (root_addr != 0) {
-      trunk_addr_inc_ref(al, root_addr);
+      platform_status rc = trunk_addr_inc_ref(al, root_addr);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      snapshot->root_addr = root_addr;
    }
    return STATUS_OK;
 }
@@ -3503,10 +3581,7 @@ trunk_apply_changes_internal(trunk_context          *context,
    }
 
    if (SUCCESS(rc)) {
-      *result = trunk_node_serialize(context, &node);
-      if (*result == NULL) {
-         rc = STATUS_NO_MEMORY;
-      }
+      rc = trunk_node_serialize(context, &node, result);
    }
 
    trunk_node_deinit(&node, context);
@@ -3893,11 +3968,13 @@ trunk_pivot_state_append_compaction(trunk_pivot_state *state,
    trunk_pivot_state_unlock(state);
 }
 
-static maplet_compaction_snapshot
-trunk_pivot_state_prepare_maplet_compaction(trunk_pivot_state *state,
-                                            threadid           tid,
-                                            routing_filter    *new_maplet,
-                                            bool32            *new_maplet_owned)
+__attribute__((warn_unused_result)) static platform_status
+trunk_pivot_state_prepare_maplet_compaction(
+   trunk_pivot_state          *state,
+   threadid                    tid,
+   routing_filter             *new_maplet,
+   bool32                     *new_maplet_owned,
+   maplet_compaction_snapshot *snapshot)
 {
    maplet_compaction_snapshot result;
    trunk_context             *context = state->context;
@@ -3916,7 +3993,8 @@ trunk_pivot_state_prepare_maplet_compaction(trunk_pivot_state *state,
          }
       }
       trunk_pivot_state_unlock(state);
-      return result;
+      *snapshot = result;
+      return STATUS_OK;
    }
 
    result.first = state->protected.bundle_compactions;
@@ -3931,12 +4009,16 @@ trunk_pivot_state_prepare_maplet_compaction(trunk_pivot_state *state,
 
    result.base_maplet       = state->protected.maplet;
    result.base_num_branches = state->protected.num_branches;
-   *new_maplet              = state->protected.maplet;
-   *new_maplet_owned        = TRUE;
-   routing_filter_inc_ref(context->cc, new_maplet);
+   platform_status rc =
+      routing_filter_inc_ref(context->cc, &state->protected.maplet);
+   if (SUCCESS(rc)) {
+      *new_maplet       = state->protected.maplet;
+      *new_maplet_owned = TRUE;
+      *snapshot         = result;
+   }
    trunk_pivot_state_unlock(state);
 
-   return result;
+   return rc;
 }
 
 static uint64
@@ -3955,20 +4037,25 @@ trunk_pivot_state_count_compactions(trunk_pivot_state *state)
    return result;
 }
 
-static void
+__attribute__((warn_unused_result)) static platform_status
 trunk_pivot_state_init_protected(trunk_pivot_state *state,
                                  trunk_context     *context,
                                  const bundle      *pivot_bundle)
 {
+   platform_status rc =
+      routing_filter_inc_ref(context->cc, &pivot_bundle->maplet);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    trunk_pivot_state_lock(state);
    state->protected.maplet_compaction_rc = STATUS_OK;
    state->protected.maplet               = pivot_bundle->maplet;
    state->hash_seed                      = pivot_bundle->maplet.addr == 0
                                               ? context->cfg->filter_cfg->seed
                                               : pivot_bundle->maplet.hash_seed;
-   routing_filter_inc_ref(context->cc, &state->protected.maplet);
-   state->protected.num_branches = bundle_num_branches(pivot_bundle);
+   state->protected.num_branches         = bundle_num_branches(pivot_bundle);
    trunk_pivot_state_unlock(state);
+   return STATUS_OK;
 }
 
 debug_only static void
@@ -3990,13 +4077,15 @@ trunk_pivot_state_print_protected(trunk_pivot_state   *state,
    trunk_pivot_state_unlock(state);
 }
 
-static bundle_compaction *
-bundle_compaction_create(trunk_context     *context,
-                         trunk_node        *node,
-                         uint64             pivot_num,
-                         trunk_pivot_state *state,
-                         task_tracker      *tracker)
+__attribute__((warn_unused_result)) static platform_status
+bundle_compaction_create(trunk_context      *context,
+                         trunk_node         *node,
+                         uint64              pivot_num,
+                         trunk_pivot_state  *state,
+                         task_tracker       *tracker,
+                         bundle_compaction **out)
 {
+   *out = NULL;
    platform_status rc;
    trunk_pivot    *pvt      = trunk_node_pivot(node, pivot_num);
    bundle         *pvt_bndl = vector_get_ptr(&node->pivot_bundles, pivot_num);
@@ -4005,7 +4094,7 @@ bundle_compaction_create(trunk_context     *context,
    if (result == NULL) {
       platform_error_log(
          "%s():%d: platform_malloc() failed", __func__, __LINE__);
-      return NULL;
+      return STATUS_NO_MEMORY;
    }
    result->input.pivot_state = state;
    result->phase             = BUNDLE_COMPACTION_IN_PROGRESS;
@@ -4041,12 +4130,19 @@ bundle_compaction_create(trunk_context     *context,
          bundle_compaction_publish_terminal(
             result, BUNDLE_COMPACTION_ENDED, rc);
          bundle_compaction_destroy(result, context, STATUS_OK, NULL);
-         return NULL;
+         return rc;
       }
       for (int64 j = 0; j < bundle_num_branches(bndl); j++) {
          branch_ref bref = vector_get(&bndl->branches, j);
-         btree_inc_ref(
+         rc              = btree_inc_ref(
             context->cc, context->cfg->btree_cfg, branch_ref_addr(bref));
+         if (!SUCCESS(rc)) {
+            bundle_compaction_publish_terminal(
+               result, BUNDLE_COMPACTION_ENDED, rc);
+            // Only appended entries own a reference and are destroyed here.
+            bundle_compaction_destroy(result, context, STATUS_OK, NULL);
+            return rc;
+         }
          page_type         type = bundle_branch_type(bndl);
          trunk_branch_info bi   = {bref.addr, type, bref.format_version};
          rc                     = vector_append(&result->input.branches, bi);
@@ -4061,7 +4157,8 @@ bundle_compaction_create(trunk_context     *context,
 
    result->tracker = tracker;
 
-   return result;
+   *out = result;
+   return STATUS_OK;
 }
 
 static uint64
@@ -4203,20 +4300,22 @@ trunk_pivot_state_map_get_entry(trunk_context              *context,
 
 static uint64 pivot_state_creations = 0;
 
-static trunk_pivot_state *
+__attribute__((warn_unused_result)) static platform_status
 trunk_pivot_state_map_create_entry(trunk_context              *context,
                                    trunk_pivot_state_map      *map,
                                    const pivot_state_map_lock *lock,
                                    key                         pivot_key,
                                    key                         ubkey,
                                    uint64                      height,
-                                   const bundle               *pivot_bundle)
+                                   const bundle               *pivot_bundle,
+                                   trunk_pivot_state         **out)
 {
+   *out                     = NULL;
    trunk_pivot_state *state = TYPED_ZALLOC(context->hid, state);
    if (state == NULL) {
       platform_error_log(
          "%s():%d: platform_malloc() failed", __func__, __LINE__);
-      return NULL;
+      return STATUS_NO_MEMORY;
    }
 
    state->refcount = 1;
@@ -4229,7 +4328,7 @@ trunk_pivot_state_map_create_entry(trunk_context              *context,
                          __LINE__,
                          platform_status_to_string(rc));
       platform_free(context->hid, state);
-      return NULL;
+      return rc;
    }
    rc = key_buffer_init_from_key(&state->ubkey, context->hid, ubkey);
    if (!SUCCESS(rc)) {
@@ -4239,19 +4338,26 @@ trunk_pivot_state_map_create_entry(trunk_context              *context,
                          platform_status_to_string(rc));
       key_buffer_deinit(&state->key);
       platform_free(context->hid, state);
-      return NULL;
+      return rc;
    }
    state->context = context;
    state->height  = height;
    platform_spinlock_init(&state->lock);
-   trunk_pivot_state_init_protected(state, context, pivot_bundle);
+   rc = trunk_pivot_state_init_protected(state, context, pivot_bundle);
+   if (!SUCCESS(rc)) {
+      key_buffer_deinit(&state->ubkey);
+      key_buffer_deinit(&state->key);
+      platform_free(context->hid, state);
+      return rc;
+   }
 
    state->next         = map->buckets[*lock];
    map->buckets[*lock] = state;
    __sync_fetch_and_add(&map->num_states, 1);
    __sync_fetch_and_add(&pivot_state_creations, 1);
 
-   return state;
+   *out = state;
+   return STATUS_OK;
 }
 
 static void
@@ -4275,26 +4381,32 @@ trunk_pivot_state_map_remove(trunk_pivot_state_map *map,
    }
 }
 
-static trunk_pivot_state *
+__attribute__((warn_unused_result)) static platform_status
 trunk_pivot_state_map_get_or_create_entry(trunk_context         *context,
                                           trunk_pivot_state_map *map,
                                           key                    pivot_key,
                                           key                    ubkey,
                                           uint64                 height,
-                                          const bundle          *pivot_bundle)
+                                          const bundle          *pivot_bundle,
+                                          trunk_pivot_state    **out)
 {
+   *out                    = NULL;
+   platform_status      rc = STATUS_OK;
    pivot_state_map_lock lock;
    trunk_pivot_state_map_aquire_lock(&lock, context, map, pivot_key, height);
    trunk_pivot_state *state =
       trunk_pivot_state_map_get_entry(context, map, &lock, pivot_key, height);
    if (state == NULL) {
-      state = trunk_pivot_state_map_create_entry(
-         context, map, &lock, pivot_key, ubkey, height, pivot_bundle);
+      rc = trunk_pivot_state_map_create_entry(
+         context, map, &lock, pivot_key, ubkey, height, pivot_bundle, &state);
    } else {
       trunk_pivot_state_incref(state);
    }
    trunk_pivot_state_map_release_lock(&lock, map);
-   return state;
+   if (SUCCESS(rc)) {
+      *out = state;
+   }
+   return rc;
 }
 
 static void
@@ -4643,8 +4755,14 @@ maplet_compaction_task(task *arg)
    apply_args.state = state;
    vector_init(&apply_args.branches, PROCESS_PRIVATE_HEAP_ID);
 
-   snapshot = trunk_pivot_state_prepare_maplet_compaction(
-      state, tid, &new_maplet, &new_maplet_owned);
+   rc = trunk_pivot_state_prepare_maplet_compaction(
+      state, tid, &new_maplet, &new_maplet_owned, &snapshot);
+   if (!SUCCESS(rc)) {
+      platform_error_log(
+         "maplet_compaction_task: retaining the base maplet failed: %s\n",
+         platform_status_to_string(rc));
+      goto cleanup;
+   }
    if (snapshot.abandoned) {
       goto cleanup;
    }
@@ -4994,26 +5112,24 @@ enqueue_bundle_compaction(trunk_context     *context,
          trunk_pivot_state *state  = NULL;
          bundle_compaction *bc     = NULL;
 
-         state =
-            trunk_pivot_state_map_get_or_create_entry(context,
-                                                      &context->pivot_states,
-                                                      pivot_key,
-                                                      ubkey,
-                                                      height,
-                                                      pivot_bundle);
-         if (state == NULL) {
+         rc = trunk_pivot_state_map_get_or_create_entry(context,
+                                                        &context->pivot_states,
+                                                        pivot_key,
+                                                        ubkey,
+                                                        height,
+                                                        pivot_bundle,
+                                                        &state);
+         if (!SUCCESS(rc)) {
             platform_error_log("enqueue_bundle_compaction: "
                                "pivot_state_map_get_or_create failed\n");
-            rc = STATUS_NO_MEMORY;
             goto next;
          }
 
-         bc =
-            bundle_compaction_create(context, node, pivot_num, state, tracker);
-         if (bc == NULL) {
+         rc = bundle_compaction_create(
+            context, node, pivot_num, state, tracker, &bc);
+         if (!SUCCESS(rc)) {
             platform_error_log("enqueue_bundle_compaction: "
                                "bundle_compaction_create failed\n");
-            rc = STATUS_NO_MEMORY;
             goto next;
          }
          if (tracker != NULL) {
@@ -7663,6 +7779,9 @@ trunk_collect_bundle_branches(const trunk_context  *context,
                              trunk_ondisk_bundle_branch_type(bndl));
       if (!SUCCESS(rc)) {
          /* References are acquired only after all selected roots validate. */
+         for (uint64 j = bundle_start; j < *num_branches; j++) {
+            ZERO_STRUCT(branches[j]);
+         }
          *num_branches = bundle_start;
          return rc;
       }
@@ -7672,7 +7791,21 @@ trunk_collect_bundle_branches(const trunk_context  *context,
       (*num_branches)++;
    }
    for (uint64 i = bundle_start; i < *num_branches; i++) {
-      btree_inc_ref(context->cc, context->cfg->btree_cfg, branches[i].addr);
+      platform_status rc =
+         btree_inc_ref(context->cc, context->cfg->btree_cfg, branches[i].addr);
+      if (!SUCCESS(rc)) {
+         for (uint64 j = bundle_start; j < i; j++) {
+            btree_dec_ref(context->cc,
+                          context->cfg->btree_cfg,
+                          branches[j].addr,
+                          branches[j].type);
+         }
+         for (uint64 j = bundle_start; j < *num_branches; j++) {
+            ZERO_STRUCT(branches[j]);
+         }
+         *num_branches = bundle_start;
+         return rc;
+      }
    }
    return STATUS_OK;
 }
@@ -7838,6 +7971,7 @@ cleanup:
                        context->cfg->btree_cfg,
                        branches[i].addr,
                        branches[i].type);
+         ZERO_STRUCT(branches[i]);
       }
       *num_branches = original_num_branches;
    }
@@ -7892,17 +8026,22 @@ trunk_context_init(trunk_context      *context,
       // Adopt: snapshot already carries an owned reference (from
       // trunk_snapshot_create or trunk_snapshot_create_from_addr), so this
       // does not take a new one; it just gives that reference a home.
-      context->root = trunk_ondisk_node_ref_create(
-         context, NEGATIVE_INFINITY_KEY, snapshot.root_addr, TRUE /* adopt */);
-      if (context->root == NULL) {
+      platform_status rc = trunk_ondisk_node_ref_create(context,
+                                                        NEGATIVE_INFINITY_KEY,
+                                                        snapshot.root_addr,
+                                                        TRUE /* adopt */,
+                                                        &context->root);
+      if (!SUCCESS(rc)) {
          platform_error_log("trunk_node_context_init: "
                             "ondisk_node_ref_create failed\n");
          // The reference was never actually adopted (creation failed before
          // that could happen), but the caller has already relinquished it.
          // Discharge it here so this function always consumes its snapshot,
          // regardless of outcome.
-         trunk_ondisk_node_dec_ref(context, snapshot.root_addr);
-         return STATUS_NO_MEMORY;
+         platform_status cleanup_rc =
+            trunk_ondisk_node_dec_ref(context, snapshot.root_addr);
+         trunk_record_allocator_cleanup_error(context, cleanup_rc);
+         return rc;
       }
    }
 

@@ -1,0 +1,594 @@
+{
+  "date": "2026-10-27",
+  "branch": "robj/allocation-table",
+  "base_commit": "528b5344",
+  "status": "passed",
+  "benchmarks_run": false,
+  "leak_sanitizer": false,
+  "source_sha256": {
+    "Makefile": "ff2c5a106d2cc07e42c2e33e4461789ca16b7788c45d3677299424f309badf32",
+    "src/allocator.h": "7821fa6dd4ae56b8ea9e1f2fba364b1d34ad9acad32eaac3970f8518cce072c0",
+    "src/btree.c": "14b2ecb0bbd1c291f122e5df02e07999392160d14cdb75cc370236eaa0fddfc7",
+    "src/btree.h": "59adddd135908ed97c165ef24145c2e85153ba62810d3e12528091cf6bd33b2c",
+    "src/core.c": "0b01c0bd9cfb7ae64e37f80db232b2503ef6fb20a98b71ad06c4c23c8d8abc1f",
+    "src/lookup_result.h": "e1e06da8be2d8b1213b66b2f482015f0bc9ab51e4ce1254f7008596a5c83a887",
+    "src/memtable.c": "487c1192b71879594640aa8b11bcef05bcf52566fd3339fbce82fa4480000e85",
+    "src/memtable.h": "d7a6bad37fa3b1692fcf5227e75cd909e85478841adb3815b7e88ab6b2601325",
+    "src/mini_allocator.c": "4931d6b351869e3b332318e4f8e330b599d306af339b2a0e51c3e6dd48963661",
+    "src/mini_allocator.h": "8c44e03722d5ef1c7cfa1aa791bc9ed443c098455e555bc7fef1a780472561e2",
+    "src/ondisk_ref.c": "3dbe035ddc3e53e56a01573d143c7d65660d932885152e34f2a95c1e44782912",
+    "src/ondisk_ref.h": "aa25d08898bbe035fe8bf42f41a10c451d63db5f5d516afdd6dc26436d97fac8",
+    "src/rc_allocator.c": "638220ecf165172803738c50d0d5e07d767205426ae399d4472a53465962f966",
+    "src/rc_allocator.h": "cb114dce7afe181ecfc06d234cfd2914157fdc1899588a9a26314dbc5425ed1c",
+    "src/rc_refcount.c": "fdc47657ef878ddfced5d53ee19fa679f5685a09dfe225167160fd2522ca1b8b",
+    "src/rc_refcount.h": "164d95c54e02a65eb4f41c632614c4ef5cb8c05352b87509527b377f8fc56fc6",
+    "src/routing_filter.c": "07dd49fbe98aa5d12b115ed14422a82907419737bf93d5b23ee6b3de6cd3c84c",
+    "src/routing_filter.h": "bb7169585e6984880e8d18830bd008a71f457da273f9fef442a31a211784c106",
+    "src/shard_log.c": "f21a0916883c6965c4b3ff71f0aa25b63611cff6b9a82a20e50bda79f24d1f0d",
+    "src/trunk.c": "31f28e1f857970460065d802b06856ab26fb1d46c4b6202cb44038553d15636c",
+    "src/trunk.h": "0361e052b4fe0d18422636de32da972a496ade4ca7b300e5a51f75db1dff03e6",
+    "tests/functional/cache_test.c": "7be2482af033728ccff93c3e6413741247c0fc97feca97b80084123fa154a23f",
+    "tests/unit/ondisk_ref_test.c": "64574d44ce10d3f1863c7df8ba3c788a1a4182de547c777c23af151d162fd29d",
+    "tests/unit/rc_allocator_test.c": "e9cd81f6e6161a4ca2d3df3a0c0c4b9b561ade01d1c2c6412e503e2fc22c12a5",
+    "tests/unit/rc_refcount_test.c": "0418334dbf2b89e365f2343826668ca6637c1aa94954cb2d441cbf47f5a953e2",
+    "tests/unit/splinter_test.c": "edf52a89837bdace5b4354c425ee91f2946db283610dbd79ad4adc36752dd513",
+    "tests/unit/splinterdb_quick_test.c": "705775c1be83da468b9b200d46199ccadb88992bde5b3f031b7749b88b22e4a1",
+    "tests/unit/trunk_gc_test.c": "fb3a2986087c0e4f9670290f9eadbfed5d648a8a7d849d69afc3ea4a8f9e391d",
+    "tests/unit/trunk_split_test.c": "f5689ec5d8fb5df8b239cc482f162a730ef889360ec9d53beb1c34dafc7816be"
+  },
+  "evidence_sha256": {
+    ".cache/rc-fallible-low-validation/2-rc_allocator_test-private.log": "a182d92b9e9f3756111986c5dff6d9309ac5edefbba026d7287784029c56bac1",
+    ".cache/rc-fallible-low-validation/2-rc_allocator_test-shared.log": "d947b92b993ac948429f6f6e4896feadd4d7e7dc91b21149723e8111e82253d2",
+    ".cache/rc-fallible-low-validation/2-rc_refcount_test-private.log": "e0e4b020481440160ab65ba3dce648e9a06a5d01b9c892838ebd950b2852f445",
+    ".cache/rc-fallible-low-validation/2-rc_refcount_test-shared.log": "c0196e42cd4e554a36093218ba976c19f8a674364cc54e0492df80146c0eb055",
+    ".cache/rc-fallible-low-validation/8-rc_allocator_test-private.log": "a182d92b9e9f3756111986c5dff6d9309ac5edefbba026d7287784029c56bac1",
+    ".cache/rc-fallible-low-validation/8-rc_allocator_test-shared.log": "699fa3da68c92851667251c7ede10c9eaf04a21f13cc1aaa38b330c09260e51e",
+    ".cache/rc-fallible-low-validation/8-rc_refcount_test-private.log": "4761c977317751d079d263bb5c34351d097fb044dc448be94d8ecca5dd022d87",
+    ".cache/rc-fallible-low-validation/8-rc_refcount_test-shared.log": "abd26ebaeb1fc97d772cd438f2440ac846b3fc40ad3e6472cbc7787b7ad64f2d",
+    ".cache/rc-fallible-low-validation/build-2.log": "954e94dca16ec6a1436cca3931600dd58fa3b84dd81d142a65b7b9428efe86f2",
+    ".cache/rc-fallible-low-validation/build-8.log": "156019b17ba652da4786e6f581f27772c4ca818a9a4161b3e6ced11ecbe1c085",
+    ".cache/rc-fallible-low-validation/build-dense.log": "e058ac3255f963e84cd4bfedebbf0579eb4b3966e57bf33f772e5d1fc815a1e7",
+    ".cache/rc-fallible-low-validation/build.json": "f1eb5ca6ea67def70841b667c917ec62e079ece7ad79cf2f27845078c45ef487",
+    ".cache/rc-fallible-low-validation/build.log": "0a8226870581f84c8f37859533db30c22a573cf834653a0d61d6cfd01d408f75",
+    ".cache/rc-fallible-low-validation/cache-private.log": "9b9ad60d3ac58af83379b6198da6538864a8ec6fd8134bbba18818577b4fd5e9",
+    ".cache/rc-fallible-low-validation/cache-shared.log": "60383ab4dd73bcbfcfa016aae51c4f976a203fda3fb593c55b22a435ac5d67ea",
+    ".cache/rc-fallible-low-validation/dense-rc_allocator_test-private.log": "e0f40fb170bbe7d9d618492c9b495a6e4c5d8e69cc1e8e45b4f18cc9c2edcdad",
+    ".cache/rc-fallible-low-validation/dense-rc_allocator_test-shared.log": "5984416cf95f844ed83dbda8a85fa06e7f20f5b97022876a82f119858d454616",
+    ".cache/rc-fallible-low-validation/matrix.json": "76554c7935d29e735b0310b214242fe28291dac4746d3e6bd1201d4b805b14be",
+    ".cache/rc-fallible-low-validation/mini_refcount-private.log": "0c845100fb8a4be0ea223d54f219ccc2ed3ec9d412d12e4e08c9f7c669d92858",
+    ".cache/rc-fallible-low-validation/mini_refcount-shared.log": "9c95cf8989ec70e7d4fdfbb42ce6a5d072c1ed16f7abec4e7e5a410373404299",
+    ".cache/rc-fallible-low-validation/rc_allocator-private.log": "b929b1f7d33309d35ee7268db3a51057b0ad965370015852d223c95e3d46580d",
+    ".cache/rc-fallible-low-validation/rc_allocator-shared.log": "568c12af4a5d27ee2e05b7e3a87f8d73423e667ba67057ece6c19cdf34c2adad",
+    ".cache/rc-fallible-low-validation/rc_refcount-private.log": "ab9080694ba6dce0ea52f07be47194e0d419b05c2b67aa7750692a7e7db3c8cc",
+    ".cache/rc-fallible-low-validation/rc_refcount-shared.log": "6ed04c05739a7576a486d556a91128e3c35ac89b20824b7bd6e4b46feeecff90",
+    ".cache/rc-fallible-low-validation/retain_failure-private.log": "3ecb93037d277bbd459d7f69c4401aad53e858699eca9478b0d107667d723504",
+    ".cache/rc-fallible-low-validation/retain_failure-shared.log": "4c066f7b4215b1fd70580a1e44a39cf3b22d511856c66b2c46821c7d51cbc7d7",
+    ".cache/rc-fallible-low-validation/source-sha256.json": "8451fb5859f16047357617ca38757d9b8cbe35aa9ac886047af84de276d90b83",
+    ".cache/rc-fallible-low-validation/tests.json": "2243eae85eacbbfbf94d6113634fd54c7f85c2f66ef47d329ef7e62dc0098deb",
+    ".cache/rc-fallible-core-validation/build-memory.log": "e3ba17f38488bc779c6cd324b256a7fa620e2fb6df57c75b308d8dacf7f252a9",
+    ".cache/rc-fallible-core-validation/build.log": "da9108b9c940d05d6e9e7114d3cbc45ddb74afe399ddf8632fab20d264af5239",
+    ".cache/rc-fallible-core-validation/ondisk-ref-memory.log": "a7b83a5a34a7806db2280d52f8d32acf6d46ae2aeeb1d1597c8ad9782cb5e877",
+    ".cache/rc-fallible-core-validation/quick-private.log": "24cbc86a79e13cdec3ca789b82ab5a321a40190723b136e9a1c26dd43cee91d0",
+    ".cache/rc-fallible-core-validation/quick-shared.log": "14d9835dfbd428b5d5290b9eb7b8e6c1115c67a46852c911b6755b4f93eee5c7",
+    ".cache/rc-fallible-trunk-validation/asan-async.log": "d07233bfadc0f8c3d887c8aa6a9ecae56c711e85d63f0b1a13f0b589bbb469e3",
+    ".cache/rc-fallible-trunk-validation/asan-gc.log": "c9b096809dea47da759770ca40a831ca91bc684e01cc622f5b7a8df1b183db28",
+    ".cache/rc-fallible-trunk-validation/asan-split-private.log": "61aa6e615e84054ddfb5b24c56e7d2b316e6cbb6d67d60fba2d085e5d78ccf63",
+    ".cache/rc-fallible-trunk-validation/asan-split-shared.log": "2a19f5d40651cc6ea90501bfea8e83911cd11029ef504a5b278fbc536b914523",
+    ".cache/rc-fallible-trunk-validation/async.log": "358786a8840bf748a73c6f3d58cb3eb2bac80a7107a6387bfa11a167fe5265ed",
+    ".cache/rc-fallible-trunk-validation/build-asan.log": "36a8eb5f66551a2b9f345e1e90a206e9ad1e8a96a703db386d56019645207b86",
+    ".cache/rc-fallible-trunk-validation/build-debug.log": "ddcd81794a562a41fcb8208d51d57bed849a3da9ad6923a7fbb2ac1774c95feb",
+    ".cache/rc-fallible-trunk-validation/gc.log": "c9b096809dea47da759770ca40a831ca91bc684e01cc622f5b7a8df1b183db28",
+    ".cache/rc-fallible-trunk-validation/source-hashes.json": "43e5a11d3d858500dcf1a66ebb9ce50c6b0f788f80462a14bdb994c6870589e8",
+    ".cache/rc-fallible-trunk-validation/split-private.log": "f5e408ba0d41589d5b53f10f36ecac5c99c315fb6420a901706a787af0d41aaf",
+    ".cache/rc-fallible-trunk-validation/split-shared.log": "6ca1c1ec9b246b548425e6336df35b16b04734d3830d689748559dea94a5c03d",
+    ".cache/rc-fallible-validation/asan-ondisk_ref_test-private.log": "3e03bcf2aa238ed3a298d304098e231a72a090917875a6dfe8fa06fbc2a679a4",
+    ".cache/rc-fallible-validation/asan-ondisk_ref_test-shared.log": "bc4ec241ad5aab16ffd8cec0b186dc5cfb5ac0bf414fe0ad298b77144be39315",
+    ".cache/rc-fallible-validation/asan-rc_allocator_test-private.log": "74e71033a5ce0a6a9b0a5e0725bb5dcd270a46a47db06462985d2bc75ed53b22",
+    ".cache/rc-fallible-validation/asan-rc_allocator_test-shared.log": "d0c4310f02438108f88c2e4724bc8fab328420bd6a94748c8c73fddc1cee9b54",
+    ".cache/rc-fallible-validation/asan-rc_refcount_test-private.log": "5d4844d146bb0e96fc3f52e9875cd3e8860ff7ed1db31f50b24fa9f446c59146",
+    ".cache/rc-fallible-validation/asan-rc_refcount_test-shared.log": "6217332dadb389db8d2ec166171e753fab3358ce397cd26abc329846c802019f",
+    ".cache/rc-fallible-validation/asan-splinterdb_quick_test-private.log": "a936af6b9b403be9f1c1787347830157ebd5738f472ded25cc68cccd9e90ab76",
+    ".cache/rc-fallible-validation/asan-splinterdb_quick_test-shared.log": "4ca3174586686603b8e4f14120ffad0751aac490b72f5fe0e5ee87a788f4a3ee",
+    ".cache/rc-fallible-validation/asan-test_retain_failure_blob_clone_prefix_cleanup-private.log": "ea696b710ba76877232c1fb96328f1c2f752de75c8df34793021ad999613c790",
+    ".cache/rc-fallible-validation/asan-test_retain_failure_blob_clone_prefix_cleanup-shared.log": "4e2ff2eac8cf31eefe685c444c65b6a1ff8a2252153b4879be008e97f535364f",
+    ".cache/rc-fallible-validation/asan-test_retain_failure_blob_lookup_and_old_value_are_atomic-private.log": "7f664baaaec1338e14933a0580bf90cf28bc6ec96fee5eb7581a8ce257c20f87",
+    ".cache/rc-fallible-validation/asan-test_retain_failure_blob_lookup_and_old_value_are_atomic-shared.log": "f8a62dcd0695cf1fda9d88d445c2718650e4c674a399728d24b9b36bcaedce6a",
+    ".cache/rc-fallible-validation/asan-test_retain_failure_log_handle_unwinds-private.log": "75030b5f9faa2948d99dabb7446949dc11bb48b5d4fbee1bc1b56536a9122c7d",
+    ".cache/rc-fallible-validation/asan-test_retain_failure_log_handle_unwinds-shared.log": "d7ec80b1ebdc4d70be3a243ced3287b130c778f09e28543114ce07674eea71a7",
+    ".cache/rc-fallible-validation/asan-test_retain_failure_mini_attach_unlocks_and_preserves_owner-private.log": "fc6e036ed1650da8556396b826c9cfe4531501587b2ed2fc8722b8a47849210b",
+    ".cache/rc-fallible-validation/asan-test_retain_failure_mini_attach_unlocks_and_preserves_owner-shared.log": "2e7b2f6727d5cb6af1c748d6ebede4da10f99825518fe39ed7dfe26327442a4d",
+    ".cache/rc-fallible-validation/build-asan.log": "561a6ca93d10c8cc3db4562e1fba18efb4c500b6639d28fa7e66b98bd40a3298",
+    ".cache/rc-fallible-validation/build-debug-compact4.log": "5403b6935e2842a57b1176922676f55f5722ae4c8fcdcc27e0dd413bdad47022",
+    ".cache/rc-fallible-validation/build-debug-final.log": "d831566514377c2ae9fb5933764a80080aad4d8ad38a00ba911e2d82e2ff3500",
+    ".cache/rc-fallible-validation/build-release.log": "4d3ce2ab8937b6e3140615b43422eb06c02fb6c40504f386c2eb7412fcddde9a",
+    ".cache/rc-fallible-validation/integration-validation.json": "433957c4381b0cacde1fa89e440375ab58f2dc7656d597ab21f7f8d7cca64a3d",
+    ".cache/rc-fallible-validation/release-ondisk_ref_test-private.log": "7ec01e5e5e6a7734335dc4f7eaca6176c8cb34a4f3cb6afa833ac79f0fa89cf3",
+    ".cache/rc-fallible-validation/release-ondisk_ref_test-shared.log": "60c25d710a792c1f30c71085f40c3ce9a3eb74cb5d38b6ad1ee0c5a39d80b84d",
+    ".cache/rc-fallible-validation/release-splinterdb_quick_test-private.log": "85bc0d4d956f63b560fb46c8b4094bec752cb65fc849323b3b87c0e990ca63a7",
+    ".cache/rc-fallible-validation/release-splinterdb_quick_test-shared.log": "35f6da21cdc75dec035b39e969130c76309a33aa2de97ce70c9590b63e1763c1",
+    ".cache/rc-fallible-validation/release-test_retain_failure_blob_clone_prefix_cleanup-private.log": "b1f763bfe7de7efc4bec8610ce2ed5e39e6cfcd5bf4e8cfd7b5b88578951f423",
+    ".cache/rc-fallible-validation/release-test_retain_failure_blob_clone_prefix_cleanup-shared.log": "5cd0001f19dfc1e81bce17248e3a0fd4c03cdccb85a620c8bb688fca3652a043",
+    ".cache/rc-fallible-validation/release-test_retain_failure_blob_lookup_and_old_value_are_atomic-private.log": "f1be5bd982ee16ff8ed7124baff586e116d631cdd0bcf6a3e9e8003967dc56f9",
+    ".cache/rc-fallible-validation/release-test_retain_failure_blob_lookup_and_old_value_are_atomic-shared.log": "d3b48feb6af22d37f5ae30ea23fe90a88efbb1a51d8a9d65f1ec4d095c1f5821",
+    ".cache/rc-fallible-validation/release-test_retain_failure_log_handle_unwinds-private.log": "e9f71d35cb4249af4b0410868d7dce3a13a903bb5c3e33b0716ad2c22332e9bc",
+    ".cache/rc-fallible-validation/release-test_retain_failure_log_handle_unwinds-shared.log": "443a16927703344917a840f1c66a225060f7a5c348e2b2490232974ba697330e",
+    ".cache/rc-fallible-validation/release-test_retain_failure_mini_attach_unlocks_and_preserves_owner-private.log": "61010d1abd42f6c214e80def128de3af4d63ce516bb0d9c1c1693ed249941e42",
+    ".cache/rc-fallible-validation/release-test_retain_failure_mini_attach_unlocks_and_preserves_owner-shared.log": "13d4362087547a3c39e8be99c8f730c27ec03b578ee98edffb74e71661d6bbc5",
+    ".cache/rc-fallible-validation/release-trunk_async_test-private.log": "58337bde38e57564caa2561b024f9e05bedf6d7c6d6f1b220fee48ef6c622449",
+    ".cache/rc-fallible-validation/release-trunk_async_test-shared.log": "8ba682deb2dfc0c8fe555123e78d819685c87bdf42067e49cabccc24cc79e976",
+    ".cache/rc-fallible-validation/release-trunk_gc_test-private.log": "5a1cd2d0caf0ad0f23b17f001588c0ecf3dece56a89b8735496940f13606d004",
+    ".cache/rc-fallible-validation/release-trunk_gc_test-shared.log": "823df40b64bca62a7b8bad6384c39a966e3f96bda737b9b62ece761e0fc97fea",
+    ".cache/rc-fallible-validation/release-trunk_split_test-private.log": "06968ae7530e9eebccbbe7bf6366a5ecf02e020a36165cae217274759f2e848a",
+    ".cache/rc-fallible-validation/release-trunk_split_test-shared.log": "d75450856f02deacfa0e36058e031183478c6836863cd1685c553ef3ab644fe2",
+    ".cache/rc-fallible-validation/release-validation.json": "e40cb701ba8a162657c7c1ba0ec251143bdce59174513889e1c5b9ebacb6b0ea",
+    ".cache/rc-fallible-validation/superblock-private.log": "cf8b5e84e0251c723c1adf9233d52f50b418fa6a692bf769211193ea8cd951b6",
+    ".cache/rc-fallible-validation/superblock-shared.log": "4cc6bf32aadcd4e9fcb09c8f8131dc4eb6e87c627fce7617e732b11354eaaf28",
+    ".cache/rc-fallible-validation/final-build.log": "7bebb71d3a36397067ae0fecfaa98501b1fde258201ebb85a02c6f785d80d7cf"
+  },
+  "test_summaries": [
+    {
+      "log": ".cache/rc-fallible-low-validation/2-rc_allocator_test-private.log",
+      "tests": 11,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/2-rc_allocator_test-shared.log",
+      "tests": 11,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/2-rc_refcount_test-private.log",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/2-rc_refcount_test-shared.log",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/8-rc_allocator_test-private.log",
+      "tests": 11,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/8-rc_allocator_test-shared.log",
+      "tests": 11,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/8-rc_refcount_test-private.log",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/8-rc_refcount_test-shared.log",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/dense-rc_allocator_test-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/dense-rc_allocator_test-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/mini_refcount-private.log",
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/mini_refcount-shared.log",
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/rc_allocator-private.log",
+      "tests": 11,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/rc_allocator-shared.log",
+      "tests": 11,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/rc_refcount-private.log",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/rc_refcount-shared.log",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/retain_failure-private.log",
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-low-validation/retain_failure-shared.log",
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-core-validation/ondisk-ref-memory.log",
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-core-validation/quick-private.log",
+      "tests": 66,
+      "passed": 66,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-core-validation/quick-shared.log",
+      "tests": 66,
+      "passed": 66,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-trunk-validation/asan-async.log",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-trunk-validation/asan-gc.log",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-trunk-validation/asan-split-private.log",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-trunk-validation/asan-split-shared.log",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-trunk-validation/async.log",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-trunk-validation/gc.log",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-trunk-validation/split-private.log",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-trunk-validation/split-shared.log",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-ondisk_ref_test-private.log",
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-ondisk_ref_test-shared.log",
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-rc_allocator_test-private.log",
+      "tests": 11,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-rc_allocator_test-shared.log",
+      "tests": 11,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 1
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-rc_refcount_test-private.log",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-rc_refcount_test-shared.log",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-splinterdb_quick_test-private.log",
+      "tests": 66,
+      "passed": 66,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-splinterdb_quick_test-shared.log",
+      "tests": 66,
+      "passed": 66,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-test_retain_failure_blob_clone_prefix_cleanup-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-test_retain_failure_blob_clone_prefix_cleanup-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-test_retain_failure_blob_lookup_and_old_value_are_atomic-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-test_retain_failure_blob_lookup_and_old_value_are_atomic-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-test_retain_failure_log_handle_unwinds-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-test_retain_failure_log_handle_unwinds-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-test_retain_failure_mini_attach_unlocks_and_preserves_owner-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/asan-test_retain_failure_mini_attach_unlocks_and_preserves_owner-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-ondisk_ref_test-private.log",
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-ondisk_ref_test-shared.log",
+      "tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-splinterdb_quick_test-private.log",
+      "tests": 66,
+      "passed": 66,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-splinterdb_quick_test-shared.log",
+      "tests": 66,
+      "passed": 66,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-test_retain_failure_blob_clone_prefix_cleanup-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-test_retain_failure_blob_clone_prefix_cleanup-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-test_retain_failure_blob_lookup_and_old_value_are_atomic-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-test_retain_failure_blob_lookup_and_old_value_are_atomic-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-test_retain_failure_log_handle_unwinds-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-test_retain_failure_log_handle_unwinds-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-test_retain_failure_mini_attach_unlocks_and_preserves_owner-private.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-test_retain_failure_mini_attach_unlocks_and_preserves_owner-shared.log",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-trunk_async_test-private.log",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-trunk_async_test-shared.log",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-trunk_gc_test-private.log",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-trunk_gc_test-shared.log",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-trunk_split_test-private.log",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/release-trunk_split_test-shared.log",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/superblock-private.log",
+      "tests": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": ".cache/rc-fallible-validation/superblock-shared.log",
+      "tests": 17,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "final_build_command": [
+    "make",
+    "-j4",
+    "BUILD_ROOT=build-rc-fallible-main",
+    "BUILD_MODE=debug",
+    "BUILD_RC_COMPACT=1",
+    "all-tests",
+    "tools"
+  ]
+}

@@ -1650,15 +1650,13 @@ routing_filter_lookup_hash(cache                *cc,
  *      incs the ref count of the filter
  *----------------------------------------------------------------------
  */
-void
-routing_filter_inc_ref(cache *cc, routing_filter *filter)
+platform_status
+routing_filter_inc_ref(cache *cc, const routing_filter *filter)
 {
    if (filter->num_fingerprints == 0) {
-      return;
+      return STATUS_OK;
    }
-
-   uint64 meta_head = filter->meta_head;
-   mini_inc_ref(cc, meta_head);
+   return mini_inc_ref(cc, filter->meta_head);
 }
 
 /*

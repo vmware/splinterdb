@@ -267,10 +267,10 @@ get_btree_scratch(memtable_context *ctxt, uint64 tid)
                             + tid * ctxt->btree_scratch_sz);
 }
 
-void
+platform_status
 memtable_root_inc_ref(memtable_context *ctxt, uint64 root_addr)
 {
-   btree_inc_ref(ctxt->cc, ctxt->cfg.btree_cfg, root_addr);
+   return btree_inc_ref(ctxt->cc, ctxt->cfg.btree_cfg, root_addr);
 }
 
 bool32

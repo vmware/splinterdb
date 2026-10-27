@@ -176,3 +176,9 @@ src/trunk.h.orig
 /benchmarks/insert_spikes.md
 /docs/cache-errors-null-evidence/
 /docs/cache-handoff-mainmerge.md
+
+# Allocation-table experiment build roots.
+/build-rc-*/
+/build-mini-*/
+
+/benchmarks/allocation_table/__pycache__/

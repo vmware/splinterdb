@@ -318,7 +318,7 @@ btree_create(cache              *cc,
 platform_status
 btree_validate_root(uint64 root_addr, uint16 format_version, page_type type);
 
-void
+__attribute__((warn_unused_result)) platform_status
 btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr);
 
 bool32

@@ -1,0 +1,55 @@
+{
+  "comparison": "full fixed-four-bit PR versus main at 6e550e1e; no packing-only attribution",
+  "variants": [
+    "original",
+    "current"
+  ],
+  "repetitions": 6,
+  "groups": [
+    {
+      "config": "baseline",
+      "threads": 1
+    },
+    {
+      "config": "baseline",
+      "threads": 8
+    },
+    {
+      "config": "capacity1t",
+      "threads": 8
+    },
+    {
+      "config": "large30m",
+      "threads": 8
+    }
+  ],
+  "timed_runs": 48,
+  "inserts_and_reopened_scan_records": 720000000,
+  "primary_metric": "insertion operations per second",
+  "secondary_metric": "inserts divided by insertion plus close duration",
+  "confidence": 0.95,
+  "equivalence_margin": 0.03,
+  "method": "Student-t interval on paired log throughput ratios; six prespecified pairs per group; retain every successful sample; no optional stopping",
+  "foreground_cpu_pool": [
+    0,
+    2,
+    4,
+    6,
+    1,
+    3,
+    5,
+    7
+  ],
+  "background_cpu_pool": [
+    8,
+    9,
+    10,
+    11
+  ],
+  "log": 1,
+  "memtable_mib": 16,
+  "memtable_background_threads": 1,
+  "normal_background_threads": 4,
+  "seed": "41 + repetition",
+  "constraints": "All children idle; unique request and matching pause acknowledgements for every active project; both benchmark.lock and machine.lock exclusive during each measurement window."
+}

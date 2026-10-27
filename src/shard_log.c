@@ -2506,7 +2506,14 @@ shard_log_init(shard_log        *log,
     * both the in-memory and allocation lifetimes without per-ticket refcount
     * traffic.
     */
-   (void)mini_inc_ref(cc, log->meta_head);
+   rc = mini_inc_ref(cc, log->meta_head);
+   if (!SUCCESS(rc)) {
+      mini_release(&log->mini);
+      (void)mini_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
+      log->meta_head = 0;
+      shard_log_cleanup_failed_init(log);
+      return rc;
+   }
    // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
    // log->meta_head);
 

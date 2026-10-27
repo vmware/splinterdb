@@ -124,7 +124,7 @@ allocator_config_pages_share_extent(allocator_config *allocator_cfg,
 // ----------------------------------------------------------------------
 // Type declarations for allocator ops
 
-typedef uint32 refcount;
+typedef uint64 refcount;
 
 typedef struct allocator allocator;
 
@@ -136,6 +136,9 @@ typedef platform_status (*alloc_fn)(allocator *al,
 
 typedef refcount (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
 typedef refcount (*generic_ref_fn)(allocator *al, uint64 addr);
+typedef platform_status (*inc_ref_fn)(allocator *al,
+                                      uint64     addr,
+                                      refcount  *new_count);
 
 /*
  * Record one logical reference to addr while rebuilding a recovery map (see
@@ -176,9 +179,11 @@ typedef struct allocator_ops {
    allocator_get_config_fn get_config;
 
    alloc_fn       alloc;
-   generic_ref_fn inc_ref;
+   inc_ref_fn     inc_ref;
    dec_ref_fn     dec_ref;
    generic_ref_fn get_ref;
+   /* Packed maps can answer allocation-state checks without a hash lookup. */
+   bool32 (*is_allocated)(allocator *al, uint64 addr);
 
    // After a mount, you must do either a recovery or a load
 
@@ -189,6 +194,12 @@ typedef struct allocator_ops {
    generic_status_allocator_fn load_refcounts;
 
    persist_refcounts_fn persist;
+
+   /* Optional: reclaim storage retained for a loaded or persisted allocation
+    * snapshot. The caller must first durably invalidate the snapshot's
+    * publication and keep the allocator quiescent throughout this call.
+    * Loading a snapshot alone does not authorize releasing its storage. */
+   generic_status_allocator_fn release_snapshot;
 
    get_size_fn in_use;
 
@@ -243,10 +254,14 @@ allocator_alloc(allocator *al, uint64 *addr, page_type type)
    return al->ops->alloc(al, addr, type);
 }
 
-static inline refcount
-allocator_inc_ref(allocator *al, uint64 addr)
+/* Acquire one reference to an allocated extent. On failure the count and
+ * optional output remain unchanged. A concurrent owner may still change the
+ * count. Returns INVALID_STATE for a free extent, LIMIT_EXCEEDED at UINT64_MAX,
+ * or NO_MEMORY if the packed overflow table cannot grow. */
+__attribute__((warn_unused_result)) static inline platform_status
+allocator_inc_ref(allocator *al, uint64 addr, refcount *new_count)
 {
-   return al->ops->inc_ref(al, addr);
+   return al->ops->inc_ref(al, addr, new_count);
 }
 
 static inline refcount
@@ -259,6 +274,15 @@ static inline refcount
 allocator_get_refcount(allocator *al, uint64 addr)
 {
    return al->ops->get_ref(al, addr);
+}
+
+static inline bool32
+allocator_is_allocated(allocator *al, uint64 addr)
+{
+   if (al->ops->is_allocated != NULL) {
+      return al->ops->is_allocated(al, addr);
+   }
+   return allocator_get_refcount(al, addr) != AL_FREE;
 }
 
 /*
@@ -313,6 +337,15 @@ allocator_persist(allocator *al, uint64 *state_addr)
    return al->ops->persist(al, state_addr);
 }
 
+/* Only after durable invalidation of the allocation snapshot, with no
+ * concurrent allocator users. Backends without snapshot storage need no op. */
+static inline platform_status
+allocator_release_snapshot(allocator *al)
+{
+   return al->ops->release_snapshot == NULL ? STATUS_OK
+                                            : al->ops->release_snapshot(al);
+}
+
 static inline uint64
 allocator_in_use(allocator *al)
 {
@@ -361,11 +394,11 @@ allocator_page_valid(allocator *al, uint64 addr)
 
    uint64 base_addr = allocator_config_extent_base_addr(allocator_cfg, addr);
    if ((base_addr != 0) && (addr < allocator_cfg->capacity)) {
-      refcount rfc = allocator_get_refcount(al, base_addr);
+      bool32 rfc = allocator_is_allocated(al, base_addr);
       if (rfc == 0) {
          platform_error_log(
             "%s():%d: Trying to access an unreferenced extent."
-            " base_addr=%lu, addr=%lu, allocator_get_refcount()=%d\n",
+            " base_addr=%lu, addr=%lu, allocator_is_allocated()=%d\n",
             __func__,
             __LINE__,
             base_addr,

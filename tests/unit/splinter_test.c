@@ -1038,6 +1038,491 @@ blob_checksum_test_mini_deinit(cache          *cc,
                                                            : STATUS_TEST_FAILED;
 }
 
+/* The allocation returned by allocator_alloc() is the mini allocator's first
+ * owner. A second caller adds one real reference, including for a live log
+ * handle; there is no permanent synthetic reference on the metadata head. */
+CTEST2(splinter, test_mini_refcount_first_owner_and_sharing)
+{
+   cache     *cc             = (cache *)data->clock_cache;
+   allocator *al             = (allocator *)&data->al;
+   uint64     initial_in_use = allocator_in_use(al);
+   page_type  tree_types[]   = {PAGE_TYPE_BRANCH, PAGE_TYPE_MEMTABLE};
+   for (uint64 i = 0; i < ARRAY_SIZE(tree_types); i++) {
+      mini_allocator mini;
+      uint64         root;
+      ASSERT_TRUE(SUCCESS(btree_create(
+         cc, &data->system_cfg->btree_cfg, &mini, tree_types[i], &root)));
+      ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, root));
+      mini_release(&mini);
+      ASSERT_TRUE(
+         SUCCESS(btree_inc_ref(cc, &data->system_cfg->btree_cfg, root)));
+      ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, root));
+      ASSERT_FALSE(
+         btree_dec_ref(cc, &data->system_cfg->btree_cfg, root, tree_types[i]));
+      ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, root));
+      ASSERT_TRUE(
+         btree_dec_ref(cc, &data->system_cfg->btree_cfg, root, tree_types[i]));
+      ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, root));
+   }
+
+   const routing_config *filter_cfg =
+      data->system_cfg->splinter_cfg.trunk_node_cfg->filter_cfg;
+   routing_filter empty       = NULL_ROUTING_FILTER;
+   routing_filter filter      = NULL_ROUTING_FILTER;
+   uint32         fingerprint = 17;
+   ASSERT_TRUE(SUCCESS(
+      routing_filter_add(cc, filter_cfg, &empty, &filter, &fingerprint, 1, 0)));
+   uint64 filter_head = filter.meta_head;
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, filter_head));
+   ASSERT_TRUE(SUCCESS(routing_filter_inc_ref(cc, &filter)));
+   ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, filter_head));
+   routing_filter_dec_ref(cc, &filter);
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, filter_head));
+   routing_filter_dec_ref(cc, &filter);
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, filter_head));
+
+   log_handle *log;
+   ASSERT_TRUE(SUCCESS(
+      shard_log_create(cc, &data->system_cfg->log_cfg, data->hid, &log)));
+   log_head head = log_get_head(log);
+   ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, head.meta_addr));
+   log_deinit(log);
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head.meta_addr));
+   shard_log_dec_ref(cc, &head);
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, head.meta_addr));
+   ASSERT_EQUAL(initial_in_use, allocator_in_use(al));
+}
+
+/* Repeated shared data entries cheaply force a second metadata extent. This
+ * checks the head's consumed last reference separately from continuation
+ * extents, and compares the full live and rebuilt maps with two head owners. */
+CTEST2(splinter, test_mini_refcount_recovery_and_continuation)
+{
+   cache            *cc             = (cache *)data->clock_cache;
+   allocator        *al             = (allocator *)&data->al;
+   allocator_config *cfg            = allocator_get_config(al);
+   uint64            initial_in_use = allocator_in_use(al);
+   uint64            extent_size    = cache_extent_size(cc);
+   uint64            head, attached;
+   ASSERT_TRUE(SUCCESS(allocator_alloc(al, &head, PAGE_TYPE_MISC)));
+   mini_allocator mini;
+   ASSERT_TRUE(SUCCESS(mini_init(&mini, cc, head, 0, 1, PAGE_TYPE_MISC, NULL)));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head));
+   ASSERT_TRUE(SUCCESS(allocator_alloc(al, &attached, PAGE_TYPE_MISC)));
+   uint64 attachments = 0;
+   do {
+      ASSERT_TRUE(SUCCESS(mini_attach_extent(&mini, 0, attached)));
+      attachments++;
+      ASSERT_TRUE(attachments <= extent_size / sizeof(uint64));
+   } while (allocator_config_extent_base_addr(cfg, mini.meta_tail) == head);
+   uint64 continuation = allocator_config_extent_base_addr(cfg, mini.meta_tail);
+   mini_release(&mini);
+   ASSERT_EQUAL(attachments + 1,
+                allocator_dec_ref(al, attached, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, continuation));
+   ASSERT_TRUE(SUCCESS(mini_inc_ref(cc, head)));
+   ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, head));
+
+   refcount *expected =
+      TYPED_ARRAY_MALLOC(data->hid, expected, cfg->extent_capacity);
+   ASSERT_NOT_NULL(expected);
+   for (uint64 i = 0; i < cfg->extent_capacity; i++) {
+      expected[i] = allocator_get_refcount(al, i * extent_size);
+   }
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   ASSERT_TRUE(SUCCESS(allocator_recovery_begin(al)));
+   ASSERT_TRUE(SUCCESS(mini_recover_references(cc, head, PAGE_TYPE_MISC)));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head));
+   ASSERT_TRUE(SUCCESS(mini_recover_references(cc, head, PAGE_TYPE_MISC)));
+   allocator_recovery_finish(al);
+   for (uint64 i = 0; i < cfg->extent_capacity; i++) {
+      ASSERT_EQUAL(expected[i],
+                   allocator_get_refcount(al, i * extent_size),
+                   "extent %lu differs after mini recovery",
+                   i);
+   }
+   platform_free(data->hid, expected);
+   ASSERT_EQUAL(1, mini_dec_ref(cc, head, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head));
+   ASSERT_EQUAL(0, mini_dec_ref(cc, head, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, head));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, continuation));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, attached));
+   ASSERT_EQUAL(initial_in_use, allocator_in_use(al));
+}
+
+static const allocator_ops *mini_init_saved_ops;
+static uint64               mini_init_allocations_before_failure;
+
+static platform_status
+mini_init_fail_allocation(allocator *al, uint64 *addr, page_type type)
+{
+   if (mini_init_allocations_before_failure == 0) {
+      return STATUS_NO_SPACE;
+   }
+   mini_init_allocations_before_failure--;
+   return mini_init_saved_ops->alloc(al, addr, type);
+}
+
+CTEST2(splinter, test_mini_refcount_init_failure_preserves_owner)
+{
+   cache     *cc             = (cache *)data->clock_cache;
+   allocator *al             = (allocator *)&data->al;
+   uint64     initial_in_use = allocator_in_use(al);
+   for (uint64 failure_batch = 0; failure_batch < 3; failure_batch++) {
+      uint64 head;
+      ASSERT_TRUE(SUCCESS(allocator_alloc(al, &head, PAGE_TYPE_MISC)));
+      mini_init_saved_ops                  = al->ops;
+      allocator_ops fault_ops              = *al->ops;
+      fault_ops.alloc                      = mini_init_fail_allocation;
+      mini_init_allocations_before_failure = failure_batch;
+      al->ops                              = &fault_ops;
+      mini_allocator  mini;
+      platform_status rc =
+         mini_init(&mini, cc, head, 0, 3, PAGE_TYPE_MISC, NULL);
+      al->ops = mini_init_saved_ops;
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_NO_SPACE));
+      ASSERT_EQUAL(initial_in_use + 1, allocator_in_use(al));
+      ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, head));
+      ASSERT_EQUAL(AL_NO_REFS, allocator_dec_ref(al, head, PAGE_TYPE_MISC));
+      cache_extent_discard(cc, head, PAGE_TYPE_MISC);
+      ASSERT_EQUAL(AL_FREE, allocator_dec_ref(al, head, PAGE_TYPE_MISC));
+      ASSERT_EQUAL(initial_in_use, allocator_in_use(al));
+   }
+}
+
+/* A retain failure must not consume ownership or publish a partial result.
+ * These fixtures are single-threaded and restore the allocator operations
+ * before asserting, so teardown always uses the real allocator. */
+static const allocator_ops *retain_test_saved_ops;
+static uint64               retain_test_successes_before_failure;
+
+static platform_status
+retain_test_fail(allocator *al, uint64 addr, refcount *new_count)
+{
+   if (retain_test_successes_before_failure == 0) {
+      return STATUS_NO_MEMORY;
+   }
+   retain_test_successes_before_failure--;
+   return retain_test_saved_ops->inc_ref(al, addr, new_count);
+}
+
+static platform_status
+retain_test_insert_callback(void *arg)
+{
+   (*(uint64 *)arg)++;
+   return STATUS_OK;
+}
+
+CTEST2(splinter, test_retain_failure_mini_attach_unlocks_and_preserves_owner)
+{
+   cache     *cc      = (cache *)data->clock_cache;
+   allocator *al      = (allocator *)&data->al;
+   uint64     initial = allocator_in_use(al);
+   uint64     head, attached;
+   ASSERT_TRUE(SUCCESS(allocator_alloc(al, &head, PAGE_TYPE_MISC)));
+   mini_allocator mini;
+   ASSERT_TRUE(SUCCESS(mini_init(&mini, cc, head, 0, 1, PAGE_TYPE_MISC, NULL)));
+   ASSERT_TRUE(SUCCESS(allocator_alloc(al, &attached, PAGE_TYPE_MISC)));
+   uint64 old_tail                      = mini.meta_tail;
+   uint64 old_next                      = mini.next_addr[0];
+   uint64 before                        = allocator_in_use(al);
+   retain_test_saved_ops                = al->ops;
+   allocator_ops fault_ops              = *al->ops;
+   fault_ops.inc_ref                    = retain_test_fail;
+   retain_test_successes_before_failure = 0;
+   al->ops                              = &fault_ops;
+   platform_status rc = mini_attach_extent(&mini, 0, attached);
+   al->ops            = retain_test_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
+   ASSERT_EQUAL_U(AL_ONE_REF, allocator_get_refcount(al, attached));
+   ASSERT_EQUAL_U(old_tail, mini.meta_tail);
+   ASSERT_EQUAL_U(old_next, mini.next_addr[0]);
+   ASSERT_EQUAL_U(before, allocator_in_use(al));
+   /* Retrying uses the same batch lock and must append exactly one owner. */
+   ASSERT_TRUE(SUCCESS(mini_attach_extent(&mini, 0, attached)));
+   ASSERT_EQUAL_U(AL_ONE_REF + 1, allocator_get_refcount(al, attached));
+   ASSERT_EQUAL_U(AL_ONE_REF, allocator_dec_ref(al, attached, PAGE_TYPE_MISC));
+   mini_release(&mini);
+   ASSERT_EQUAL_U(0, mini_dec_ref(cc, head, PAGE_TYPE_MISC));
+   ASSERT_EQUAL_U(AL_FREE, allocator_get_refcount(al, attached));
+   ASSERT_EQUAL_U(initial, allocator_in_use(al));
+}
+
+CTEST2(splinter, test_retain_failure_log_handle_unwinds)
+{
+   cache     *cc                        = (cache *)data->clock_cache;
+   allocator *al                        = (allocator *)&data->al;
+   uint64     initial                   = allocator_in_use(al);
+   retain_test_saved_ops                = al->ops;
+   allocator_ops fault_ops              = *al->ops;
+   fault_ops.inc_ref                    = retain_test_fail;
+   retain_test_successes_before_failure = 0;
+   al->ops                              = &fault_ops;
+   log_handle     *log                  = NULL;
+   platform_status rc =
+      shard_log_create(cc, &data->system_cfg->log_cfg, data->hid, &log);
+   al->ops = retain_test_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
+   ASSERT_NULL(log);
+   ASSERT_EQUAL_U(initial, allocator_in_use(al));
+   ASSERT_TRUE(SUCCESS(
+      shard_log_create(cc, &data->system_cfg->log_cfg, data->hid, &log)));
+   log_head head = log_get_head(log);
+   log_deinit(log);
+   shard_log_dec_ref(cc, &head);
+   ASSERT_EQUAL_U(initial, allocator_in_use(al));
+}
+
+CTEST2(splinter, test_retain_failure_blob_lookup_and_old_value_are_atomic)
+{
+   cache         *cc      = (cache *)data->clock_cache;
+   allocator     *al      = (allocator *)&data->al;
+   btree_config  *cfg     = &data->system_cfg->btree_cfg;
+   uint64         initial = allocator_in_use(al);
+   mini_allocator mini;
+   uint64         root;
+   ASSERT_TRUE(
+      SUCCESS(btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE, &root)));
+   btree_scratch *scratch = TYPED_ALIGNED_MALLOC(
+      data->hid, PLATFORM_CACHELINE_SIZE, scratch, btree_scratch_size(cfg));
+   ASSERT_NOT_NULL(scratch);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   key             tuple_key = key_buffer_key(&keybuf);
+   writable_buffer bytes;
+   writable_buffer_init(&bytes, data->hid);
+   ASSERT_TRUE(
+      SUCCESS(writable_buffer_resize(&bytes, 2 * cache_page_size(cc))));
+   blob_checksum_test_fill(&bytes, writable_buffer_length(&bytes));
+   message original = message_create(
+      MESSAGE_TYPE_INSERT, NULL, writable_buffer_to_slice(&bytes));
+   btree_insert_results inserted;
+   btree_insert_results_init(&inserted, NULL);
+   ASSERT_TRUE(SUCCESS(btree_insert(cc,
+                                    cfg,
+                                    data->hid,
+                                    scratch,
+                                    root,
+                                    &mini,
+                                    tuple_key,
+                                    original,
+                                    &inserted)));
+   lookup_result result;
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   retain_test_saved_ops   = al->ops;
+   allocator_ops fault_ops = *al->ops;
+   fault_ops.inc_ref       = retain_test_fail;
+
+   /* Fail either the temporary owner or the result's independent owner, in
+    * both synchronous and asynchronous lookup. Every acquired page must unpin.
+    */
+   for (uint64 async = 0; async < 2; async++) {
+      for (uint64 failure = 0; failure < 2; failure++) {
+         retain_test_successes_before_failure = failure;
+         al->ops                              = &fault_ops;
+         platform_status rc =
+            async ? async_call_sync_callback(cache_cleanup(cc),
+                                             btree_lookup_async,
+                                             cc,
+                                             cfg,
+                                             root,
+                                             BTREE_BRANCH_FORMAT_VERSION,
+                                             PAGE_TYPE_MEMTABLE,
+                                             tuple_key,
+                                             &result)
+                  : btree_lookup(cc,
+                                 cfg,
+                                 root,
+                                 BTREE_BRANCH_FORMAT_VERSION,
+                                 PAGE_TYPE_MEMTABLE,
+                                 tuple_key,
+                                 &result);
+         al->ops = retain_test_saved_ops;
+         ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
+         ASSERT_FALSE(lookup_result_found(&result));
+         ASSERT_TRUE(ondisk_ref_is_null(&result.blob_ref));
+         ASSERT_EQUAL_U(AL_ONE_REF, allocator_get_refcount(al, root));
+      }
+   }
+
+   uint64  replacement_value = 0x12345678;
+   message replacement       = message_create(
+      MESSAGE_TYPE_INSERT,
+      NULL,
+      slice_create(sizeof(replacement_value), &replacement_value));
+   uint64 callbacks = 0;
+   btree_insert_results_init(&inserted, &result);
+   btree_insert_results_set_callback(
+      &inserted, retain_test_insert_callback, &callbacks);
+   for (uint64 failure = 0; failure < 2; failure++) {
+      retain_test_successes_before_failure = failure;
+      al->ops                              = &fault_ops;
+      platform_status rc                   = btree_insert(cc,
+                                        cfg,
+                                        data->hid,
+                                        scratch,
+                                        root,
+                                        &mini,
+                                        tuple_key,
+                                        replacement,
+                                        &inserted);
+      al->ops                              = retain_test_saved_ops;
+      ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
+      ASSERT_EQUAL_U(0, callbacks);
+      ASSERT_EQUAL_U(0, inserted.leaf_generation);
+      ASSERT_FALSE(lookup_result_found(&result));
+      ASSERT_TRUE(ondisk_ref_is_null(&result.blob_ref));
+      ASSERT_EQUAL_U(AL_ONE_REF, allocator_get_refcount(al, root));
+      ASSERT_TRUE(SUCCESS(btree_lookup(cc,
+                                       cfg,
+                                       root,
+                                       BTREE_BRANCH_FORMAT_VERSION,
+                                       PAGE_TYPE_MEMTABLE,
+                                       tuple_key,
+                                       &result)));
+      ASSERT_TRUE(merge_accumulator_is_blob(&result.value));
+      ASSERT_TRUE(SUCCESS(lookup_result_ensure_materialized(&result)));
+      ASSERT_EQUAL_U(writable_buffer_length(&bytes),
+                     merge_accumulator_length(&result.value));
+      ASSERT_EQUAL(0,
+                   memcmp(writable_buffer_data(&bytes),
+                          merge_accumulator_data(&result.value),
+                          writable_buffer_length(&bytes)));
+      lookup_result_reset(&result);
+   }
+   /* The same locks and callback remain usable after either failed retain. */
+   ASSERT_TRUE(SUCCESS(btree_insert(cc,
+                                    cfg,
+                                    data->hid,
+                                    scratch,
+                                    root,
+                                    &mini,
+                                    tuple_key,
+                                    replacement,
+                                    &inserted)));
+   ASSERT_EQUAL_U(1, callbacks);
+   ASSERT_TRUE(lookup_result_found(&result));
+   lookup_result_deinit(&result);
+   btree_insert_results_deinit(&inserted);
+   mini_release(&mini);
+   ASSERT_TRUE(btree_dec_ref(cc, cfg, root, PAGE_TYPE_MEMTABLE));
+   platform_free(data->hid, scratch);
+   writable_buffer_deinit(&bytes);
+   ASSERT_EQUAL_U(initial, allocator_in_use(al));
+}
+
+CTEST2(splinter, test_retain_failure_blob_clone_prefix_cleanup)
+{
+   cache         *cc      = (cache *)data->clock_cache;
+   allocator     *al      = (allocator *)&data->al;
+   btree_config  *cfg     = &data->system_cfg->btree_cfg;
+   uint64         initial = allocator_in_use(al);
+   mini_allocator source, target;
+   uint64         source_head, root;
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+   ASSERT_TRUE(
+      SUCCESS(btree_create(cc, cfg, &target, PAGE_TYPE_MEMTABLE, &root)));
+   blob_build_config blob_cfg = {.extent_batch             = 0,
+                                 .page_batch               = 1,
+                                 .subpage_batch            = 2,
+                                 .blob_max_descriptor_size = 512};
+   writable_buffer   bytes, descriptor;
+   writable_buffer_init(&bytes, data->hid);
+   writable_buffer_init(&descriptor, data->hid);
+   ASSERT_TRUE(
+      SUCCESS(writable_buffer_resize(&bytes, 2 * cache_extent_size(cc))));
+   blob_checksum_test_fill(&bytes, writable_buffer_length(&bytes));
+   ASSERT_TRUE(SUCCESS(blob_build(
+      &blob_cfg, cc, &source, writable_buffer_to_slice(&bytes), &descriptor)));
+   parsed_blob parsed;
+   ASSERT_TRUE(SUCCESS(blob_parse_descriptor(
+      cc, writable_buffer_to_slice(&descriptor), &parsed)));
+   ASSERT_EQUAL_U(2, parsed.num_extents);
+   uint64  first    = parsed.base->addrs[0];
+   uint64  second   = parsed.base->addrs[1];
+   message incoming = message_create(
+      MESSAGE_TYPE_INSERT, cc, writable_buffer_to_slice(&descriptor));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   test_key(&keybuf, TEST_RANDOM, 1, 0, 0, data->workload_cfg->key_size, 0);
+   key            tuple_key = key_buffer_key(&keybuf);
+   btree_scratch *scratch   = TYPED_ALIGNED_MALLOC(
+      data->hid, PLATFORM_CACHELINE_SIZE, scratch, btree_scratch_size(cfg));
+   ASSERT_NOT_NULL(scratch);
+   btree_insert_results inserted;
+   btree_insert_results_init(&inserted, NULL);
+   uint64 callbacks = 0;
+   btree_insert_results_set_callback(
+      &inserted, retain_test_insert_callback, &callbacks);
+   retain_test_saved_ops                = al->ops;
+   allocator_ops fault_ops              = *al->ops;
+   fault_ops.inc_ref                    = retain_test_fail;
+   retain_test_successes_before_failure = 1;
+   al->ops                              = &fault_ops;
+   platform_status rc                   = btree_insert(cc,
+                                     cfg,
+                                     data->hid,
+                                     scratch,
+                                     root,
+                                     &target,
+                                     tuple_key,
+                                     incoming,
+                                     &inserted);
+   al->ops                              = retain_test_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
+   ASSERT_EQUAL_U(0, callbacks);
+   ASSERT_EQUAL_U(AL_ONE_REF + 1, allocator_get_refcount(al, first));
+   ASSERT_EQUAL_U(AL_ONE_REF, allocator_get_refcount(al, second));
+   lookup_result result;
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   ASSERT_TRUE(SUCCESS(btree_lookup(cc,
+                                    cfg,
+                                    root,
+                                    BTREE_BRANCH_FORMAT_VERSION,
+                                    PAGE_TYPE_MEMTABLE,
+                                    tuple_key,
+                                    &result)));
+   ASSERT_FALSE(lookup_result_found(&result));
+   ASSERT_TRUE(SUCCESS(btree_insert(cc,
+                                    cfg,
+                                    data->hid,
+                                    scratch,
+                                    root,
+                                    &target,
+                                    tuple_key,
+                                    incoming,
+                                    &inserted)));
+   ASSERT_EQUAL_U(1, callbacks);
+   ASSERT_TRUE(SUCCESS(btree_lookup(cc,
+                                    cfg,
+                                    root,
+                                    BTREE_BRANCH_FORMAT_VERSION,
+                                    PAGE_TYPE_MEMTABLE,
+                                    tuple_key,
+                                    &result)));
+   ASSERT_TRUE(SUCCESS(lookup_result_ensure_materialized(&result)));
+   ASSERT_EQUAL_U(writable_buffer_length(&bytes),
+                  merge_accumulator_length(&result.value));
+   ASSERT_EQUAL(0,
+                memcmp(writable_buffer_data(&bytes),
+                       merge_accumulator_data(&result.value),
+                       writable_buffer_length(&bytes)));
+   lookup_result_deinit(&result);
+   mini_release(&target);
+   ASSERT_TRUE(btree_dec_ref(cc, cfg, root, PAGE_TYPE_MEMTABLE));
+   ASSERT_EQUAL_U(AL_ONE_REF, allocator_get_refcount(al, first));
+   ASSERT_EQUAL_U(AL_ONE_REF, allocator_get_refcount(al, second));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
+   btree_insert_results_deinit(&inserted);
+   platform_free(data->hid, scratch);
+   writable_buffer_deinit(&descriptor);
+   writable_buffer_deinit(&bytes);
+   ASSERT_EQUAL_U(initial, allocator_in_use(al));
+}
+
 CTEST2(splinter, test_blob_checksums)
 {
    cache            *cc  = (cache *)data->clock_cache;
@@ -4831,8 +5316,9 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
    superblock_context_deinit(&sb);
 
    /*
-    * Ground truth.  core_unmount() persisted this very map, so the in-memory
-    * copy still standing here is byte-for-byte what a clean mount would load.
+    * Ground truth. core_unmount() persisted this map. Root-only recovery
+    * reconstructs the tree's ownership and fixed reserved extents; temporary
+    * snapshot overflow extents are deliberately absent from that result.
     */
    uint64    extent_size = acfg->io_cfg->extent_size;
    uint64    num_extents = allocator_get_capacity(alp) / extent_size;
@@ -4844,6 +5330,14 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
       if (expected[i] != AL_FREE) {
          num_referenced++;
       }
+   }
+
+   for (uint64 i = 0; i < data->al.snapshot_extent_count; i++) {
+      uint64 extent = data->al.snapshot_extents[i] / extent_size;
+      ASSERT_TRUE(extent < num_extents);
+      ASSERT_EQUAL_U(AL_ONE_REF, expected[extent]);
+      expected[extent] = AL_FREE;
+      num_referenced--;
    }
 
    /*
@@ -4883,7 +5377,7 @@ CTEST2(splinter, test_recover_allocations_reproduces_persisted_map)
          if (actual != expected[i]) {
             if (mismatches < 16) {
                platform_error_log("round %lu: extent %lu (addr %lu): persisted "
-                                  "refcount %u, rebuilt %u\n",
+                                  "refcount %lu, rebuilt %lu\n",
                                   round,
                                   i,
                                   i * extent_size,

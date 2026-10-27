@@ -1217,10 +1217,10 @@ core_memtable_mark_incorporation_failed(core_handle    *spl,
    memtable_unblock_lookups(&spl->mt_ctxt);
 }
 
-static inline void
+static inline platform_status
 core_memtable_inc_ref(core_handle *spl, uint64 root_addr)
 {
-   memtable_root_inc_ref(&spl->mt_ctxt, root_addr);
+   return memtable_root_inc_ref(&spl->mt_ctxt, root_addr);
 }
 
 
@@ -2268,10 +2268,12 @@ restart:
          continue;
       }
       range_itor->compacted[range_itor->num_branches] = compacted;
-      if (compacted) {
-         btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
-      } else {
-         core_memtable_inc_ref(spl, root_addr);
+      rc = compacted ? btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr)
+                     : core_memtable_inc_ref(spl, root_addr);
+      if (!SUCCESS(rc)) {
+         memtable_end_lookup(&spl->mt_ctxt);
+         core_range_iterator_span_deinit(range_itor);
+         return rc;
       }
 
       range_itor->branch[range_itor->num_branches].addr = root_addr;
@@ -2752,6 +2754,7 @@ core_fetch_and_update_catch_up(core_handle         *spl,
 
    core_catch_up_ref refs[CORE_NUM_MEMTABLES];
    uint64            num_refs = 0;
+   platform_status   rc       = STATUS_OK;
 
    memtable_begin_lookup(&spl->mt_ctxt);
    uint64 retired_generation = memtable_generation_retired(&spl->mt_ctxt);
@@ -2772,13 +2775,19 @@ core_fetch_and_update_catch_up(core_handle         *spl,
       platform_assert(!active);
 
       if (!compacted) {
-         core_memtable_inc_ref(spl, root_addr);
+         rc = core_memtable_inc_ref(spl, root_addr);
+         if (!SUCCESS(rc)) {
+            goto release_capture_locks;
+         }
          refs[num_refs++] = (core_catch_up_ref){
             .root_addr = root_addr,
             .type      = PAGE_TYPE_MEMTABLE,
          };
       } else if (root_addr != 0) {
-         btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
+         rc = btree_inc_ref(spl->cc, spl->cfg.btree_cfg, root_addr);
+         if (!SUCCESS(rc)) {
+            goto release_capture_locks;
+         }
          refs[num_refs++] = (core_catch_up_ref){
             .root_addr = root_addr,
             .type      = PAGE_TYPE_BRANCH,
@@ -2789,12 +2798,12 @@ core_fetch_and_update_catch_up(core_handle         *spl,
          break;
       }
    }
+release_capture_locks:
    memtable_end_lookup(&spl->mt_ctxt);
    memtable_end_insert(&spl->mt_ctxt);
 
-   platform_status rc = STATUS_OK;
-   for (uint64 i = 0;
-        i < num_refs && lookup_result_should_continue(catch_up_result);
+   for (uint64 i = 0; SUCCESS(rc) && i < num_refs
+                      && lookup_result_should_continue(catch_up_result);
         i++)
    {
       rc = btree_lookup_and_merge(spl->cc,
@@ -3903,6 +3912,15 @@ core_mount(core_handle      *spl,
       platform_error_log("core_mount: mark-dirty superblock_make_durable "
                          "failed: %s\n",
                          platform_status_to_string(rc));
+      goto deinit_log;
+   }
+   /* The old allocation snapshot can no longer be selected after a crash.
+    * Its temporary overflow extents may now return to the free pool. */
+   rc = allocator_release_snapshot(al);
+   if (!SUCCESS(rc)) {
+      platform_error_log(
+         "core_mount: releasing allocation snapshot failed: %s\n",
+         platform_status_to_string(rc));
       goto deinit_log;
    }
    return STATUS_OK;

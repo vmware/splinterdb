@@ -10,12 +10,13 @@
 #pragma once
 
 #include "platform_hash.h"
-#include "platform_buffer.h"
 #include "platform_mutex.h"
 #include "allocator.h"
 #include "util.h"
+#include "rc_refcount.h"
+#include "rc_allocator_disk.h"
 
-#define RC_ALLOCATOR_FORMAT_VERSION (1)
+#define RC_ALLOCATOR_FORMAT_VERSION (3)
 
 /* Validate the allocator version stored in the database superblock. */
 platform_status
@@ -41,8 +42,7 @@ typedef struct rc_allocator_stats {
 typedef struct rc_allocator {
    allocator         super;
    allocator_config *cfg;
-   buffer_handle     bh;
-   refcount         *ref_count;
+   rc_refcount       compact;
    uint64            hand;
    io_handle        *io;
 
@@ -60,6 +60,12 @@ typedef struct rc_allocator {
     */
    bool32 map_is_valid;
 
+   /* Loaded/persisted snapshot storage remains owned until its durable
+    * descriptor has been invalidated. Deinit drops only this address list. */
+   uint64 *snapshot_extents;
+   uint64  snapshot_extent_count;
+   uint64  snapshot_extent_capacity;
+
    // Stats -- not distributed for now
    rc_allocator_stats stats;
 } rc_allocator;
@@ -74,6 +80,9 @@ rc_allocator_init(rc_allocator      *al,
 void
 rc_allocator_deinit(rc_allocator *al);
 
+__attribute__((warn_unused_result)) platform_status
+rc_allocator_inc_ref(rc_allocator *al, uint64 addr, refcount *new_count);
+
 /*
  * Attach to an existing device but do not read the persisted map.  The caller
  * then populates the map exactly once via allocator_load_refcounts() or
@@ -85,3 +94,7 @@ rc_allocator_mount(rc_allocator      *al,
                    io_handle         *io,
                    platform_heap_id   hid,
                    platform_module_id mid);
+
+/* Quiescent: caller must first durably invalidate the saved allocation map. */
+platform_status
+rc_allocator_release_snapshot(rc_allocator *al);

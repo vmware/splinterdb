@@ -210,7 +210,7 @@ memtable_block_lookups(memtable_context *ctxt);
 void
 memtable_unblock_lookups(memtable_context *ctxt);
 
-void
+platform_status __attribute__((warn_unused_result))
 memtable_root_inc_ref(memtable_context *ctxt, uint64 root_addr);
 
 bool32

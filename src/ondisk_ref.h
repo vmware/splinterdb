@@ -22,7 +22,12 @@
  *    init_adopt records an already-owned reference
  *    deinit     releases the held reference
  *    copy       initializes dst with a newly acquired copy of src
- *    replace    releases dst after acquiring src
+ *    replace    releases dst only after successfully acquiring src
+ *    move       transfers src into dst without acquiring another reference
+ *
+ * init/copy require an uninitialized or null destination; failure leaves it
+ * null. replace failure preserves dst and src. An inc callback must leave
+ * ownership unchanged when it returns an error.
  */
 typedef struct ondisk_ref {
    cache                   *cc;
@@ -30,7 +35,7 @@ typedef struct ondisk_ref {
    page_type                type;
    const void              *arg;
    const struct ondisk_ref *self;
-   void (*inc)(const struct ondisk_ref *ref);
+   platform_status (*inc)(const struct ondisk_ref *ref);
    void (*dec)(const struct ondisk_ref *ref);
    const uint8 no_copy;
 } ondisk_ref;
@@ -43,13 +48,13 @@ ondisk_ref_is_null(const ondisk_ref *ref);
 void
 ondisk_ref_init_null(ondisk_ref *ref);
 
-void
+platform_status __attribute__((warn_unused_result))
 ondisk_ref_init(ondisk_ref *ref,
                 cache      *cc,
                 uint64      addr,
                 page_type   type,
                 const void *arg,
-                void (*inc)(const ondisk_ref *ref),
+                platform_status (*inc)(const ondisk_ref *ref),
                 void (*dec)(const ondisk_ref *ref));
 
 void
@@ -58,14 +63,19 @@ ondisk_ref_init_adopt(ondisk_ref *ref,
                       uint64      addr,
                       page_type   type,
                       const void *arg,
-                      void (*inc)(const ondisk_ref *ref),
+                      platform_status (*inc)(const ondisk_ref *ref),
                       void (*dec)(const ondisk_ref *ref));
 
 void
 ondisk_ref_deinit(ondisk_ref *ref);
 
-void
+platform_status __attribute__((warn_unused_result))
 ondisk_ref_copy(ondisk_ref *dst, const ondisk_ref *src);
 
-void
+platform_status __attribute__((warn_unused_result))
 ondisk_ref_replace(ondisk_ref *dst, const ondisk_ref *src);
+
+/* Move an acquired owner without retaining again. Releases dst, consumes src,
+ * and leaves src null. Self-move is a no-op. */
+void
+ondisk_ref_move(ondisk_ref *dst, ondisk_ref *src);

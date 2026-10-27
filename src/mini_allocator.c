@@ -20,9 +20,10 @@
 
 // MINI_WAIT is a lock token used to lock a batch
 #define MINI_WAIT 1
-// MINI_NO_REFS is the ref count of a mini allocator with no external
-// refs
-#define MINI_NO_REFS 2
+/* The allocator's allocated-with-no-owners state retains the metadata while
+ * the last mini owner reclaims its contents. No additional synthetic reference
+ * is needed: allocator_alloc() already supplies the first external owner. */
+#define MINI_NO_REFS AL_NO_REFS
 
 /*
  *-----------------------------------------------------------------------------
@@ -344,10 +345,12 @@ mini_init_with_types(mini_allocator  *mini,
       meta_page = cache_alloc(cc, mini->meta_head, meta_type, &meta_storage);
       mini_init_meta_page(mini, meta_page, 0);
 
-      // meta_page gets an extra ref
-      refcount ref =
-         allocator_inc_ref(mini->al, base_addr(cc, mini->meta_head));
-      platform_assert(ref == MINI_NO_REFS + 1);
+      /* Adopt the allocation supplied by the caller as the initial owner.
+       * On failure below that same reference remains the caller's to release.
+       */
+      platform_assert(
+         allocator_get_refcount(mini->al, base_addr(cc, mini->meta_head))
+         == AL_ONE_REF);
 
    } else {
       // load mini allocator
@@ -376,9 +379,6 @@ mini_init_with_types(mini_allocator  *mini,
          }
          if (meta_page != NULL) {
             mini_full_unlock_meta_page(mini, meta_page);
-            refcount ref = allocator_dec_ref(
-               mini->al, base_addr(cc, mini->meta_head), mini->meta_type);
-            platform_assert(ref == AL_ONE_REF);
          }
          return rc;
       }
@@ -730,9 +730,13 @@ mini_attach_extent(mini_allocator *mini, uint64 batch, uint64 addr)
    debug_assert(batch < mini->num_batches);
    debug_assert(addr % cache_extent_size(mini->cc) == 0);
 
-   uint64 old_next_addr = mini_lock_batch_get_next_addr(mini, batch);
-   allocator_inc_ref(mini->al, addr);
-   platform_status rc = mini_append_entry(mini, batch, addr);
+   uint64          old_next_addr = mini_lock_batch_get_next_addr(mini, batch);
+   platform_status rc            = allocator_inc_ref(mini->al, addr, NULL);
+   if (!SUCCESS(rc)) {
+      mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
+      return rc;
+   }
+   rc = mini_append_entry(mini, batch, addr);
    if (!SUCCESS(rc)) {
       (void)allocator_dec_ref(mini->al, addr, mini->types[batch]);
       mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
@@ -829,8 +833,15 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type)
       if (!allocator_config_pages_share_extent(
              allocator_cfg, last_meta_addr, meta_addr))
       {
-         uint64   last_meta_base_addr = base_addr(cc, last_meta_addr);
-         refcount ref = allocator_dec_ref(al, last_meta_base_addr, type);
+         uint64 last_meta_base_addr = base_addr(cc, last_meta_addr);
+         /* mini_dec_ref() already consumed the head's last owner. Each
+          * continuation extent still has its one metadata-chain owner. */
+         refcount ref;
+         if (last_meta_base_addr == base_addr(cc, meta_head)) {
+            ref = allocator_get_refcount(al, last_meta_base_addr);
+         } else {
+            ref = allocator_dec_ref(al, last_meta_base_addr, type);
+         }
          platform_assert(ref == AL_NO_REFS);
          cache_extent_discard(cc, last_meta_base_addr, type);
          ref = allocator_dec_ref(al, last_meta_base_addr, type);
@@ -1018,19 +1029,18 @@ mini_for_each(cache           *cc,
  *      MINI_NO_REFS), the mini allocator is destroyed.
  *
  * Results:
- *      Prior external ref count (internal ref count - MINI_NO_REFS)
+ *      Increment returns status without changing ownership on failure.
+ *      Decrement returns the remaining external count (raw - MINI_NO_REFS).
  *
  * Side effects:
  *      Deallocation/cache side effects when external ref count hits 0
  *-----------------------------------------------------------------------------
  */
-refcount
+platform_status
 mini_inc_ref(cache *cc, uint64 meta_head)
 {
-   allocator *al  = cache_get_allocator(cc);
-   refcount   ref = allocator_inc_ref(al, base_addr(cc, meta_head));
-   platform_assert(ref > MINI_NO_REFS);
-   return ref - MINI_NO_REFS;
+   return allocator_inc_ref(
+      cache_get_allocator(cc), base_addr(cc, meta_head), NULL);
 }
 
 static void
@@ -1053,8 +1063,7 @@ mini_dec_ref(cache *cc, uint64 meta_head, page_type type)
    allocator *al  = cache_get_allocator(cc);
    refcount   ref = allocator_dec_ref(al, base_addr(cc, meta_head), type);
    if (ref != MINI_NO_REFS) {
-      debug_assert(ref != AL_NO_REFS);
-      debug_assert(ref != AL_FREE);
+      platform_assert(ref > MINI_NO_REFS);
       return ref - MINI_NO_REFS;
    }
 
@@ -1490,18 +1499,11 @@ mini_recover_references(cache *cc, uint64 meta_head, page_type type)
    uint64     base = base_addr(cc, meta_head);
 
    if (allocator_get_refcount(al, base) == AL_FREE) {
-      platform_status rc = mini_recover_allocations(cc, meta_head, type);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
+      /* The metadata-head visit establishes AL_ONE_REF, accounting for this
+       * first external holder as well as making cache reads legal. */
+      return mini_recover_allocations(cc, meta_head, type);
    }
-   /*
-    * Every holder adds one, the first one included.  Enumerating the extents
-    * accounts for the mini allocator existing -- it leaves the metadata extent
-    * at MINI_NO_REFS, which is what mini_init_with_types() establishes with its
-    * "meta_page gets an extra ref" -- and says nothing about who refers to it.
-    * External references are the count above that, so each is recorded here.
-    */
+   /* The interior was enumerated once; later holders add only a head ref. */
    return allocator_recovery_record_reference(al, base, type);
 }
 
