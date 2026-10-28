@@ -159,6 +159,7 @@ rejected_submission_result(io_async_state *state)
 
 static platform_status
 reject_write_init(io_async_state   *state,
+                  uint64            buffer_size,
                   io_handle        *io,
                   io_async_cmd      cmd,
                   uint64            addr,
@@ -166,7 +167,7 @@ reject_write_init(io_async_state   *state,
                   void             *callback_arg)
 {
    platform_status rc = submission_saved_ops->async_state_init(
-      state, io, cmd, addr, callback, callback_arg);
+      state, buffer_size, io, cmd, addr, callback, callback_arg);
    if (SUCCESS(rc) && cmd == io_async_pwritev) {
       submission_state_ops            = *state->ops;
       submission_state_ops.run        = reject_submission;
@@ -475,6 +476,7 @@ read_fault_append(io_async_state *state, void *buf)
 
 static platform_status
 read_fault_init(io_async_state   *state,
+                uint64            buffer_size,
                 io_handle        *io,
                 io_async_cmd      cmd,
                 uint64            addr,
@@ -488,7 +490,7 @@ read_fault_init(io_async_state   *state,
       return STATUS_NO_MEMORY;
    }
    platform_status rc = read_saved_ops->async_state_init(
-      state, io, cmd, addr, callback, callback_arg);
+      state, buffer_size, io, cmd, addr, callback, callback_arg);
    if (SUCCESS(rc) && cmd == io_async_preadv) {
       read_fault_state_ops            = *state->ops;
       read_fault_state_ops.run        = read_fault_run;

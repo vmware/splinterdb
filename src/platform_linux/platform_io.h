@@ -70,13 +70,19 @@ typedef platform_status (*io_range_is_readable_fn)(io_handle *io,
                                                    uint64     bytes,
                                                    bool32    *readable);
 
-#define IO_ASYNC_STATE_BUFFER_SIZE (1024)
-/* Backends store their native async state in this opaque byte buffer. Its
- * alignment must hold when embedded after a smaller field in another state. */
-typedef uint8 io_async_state_buffer[IO_ASYNC_STATE_BUFFER_SIZE]
+#define IO_ASYNC_STATE_PAGE_BUFFER_SIZE   (208)
+#define IO_ASYNC_STATE_EXTENT_BUFFER_SIZE (704)
+/* Both buffers hold the same backend state, with room for one page or a full
+ * extent of iovecs. Preserve alignment when embedded in another structure. */
+typedef uint8 io_async_state_page_buffer[IO_ASYNC_STATE_PAGE_BUFFER_SIZE]
+   __attribute__((aligned(_Alignof(max_align_t))));
+typedef uint8 io_async_state_extent_buffer[IO_ASYNC_STATE_EXTENT_BUFFER_SIZE]
    __attribute__((aligned(_Alignof(max_align_t))));
 typedef enum { io_async_preadv, io_async_pwritev } io_async_cmd;
+/* The backend must reject storage too small for one iovec and bound subsequent
+ * appends by both buffer_size and the configured pages per extent. */
 typedef platform_status (*io_async_state_init_fn)(io_async_state   *state,
+                                                  uint64            buffer_size,
                                                   io_handle        *io,
                                                   io_async_cmd      cmd,
                                                   uint64            addr,
@@ -177,48 +183,72 @@ io_write(io_handle *io, void *buf, uint64 bytes, uint64 addr)
 }
 
 static inline platform_status
-io_async_state_init(io_async_state_buffer buffer,
-                    io_handle            *io,
-                    io_async_cmd          cmd,
-                    uint64                addr,
-                    async_callback_fn     callback,
-                    void                 *callback_arg)
+io_async_state_init_page(io_async_state_page_buffer buffer,
+                         io_handle                 *io,
+                         io_async_cmd               cmd,
+                         uint64                     addr,
+                         async_callback_fn          callback,
+                         void                      *callback_arg)
 {
    io_async_state *state = (io_async_state *)buffer;
-   return io->ops->async_state_init(
-      state, io, cmd, addr, callback, callback_arg);
+   return io->ops->async_state_init(state,
+                                    IO_ASYNC_STATE_PAGE_BUFFER_SIZE,
+                                    io,
+                                    cmd,
+                                    addr,
+                                    callback,
+                                    callback_arg);
 }
 
+static inline platform_status
+io_async_state_init_extent(io_async_state_extent_buffer buffer,
+                           io_handle                   *io,
+                           io_async_cmd                 cmd,
+                           uint64                       addr,
+                           async_callback_fn            callback,
+                           void                        *callback_arg)
+{
+   io_async_state *state = (io_async_state *)buffer;
+   return io->ops->async_state_init(state,
+                                    IO_ASYNC_STATE_EXTENT_BUFFER_SIZE,
+                                    io,
+                                    cmd,
+                                    addr,
+                                    callback,
+                                    callback_arg);
+}
+
+/* The remaining operations accept either initialized buffer type. */
 static inline void
-io_async_state_deinit(io_async_state_buffer buffer)
+io_async_state_deinit(void *buffer)
 {
    io_async_state *state = (io_async_state *)buffer;
    return state->ops->deinit(state);
 }
 
 static inline platform_status
-io_async_state_append_page(io_async_state_buffer buffer, void *buf)
+io_async_state_append_page(void *buffer, void *buf)
 {
    io_async_state *state = (io_async_state *)buffer;
    return state->ops->append_page(state, buf);
 }
 
 static inline const struct iovec *
-io_async_state_get_iovec(io_async_state_buffer buffer, uint64 *iovlen)
+io_async_state_get_iovec(void *buffer, uint64 *iovlen)
 {
    io_async_state *state = (io_async_state *)buffer;
    return state->ops->get_iovec(state, iovlen);
 }
 
 static inline async_status
-io_async_run(io_async_state_buffer buffer)
+io_async_run(void *buffer)
 {
    io_async_state *state = (io_async_state *)buffer;
    return state->ops->run(state);
 }
 
 static inline platform_status
-io_async_state_get_result(io_async_state_buffer buffer)
+io_async_state_get_result(void *buffer)
 {
    io_async_state *state = (io_async_state *)buffer;
    return state->ops->get_result(state);

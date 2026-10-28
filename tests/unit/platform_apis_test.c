@@ -126,14 +126,106 @@ CTEST2(platform_api, test_platform_buffer_init_fails_for_very_large_length)
    set_log_streams_for_tests(MSG_LEVEL_INFO);
 }
 
+/* Exercise both storage capacities with real vectored I/O. The canaries catch
+ * an append using the extent limit when the caller supplied a page buffer. */
+static void
+test_async_io_capacity(platform_heap_id hid, bool32 extent)
+{
+   char filename[] = "/tmp/splinterdb-async-capacity-XXXXXX";
+   int  fd         = mkstemp(filename);
+   ASSERT_TRUE(fd >= 0);
+   ASSERT_EQUAL(0, close(fd));
+   io_config cfg;
+   io_config_init(&cfg,
+                  IO_DEFAULT_PAGE_SIZE,
+                  IO_DEFAULT_EXTENT_SIZE,
+                  IO_DEFAULT_FLAGS,
+                  IO_DEFAULT_PERMS,
+                  IO_DEFAULT_KERNEL_QUEUE_SIZE,
+                  filename);
+   io_handle *io = io_handle_create(&cfg, hid);
+   ASSERT_NOT_NULL(io);
+   ASSERT_EQUAL(0, unlink(filename));
+
+   struct {
+      char                       prefix;
+      io_async_state_page_buffer state;
+      unsigned char              canary[32];
+   } page;
+   struct {
+      char                         prefix;
+      io_async_state_extent_buffer state;
+      unsigned char                canary[32];
+   } full;
+   memset(page.canary, 0xa5, sizeof(page.canary));
+   memset(full.canary, 0xa5, sizeof(full.canary));
+   void          *state  = extent ? (void *)full.state : (void *)page.state;
+   unsigned char *canary = extent ? full.canary : page.canary;
+   const uint64   pages  = extent ? IO_DEFAULT_PAGES_PER_EXTENT : 1;
+   const uint64   bytes  = pages * IO_DEFAULT_PAGE_SIZE;
+   buffer_handle  buffer;
+   ASSERT_TRUE(SUCCESS(platform_buffer_init(&buffer, bytes)));
+   char *buf = platform_buffer_getaddr(&buffer);
+
+   /* An invalid capacity must fail before writing even the backend header. */
+   memset(state, 0xa5, extent ? sizeof(full.state) : sizeof(page.state));
+   ASSERT_TRUE(STATUS_IS_EQ(
+      io->ops->async_state_init(state, 0, io, io_async_preadv, 0, NULL, NULL),
+      STATUS_BAD_PARAM));
+   ASSERT_EQUAL(0xa5, ((unsigned char *)state)[0]);
+
+   for (unsigned reading = 0; reading < 2; reading++) {
+      io_async_cmd    cmd = reading ? io_async_preadv : io_async_pwritev;
+      platform_status rc =
+         extent ? io_async_state_init_extent(full.state, io, cmd, 0, NULL, NULL)
+                : io_async_state_init_page(page.state, io, cmd, 0, NULL, NULL);
+      ASSERT_TRUE(SUCCESS(rc));
+      for (uint64 i = 0; i < pages; i++) {
+         memset(buf + i * IO_DEFAULT_PAGE_SIZE,
+                reading ? 0 : (int)(i + 1),
+                IO_DEFAULT_PAGE_SIZE);
+         ASSERT_TRUE(SUCCESS(
+            io_async_state_append_page(state, buf + i * IO_DEFAULT_PAGE_SIZE)));
+      }
+      ASSERT_TRUE(STATUS_IS_EQ(io_async_state_append_page(state, buf),
+                               STATUS_LIMIT_EXCEEDED));
+      uint64 count;
+      io_async_state_get_iovec(state, &count);
+      ASSERT_EQUAL(pages, count);
+      io_async_run(state);
+      io_wait_all(io);
+      ASSERT_EQUAL(ASYNC_STATUS_DONE, io_async_run(state));
+      ASSERT_TRUE(SUCCESS(io_async_state_get_result(state)));
+      io_async_state_deinit(state);
+      for (unsigned i = 0; i < 32; i++) {
+         ASSERT_EQUAL(0xa5, canary[i]);
+      }
+   }
+   for (uint64 i = 0; i < bytes; i++) {
+      ASSERT_EQUAL(i / IO_DEFAULT_PAGE_SIZE + 1, (unsigned char)buf[i]);
+   }
+   ASSERT_TRUE(SUCCESS(platform_buffer_deinit(&buffer)));
+   io_handle_destroy(io);
+}
+
+CTEST2(platform_api, test_async_page_io_capacity)
+{
+   test_async_io_capacity(data->hid, FALSE);
+}
+
+CTEST2(platform_api, test_async_extent_io_capacity)
+{
+   test_async_io_capacity(data->hid, TRUE);
+}
+
 typedef struct async_read_shadow_probe {
-   io_async_state_buffer state;
-   char                 *buffer;
-   uint64                length;
-   uint64                initialized_bytes;
-   bool32                shadow_ok;
-   bool32                data_ok;
-   uint64                callbacks;
+   io_async_state_extent_buffer state;
+   char                        *buffer;
+   uint64                       length;
+   uint64                       initialized_bytes;
+   bool32                       shadow_ok;
+   bool32                       data_ok;
+   uint64                       callbacks;
 } async_read_shadow_probe;
 
 /* Inspect shadow before touching the data so the unfixed implementation
@@ -215,7 +307,7 @@ test_async_io_shadow(platform_heap_id hid,
       .length            = 3 * page_size,
       .initialized_bytes = initialized_bytes,
    };
-   ASSERT_TRUE(SUCCESS(io_async_state_init(
+   ASSERT_TRUE(SUCCESS(io_async_state_init_extent(
       probe.state, io, cmd, addr, async_read_shadow_callback, &probe)));
    for (uint64 i = 0; i < 3; i++) {
       ASSERT_TRUE(SUCCESS(

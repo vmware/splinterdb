@@ -2966,15 +2966,15 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
    state->__async_result = STATUS_OK;
    async_await_call(state,
                     cache_get_async,
-                    &state->cache_get_state,
+                    &state->work.cache_get_state,
                     state->cc,
                     state->node.addr,
                     state->type,
                     state->callback,
                     state->callback_arg);
    {
-      platform_status rc = cache_get_async_state_result(&state->cache_get_state,
-                                                        &state->node.page);
+      platform_status rc = cache_get_async_state_result(
+         &state->work.cache_get_state, &state->node.page);
       if (!SUCCESS(rc)) {
          async_return(state, rc);
       }
@@ -3058,14 +3058,14 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
 
       async_await_call(state,
                        cache_get_async,
-                       &state->cache_get_state,
+                       &state->work.cache_get_state,
                        state->cc,
                        state->child_node.addr,
                        state->type,
                        state->callback,
                        state->callback_arg);
       platform_status get_rc = cache_get_async_state_result(
-         &state->cache_get_state, &state->child_node.page);
+         &state->work.cache_get_state, &state->child_node.page);
       if (!SUCCESS(get_rc)) {
          btree_node_unget(state->cc, state->cfg, &state->node);
          async_return(state, get_rc);
@@ -3114,8 +3114,8 @@ btree_lookup_node_async(btree_lookup_async_state *state, uint64 depth)
  *
  * OUT Parameters:
  * - state->node: the node found
- * - state->found_key: the key found in the leaf, or NULL_KEY otherwise.
- * - state->msg: the message of the target
+ * - state->work.found_key: the key found in the leaf, or NULL_KEY otherwise.
+ * - state->work.msg: the message of the target
  *
  * LOCAL Variables:
  * - state->stats: the stats of the node found
@@ -3136,7 +3136,7 @@ btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
       async_return(state);
    }
 
-   state->found_key = NULL_KEY;
+   state->work.found_key = NULL_KEY;
    bool32            found;
    int64             idx;
    const leaf_entry *entry = NULL;
@@ -3163,12 +3163,12 @@ btree_lookup_with_ref_async(btree_lookup_async_state *state, uint64 depth)
       } else {
          entry = btree_get_leaf_entry(state->cfg, state->node.hdr, idx);
       }
-      state->found_key = state->node.hdr->prefix_length == 0
-                            ? leaf_entry_key((leaf_entry *)entry)
-                            : key_create(FALSE,
-                                         key_length(state->target),
-                                         key_data(state->target));
-      state->msg       = leaf_entry_message(state->cc, (leaf_entry *)entry);
+      state->work.found_key = state->node.hdr->prefix_length == 0
+                                 ? leaf_entry_key((leaf_entry *)entry)
+                                 : key_create(FALSE,
+                                              key_length(state->target),
+                                              key_data(state->target));
+      state->work.msg = leaf_entry_message(state->cc, (leaf_entry *)entry);
    } else {
       btree_node_unget(state->cc, state->cfg, &state->node);
    }
@@ -3300,7 +3300,7 @@ btree_lookup_and_merge(cache              *cc,             // IN
  * - state->target: the key to look up
  *
  * OUT Parameters:
- * - state->found_key: the key found in the leaf, or NULL_KEY otherwise.
+ * - state->work.found_key: the key found in the leaf, or NULL_KEY otherwise.
  *
  * LOCAL Variables:
  * - state->node: the node found
@@ -3308,7 +3308,7 @@ btree_lookup_and_merge(cache              *cc,             // IN
  * - state->stop_at_height: the height to stop at
  * - state->h: the height of the current node
  * - state->child_node: the child node
- * - state->msg: the message of the target
+ * - state->work.msg: the message of the target
  */
 async_status
 btree_lookup_and_merge_async(btree_lookup_async_state *state)
@@ -3328,16 +3328,16 @@ btree_lookup_and_merge_async(btree_lookup_async_state *state)
    }
 
    platform_status rc = STATUS_OK;
-   if (!key_is_null(state->found_key)) {
+   if (!key_is_null(state->work.found_key)) {
       ondisk_ref blob_ref = ONDISK_REF_NULL;
-      if (message_is_blob(state->msg)) {
+      if (message_is_blob(state->work.msg)) {
          rc = btree_blob_ref_init(
             &blob_ref, state->cc, state->cfg, state->root_addr, state->type);
       }
       if (SUCCESS(rc)) {
          rc = lookup_result_update(state->result,
-                                   state->found_key,
-                                   state->msg,
+                                   state->work.found_key,
+                                   state->work.msg,
                                    ondisk_ref_is_null(&blob_ref) ? NULL
                                                                  : &blob_ref);
       }

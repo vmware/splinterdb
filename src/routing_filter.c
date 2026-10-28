@@ -1385,56 +1385,56 @@ out:
 static inline async_status
 routing_get_header_async(routing_filter_lookup_async_state *state, uint64 depth)
 {
-   async_begin(state, depth);
+   // Recompute these locals on every invocation, before the resume jump.
+   const uint64 page_size      = state->cfg->page_size;
+   const uint64 addrs_per_page = page_size / sizeof(uint64);
 
-   state->page_size      = state->cfg->page_size;
-   state->addrs_per_page = state->page_size / sizeof(uint64);
-   if (state->addrs_per_page == 0) {
+   async_begin(state, depth);
+   if (addrs_per_page == 0) {
       async_return(state, STATUS_INVALID_STATE);
    }
-   uint64 index_page_no = state->index / state->addrs_per_page;
-   if (index_page_no > (UINT64_MAX - state->filter.addr) / state->page_size) {
+   uint64 index_page_no = state->index / addrs_per_page;
+   if (index_page_no > (UINT64_MAX - state->filter.addr) / page_size) {
       async_return(state, STATUS_INVALID_STATE);
    }
-   state->index_addr = state->filter.addr + state->page_size * index_page_no;
+   uint64 index_addr = state->filter.addr + page_size * index_page_no;
 
    async_await_call(state,
                     cache_get_async,
                     &state->cache_get_state,
                     state->cc,
-                    state->index_addr,
+                    index_addr,
                     PAGE_TYPE_FILTER,
                     state->callback,
                     state->callback_arg);
    {
-      platform_status rc = cache_get_async_state_result(&state->cache_get_state,
-                                                        &state->index_page);
+      platform_status rc =
+         cache_get_async_state_result(&state->cache_get_state, &state->page);
       if (!SUCCESS(rc)) {
          async_return(state, rc);
       }
    }
 
-   state->hdr_raw_addr = ((uint64 *)page_handle_data(
-      &state->index_page))[state->index % state->addrs_per_page];
-   cache_unget(state->cc, &state->index_page);
-   state->index_page = (page_handle){0};
+   state->hdr_raw_addr =
+      ((uint64 *)page_handle_data(&state->page))[state->index % addrs_per_page];
+   cache_unget(state->cc, &state->page);
+   state->page = (page_handle){0};
    if (state->hdr_raw_addr == 0 || state->hdr_raw_addr % sizeof(uint32) != 0) {
       async_return(state, STATUS_INVALID_STATE);
    }
-   state->header_addr =
-      state->hdr_raw_addr - (state->hdr_raw_addr % state->page_size);
+   uint64 header_addr = state->hdr_raw_addr - (state->hdr_raw_addr % page_size);
 
    async_await_call(state,
                     cache_get_async,
                     &state->cache_get_state,
                     state->cc,
-                    state->header_addr,
+                    header_addr,
                     PAGE_TYPE_FILTER,
                     state->callback,
                     state->callback_arg);
    {
-      platform_status rc = cache_get_async_state_result(&state->cache_get_state,
-                                                        &state->filter_page);
+      platform_status rc =
+         cache_get_async_state_result(&state->cache_get_state, &state->page);
       if (!SUCCESS(rc)) {
          async_return(state, rc);
       }
@@ -1467,7 +1467,6 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state)
    state->fp = data_key_hash(
       state->cfg->data_cfg, state->target, state->filter.hash_seed);
    state->fp >>= 32 - state->filter.fingerprint_size;
-   state->remainder_size = params.remainder_size;
    state->index = routing_get_index(state->fp << state->filter.value_size,
                                     params.index_remainder_and_value_size);
    if (state->index >= params.num_indices) {
@@ -1483,13 +1482,13 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state)
     * before using the header page returned by the subroutine. */
    rc = routing_filter_get_params(state->cfg, &state->filter, &params);
    if (!SUCCESS(rc)) {
-      routing_unget_header(state->cc, &state->filter_page);
+      routing_unget_header(state->cc, &state->page);
       async_return(state, rc);
    }
    routing_header_view view;
    rc = routing_header_view_init(state->cfg,
                                  1U << state->filter.log_index_size,
-                                 &state->filter_page,
+                                 &state->page,
                                  state->hdr_raw_addr,
                                  params.remainder_and_value_size,
                                  &view);
@@ -1500,7 +1499,7 @@ routing_filter_lookup_async(routing_filter_lookup_async_state *state)
                                       &view,
                                       state->found_values);
    }
-   routing_unget_header(state->cc, &state->filter_page);
+   routing_unget_header(state->cc, &state->page);
    async_return(state, rc);
 }
 

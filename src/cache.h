@@ -131,7 +131,7 @@ cache_config_extent_page(const cache_config *cfg, uint64 extent_addr, uint64 i)
    return extent_addr + i * cache_config_page_size(cfg);
 }
 
-#define PAGE_GET_ASYNC_STATE_BUFFER_SIZE (2048)
+#define PAGE_GET_ASYNC_STATE_BUFFER_SIZE (320)
 typedef union page_get_async_state_payload {
    uint8       bytes[PAGE_GET_ASYNC_STATE_BUFFER_SIZE];
    uint64      align_uint64;
