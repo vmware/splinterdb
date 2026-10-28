@@ -3939,7 +3939,7 @@ btree_iterator_curr(iterator *base_itor, key *curr_key, message *data)
          .child_addr = entry->pivot_data.child_addr,
          .stats      = index_entry_stats(entry),
       };
-      *data = message_create(
+      *data = message_create_internal(
          MESSAGE_TYPE_PIVOT_DATA,
          NULL,
          slice_create(sizeof(itor->pivot_data), &itor->pivot_data));

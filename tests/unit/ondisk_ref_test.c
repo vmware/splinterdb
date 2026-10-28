@@ -149,9 +149,10 @@ CTEST(ondisk_ref, lookup_stages_ownership_before_publishing_blob)
                       sizeof(result_buffer),
                       result_buffer);
    // This path only copies a descriptor; no cache or blob I/O is involved.
-   message msg = message_create(MESSAGE_TYPE_INSERT,
-                                (cache *)&owner,
-                                slice_create(sizeof(descriptor), descriptor));
+   message msg =
+      message_create_internal(MESSAGE_TYPE_INSERT,
+                              (cache *)&owner,
+                              slice_create(sizeof(descriptor), descriptor));
    ASSERT_TRUE(STATUS_IS_EQ(
       STATUS_NO_MEMORY, lookup_result_update(&result, NULL_KEY, msg, &source)));
    ASSERT_TRUE(merge_accumulator_is_null(&result.value));
@@ -185,9 +186,10 @@ CTEST(ondisk_ref, failed_message_copy_releases_staged_owner)
    char          descriptor[128] = "borrowed descriptor";
    lookup_result result;
    lookup_result_init(&result, NULL, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
-   message                      msg = message_create(MESSAGE_TYPE_INSERT,
-                                (cache *)&owner,
-                                slice_create(sizeof(descriptor), descriptor));
+   message msg =
+      message_create_internal(MESSAGE_TYPE_INSERT,
+                              (cache *)&owner,
+                              slice_create(sizeof(descriptor), descriptor));
    platform_memory_fault_config saved;
    platform_memory_fault_config_get(&saved);
    platform_memory_fault_config fault = saved;

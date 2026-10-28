@@ -48,7 +48,7 @@ main()
    const char *fruit = "apple";
    const char *descr = "An apple a day keeps the doctor away!";
    slice       key   = slice_create((size_t)strlen(fruit), fruit);
-   slice       value = slice_create((size_t)strlen(descr), descr);
+   message     value = message_create((size_t)strlen(descr), descr);
 
    rc = splinterdb_insert(spl_handle, key, value, NULL);
    printf("Inserted key '%s'\n", fruit);
@@ -56,37 +56,38 @@ main()
    fruit = "Orange";
    descr = "Is a good source of vitamin-C.";
    key   = slice_create((size_t)strlen(fruit), fruit);
-   value = slice_create((size_t)strlen(descr), descr);
+   value = message_create((size_t)strlen(descr), descr);
    rc    = splinterdb_insert(spl_handle, key, value, NULL);
    printf("Inserted key '%s'\n", fruit);
 
    fruit = "Mango";
    descr = "Mango is the king of fruits.";
    key   = slice_create((size_t)strlen(fruit), fruit);
-   value = slice_create((size_t)strlen(descr), descr);
+   value = message_create((size_t)strlen(descr), descr);
    rc    = splinterdb_insert(spl_handle, key, value, NULL);
    printf("Inserted key '%s'\n", fruit);
 
    // Retrieve a key-value pair.
+   slice                    lookup_value;
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(spl_handle, &result);
 
    fruit = "Orange";
    key   = slice_create((size_t)strlen(fruit), fruit);
    rc    = splinterdb_lookup(spl_handle, key, &result);
-   rc    = splinterdb_lookup_result_value(&result, &value);
+   rc    = splinterdb_lookup_result_value(&result, &lookup_value);
    if (!rc) {
       printf("Found key: '%s', value: '%.*s'\n",
              fruit,
-             (int)slice_length(value),
-             (char *)slice_data(value));
+             (int)slice_length(lookup_value),
+             (char *)slice_data(lookup_value));
    }
 
    // Handling non-existent keys
    fruit = "Banana";
    key   = slice_create((size_t)strlen(fruit), fruit);
    rc    = splinterdb_lookup(spl_handle, key, &result);
-   rc    = splinterdb_lookup_result_value(&result, &value);
+   rc    = splinterdb_lookup_result_value(&result, &lookup_value);
    if (rc) {
       printf("Key: '%s' not found. (rc=%d)\n", fruit, rc);
    }

@@ -38,7 +38,7 @@ merge_test_curr(iterator *base, key *k, message *msg)
          ? MESSAGE_TYPE_UPDATE
          : MESSAGE_TYPE_INSERT;
    const char *val = itor->vals ? itor->vals + itor->pos : "v";
-   *msg            = message_create(type, NULL, slice_create(1, val));
+   *msg            = message_create_internal(type, NULL, slice_create(1, val));
 }
 
 static bool32

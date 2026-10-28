@@ -105,7 +105,7 @@ main(int argc, char **argv)
       memcpy(value, &id, sizeof(id));
       checked(splinterdb_insert(db,
                                 slice_create(sizeof(key), key),
-                                slice_create(sizeof(value), value),
+                                message_create(sizeof(value), value),
                                 NULL),
               "insert");
    }

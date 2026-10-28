@@ -255,6 +255,9 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 // teardown.  The database remains open and *kvs is unchanged, so the caller can
 // retry or investigate.
 //
+// Unreleased blob values cause a non-forced close to return EBUSY.
+// Release them and retry, or force close to release and invalidate them.
+//
 // With force, teardown always completes.  An error means data preservation
 // could not be guaranteed; it does not prove that data was actually lost.
 //
@@ -448,17 +451,46 @@ splinterdb_lookup(splinterdb               *kvs,   // IN
 // incorporated before catch-up can increment its reference count. In that
 // case the update has not been applied.
 
-// Insert a key and value.  Overwrites any previous value associated with the
-// key.
+// Insert a key and value. Overwrites any previous value associated with key.
+// The message may hold direct bytes or a blob from this open database instance.
+// Its type field is ignored: this operation always inserts/overwrites.
+// A blob remains reusable on success or failure; insertion retains its own
+// ownership. A blob belonging to another open database is rejected with EINVAL.
 //
 // If old_result is non-NULL, it must have been initialized using
-// splinterdb_lookup_result_init() and will receive the value previously
-// associated with key.
+// splinterdb_lookup_result_init() and will receive the previous value.
 int
 splinterdb_insert(splinterdb               *kvsb,
                   slice                     key,
-                  slice                     value,
+                  message                   value,
                   splinterdb_lookup_result *old_result);
+
+// Copy bytes into immutable blob storage without inserting a key. On success,
+// fill *value with a reusable blob message; the input bytes may then be
+// released. On failure, *value is an empty direct value. Release any previous
+// blob in *value before using it as output storage.
+//
+// Creation alone does not establish crash durability. Inserted references use
+// the ordinary insert/update/durable_barrier contract. Allocation
+// reconstruction reclaims unreferenced storage after a crash.
+//
+// Blob values belong to one open database instance and cannot be serialized or
+// reused after close/reopen. Threads may reuse them concurrently; release must
+// not race any use. Cloning shares full extents and may copy tails. Small
+// values may be copied entirely. Each created
+// blob has its own mini allocator, so tiny blobs have allocation overhead.
+int
+splinterdb_blob_create(splinterdb *kvs, slice data, message *value);
+
+// Release ownership of a message returned by splinterdb_blob_create(). Inserted
+// values/deltas retain their own ownership. Set *value to an empty direct
+// value. NULL and direct values are harmless no-ops. Other copies of a released
+// blob value become invalid.
+//
+// Release all created blobs before ordinary close. Forced close releases them
+// and invalidates every outstanding copy; do not release those copies again.
+void
+splinterdb_blob_release(message *value);
 
 // Delete a given key and any associated value / messages
 int
@@ -466,11 +498,16 @@ splinterdb_delete(splinterdb               *kvsb,
                   slice                     key,
                   splinterdb_lookup_result *old_result);
 
-// Update the value associated with key.
+// Apply a delta using the configured merge callbacks. The message's type field
+// is ignored: this operation always applies an UPDATE. Both direct and blob
+// values are accepted, with the same ownership and database restrictions as
+// insert. Merge callbacks receive logical bytes through the configured
+// callbacks; applying a blob delta need not preserve its storage in the
+// resulting value.
 int
 splinterdb_update(splinterdb               *kvsb,
                   slice                     key,
-                  slice                     delta,
+                  message                   delta,
                   splinterdb_lookup_result *old_result);
 
 // Optimize already-incorporated trunk data in [min_key, max_key). A null

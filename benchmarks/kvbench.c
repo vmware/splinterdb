@@ -728,8 +728,10 @@ load_worker(void *arg)
       make_key(2 * id, key);
       make_value(id, 0, val);
       uint64_t t0 = now_ns();
-      int      rc = splinterdb_insert(
-         kvs, slice_create(KEY_SIZE, key), slice_create(VALUE_SIZE, val), NULL);
+      int      rc = splinterdb_insert(kvs,
+                                 slice_create(KEY_SIZE, key),
+                                 message_create(VALUE_SIZE, val),
+                                 NULL);
       uint64_t t1 = now_ns();
       if (rc) {
          w->errors++;
@@ -1011,8 +1013,10 @@ ow_worker(void *arg)
       make_key(2 * id, key);
       make_value(id, generation, val);
       uint64_t t0 = now_ns();
-      int      rc = splinterdb_insert(
-         kvs, slice_create(KEY_SIZE, key), slice_create(VALUE_SIZE, val), NULL);
+      int      rc = splinterdb_insert(kvs,
+                                 slice_create(KEY_SIZE, key),
+                                 message_create(VALUE_SIZE, val),
+                                 NULL);
       uint64_t t1 = now_ns();
       n++;
       atomic_store_explicit(&w->progress, n, memory_order_relaxed);

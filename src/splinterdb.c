@@ -15,6 +15,7 @@
 
 #include "splinterdb/splinterdb.h"
 #include "clockcache.h"
+#include "blob_build.h"
 #include "data_internal.h"
 #include "rc_allocator.h"
 #include "superblock.h"
@@ -45,6 +46,8 @@ splinterdb_get_version()
    return BUILD_VERSION;
 }
 
+typedef struct splinterdb_blob splinterdb_blob;
+
 typedef struct splinterdb {
    splinterdb_config  effective_cfg;
    task_system        task_sys;
@@ -66,9 +69,34 @@ typedef struct splinterdb {
    data_config       *data_cfg;
    bool               we_created_heap;
    batch_rwlock       stats_lock;
+   splinterdb_blob   *blobs;
 } splinterdb;
 
-#define SPLINTERDB_STATS_LOCK_IDX 0
+struct splinterdb_blob {
+   splinterdb      *owner;
+   uint64           meta_head;
+   slice            descriptor;
+   splinterdb_blob *next;
+   splinterdb_blob *prev;
+   char             bytes[];
+};
+
+#define SPLINTERDB_STATS_LOCK_IDX     0
+#define SPLINTERDB_BLOB_LIST_LOCK_IDX 1
+
+static void
+splinterdb_blob_list_lock(splinterdb *kvs)
+{
+   batch_rwlock_get(&kvs->stats_lock, SPLINTERDB_BLOB_LIST_LOCK_IDX);
+   batch_rwlock_claim_loop(&kvs->stats_lock, SPLINTERDB_BLOB_LIST_LOCK_IDX);
+   batch_rwlock_lock(&kvs->stats_lock, SPLINTERDB_BLOB_LIST_LOCK_IDX);
+}
+
+static void
+splinterdb_blob_list_unlock(splinterdb *kvs)
+{
+   batch_rwlock_full_unlock(&kvs->stats_lock, SPLINTERDB_BLOB_LIST_LOCK_IDX);
+}
 
 static inline void
 splinterdb_stats_read_lock(splinterdb *kvs)
@@ -810,6 +838,17 @@ splinterdb_close(splinterdb **kvs_in, bool32 force) // IN
    platform_assert(kvs != NULL);
    splinterdb_assert_thread_registered();
 
+   // Close requires that all other API calls have stopped. Drop
+   // standalone references before core_unmount persists the allocation map.
+   if (kvs->blobs != NULL && !force) {
+      return EBUSY;
+   }
+   while (kvs->blobs != NULL) {
+      message value = message_create_internal(
+         MESSAGE_TYPE_INVALID, kvs->spl.cc, kvs->blobs->descriptor);
+      splinterdb_blob_release(&value);
+   }
+
    // Print stats if shared memory is enabled.
    if (kvs->heap_id) {
       splinterdb_close_print_stats(kvs);
@@ -1019,16 +1058,155 @@ splinterdb_insert_message(splinterdb    *kvs,       // IN
    return platform_status_to_int(status);
 }
 
+// Only API-created blob values have this private prefix. Public copies are
+// borrowed aliases of the same descriptor and do not add an ownership count.
+static splinterdb_blob *
+splinterdb_message_blob(message value)
+{
+   return (splinterdb_blob *)((char *)slice_data(value.data)
+                              - offsetof(splinterdb_blob, bytes));
+}
+
+static int
+splinterdb_apply_value(splinterdb               *kvs,
+                       slice                     user_key,
+                       message                   value,
+                       message_type              type,
+                       splinterdb_lookup_result *old_result)
+{
+   if (kvs == NULL
+       || (slice_length(value.data) != 0 && slice_data(value.data) == NULL))
+   {
+      return EINVAL;
+   }
+   if (message_is_blob(value) && value.cc != kvs->spl.cc) {
+      return EINVAL;
+   }
+   message        msg = message_create_internal(type, value.cc, value.data);
+   lookup_result *result =
+      old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
+   return splinterdb_insert_message(kvs, user_key, msg, result);
+}
+
 int
 splinterdb_insert(splinterdb               *kvsb,
                   slice                     user_key,
-                  slice                     value,
+                  message                   value,
                   splinterdb_lookup_result *old_result)
 {
-   message        msg = message_create(MESSAGE_TYPE_INSERT, NULL, value);
-   lookup_result *_old_result =
-      old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
-   return splinterdb_insert_message(kvsb, user_key, msg, _old_result);
+   return splinterdb_apply_value(
+      kvsb, user_key, value, MESSAGE_TYPE_INSERT, old_result);
+}
+
+int
+splinterdb_blob_create(splinterdb *kvs, slice value, message *out)
+{
+   if (out == NULL) {
+      return EINVAL;
+   }
+   *out = message_create(0, NULL);
+   if (kvs == NULL || (slice_length(value) != 0 && slice_data(value) == NULL)) {
+      return EINVAL;
+   }
+   int rc = splinterdb_ensure_thread_registered();
+   if (rc != 0) {
+      return rc;
+   }
+
+   cache     *cc = kvs->spl.cc;
+   allocator *al = cache_get_allocator(cc);
+   if (slice_length(value) > allocator_get_config(al)->capacity) {
+      return ENOSPC;
+   }
+   blob_build_config cfg = kvs->btree_cfg.blob_cfg;
+   cfg.extent_batch = cfg.page_batch = cfg.subpage_batch = 0;
+   uint64          descriptor_capacity;
+   platform_status status = blob_descriptor_size_bound(
+      &cfg, cache_extent_size(cc), slice_length(value), &descriptor_capacity);
+   if (!SUCCESS(status)) {
+      return platform_status_to_int(status);
+   }
+   splinterdb_blob *handle = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      kvs->heap_id, handle, bytes, descriptor_capacity);
+   if (handle == NULL) {
+      return ENOMEM;
+   }
+   handle->owner = kvs;
+   writable_buffer descriptor;
+   writable_buffer_init_with_buffer(
+      &descriptor, kvs->heap_id, descriptor_capacity, handle->bytes, 0);
+
+   splinterdb_stats_read_lock(kvs);
+   status = allocator_alloc(al, &handle->meta_head, PAGE_TYPE_BLOB);
+   if (!SUCCESS(status)) {
+      goto fail;
+   }
+
+   mini_allocator mini;
+   status = mini_init(&mini, cc, handle->meta_head, 0, 1, PAGE_TYPE_BLOB, NULL);
+   if (!SUCCESS(status)) {
+      refcount ref = allocator_dec_ref(al, handle->meta_head, PAGE_TYPE_BLOB);
+      platform_assert(ref == AL_NO_REFS);
+      cache_extent_discard(cc, handle->meta_head, PAGE_TYPE_BLOB);
+      ref = allocator_dec_ref(al, handle->meta_head, PAGE_TYPE_BLOB);
+      platform_assert(ref == AL_FREE);
+      goto fail;
+   }
+
+   // A private mini allocator isolates the caller's lifetime from memtable
+   // rotations and log reclamation. One batch suffices for this one blob.
+   status = blob_build(&cfg, cc, &mini, value, &descriptor);
+   mini_release(&mini);
+   if (!SUCCESS(status)) {
+      mini_dec_ref(cc, handle->meta_head, PAGE_TYPE_BLOB);
+      goto fail;
+   }
+
+   platform_assert(writable_buffer_data(&descriptor) == handle->bytes);
+   handle->descriptor = writable_buffer_to_slice(&descriptor);
+   writable_buffer_deinit(&descriptor);
+   splinterdb_blob_list_lock(kvs);
+   handle->next = kvs->blobs;
+   if (handle->next != NULL) {
+      handle->next->prev = handle;
+   }
+   kvs->blobs = handle;
+   splinterdb_blob_list_unlock(kvs);
+   splinterdb_stats_read_unlock(kvs);
+   *out = message_create_internal(MESSAGE_TYPE_INVALID, cc, handle->descriptor);
+   return 0;
+
+fail:
+   splinterdb_stats_read_unlock(kvs);
+   writable_buffer_deinit(&descriptor);
+   platform_free(kvs->heap_id, handle);
+   return platform_status_to_int(status);
+}
+
+void
+splinterdb_blob_release(message *value)
+{
+   if (value == NULL || !message_is_blob(*value)) {
+      return;
+   }
+   splinterdb_assert_thread_registered();
+   splinterdb_blob *handle = splinterdb_message_blob(*value);
+   splinterdb      *kvs    = handle->owner;
+   splinterdb_stats_read_lock(kvs);
+   splinterdb_blob_list_lock(kvs);
+   if (handle->prev != NULL) {
+      handle->prev->next = handle->next;
+   } else {
+      kvs->blobs = handle->next;
+   }
+   if (handle->next != NULL) {
+      handle->next->prev = handle->prev;
+   }
+   splinterdb_blob_list_unlock(kvs);
+   mini_dec_ref(kvs->spl.cc, handle->meta_head, PAGE_TYPE_BLOB);
+   platform_free(kvs->heap_id, handle);
+   *value = message_create(0, NULL);
+   splinterdb_stats_read_unlock(kvs);
 }
 
 int
@@ -1045,7 +1223,7 @@ splinterdb_delete(splinterdb               *kvsb,
 int
 splinterdb_update(splinterdb               *kvsb,
                   slice                     user_key,
-                  slice                     update,
+                  message                   update,
                   splinterdb_lookup_result *old_result)
 {
    if (kvsb == NULL || kvsb->data_cfg == NULL
@@ -1054,10 +1232,8 @@ splinterdb_update(splinterdb               *kvsb,
    {
       return platform_status_to_int(STATUS_BAD_PARAM);
    }
-   message        msg = message_create(MESSAGE_TYPE_UPDATE, NULL, update);
-   lookup_result *_old_result =
-      old_result == NULL ? NULL : lookup_result_from_splinterdb(old_result);
-   return splinterdb_insert_message(kvsb, user_key, msg, _old_result);
+   return splinterdb_apply_value(
+      kvsb, user_key, update, MESSAGE_TYPE_UPDATE, old_result);
 }
 
 int

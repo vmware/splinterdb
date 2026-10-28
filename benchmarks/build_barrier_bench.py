@@ -23,6 +23,8 @@ if '#define SPLINTERDB_NOTIFICATION_BLOCKING' in header.read_text():
     command += ['-DHAVE_ASYNC_BARRIER', '-DHAVE_SENTINEL_NOTIFICATION']
 elif 'splinterdb_durable_barrier_async' in header.read_text():
     command.append('-DHAVE_ASYNC_BARRIER')
+if 'message_create(' not in (tree / 'include/splinterdb/data.h').read_text():
+    command.append('-Dmessage_create=slice_create')
 command += ['-I', str(tree / 'include'), str(source),
             str(library), '-laio', '-lxxhash', '-lm',
             '-lpthread', '-o', str(binary)]

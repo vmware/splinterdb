@@ -376,12 +376,12 @@ CTEST2(limitations, test_splinterdb_create_invalid_data_callbacks)
 
    merge_accumulator accumulator;
    message           update =
-      message_create(MESSAGE_TYPE_UPDATE, NULL, slice_create(1, "u"));
+      message_create_internal(MESSAGE_TYPE_UPDATE, NULL, slice_create(1, "u"));
    ASSERT_TRUE(merge_accumulator_init_from_message(
       &accumulator, PROCESS_PRIVATE_HEAP_ID, update));
    key     tuple_key = key_create_from_slice(FALSE, slice_create(1, "k"));
    message old_message =
-      message_create(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
+      message_create_internal(MESSAGE_TYPE_INSERT, NULL, slice_create(1, "v"));
    ASSERT_NOT_EQUAL(
       0, data_merge_tuples(&invalid, tuple_key, old_message, &accumulator));
    ASSERT_NOT_EQUAL(0,
@@ -392,7 +392,7 @@ CTEST2(limitations, test_splinterdb_create_invalid_data_callbacks)
    ASSERT_EQUAL(0, splinterdb_create(&cfg, &kvsb));
    ASSERT_EQUAL(STATUS_BAD_PARAM.r,
                 splinterdb_update(
-                   kvsb, slice_create(1, "k"), slice_create(1, "v"), NULL));
+                   kvsb, slice_create(1, "k"), message_create(1, "v"), NULL));
    ASSERT_EQUAL(0, splinterdb_close(&kvsb, FALSE));
 }
 
@@ -442,7 +442,7 @@ CTEST2(limitations, test_runtime_allocation_exhaustion_returns_error)
          ASSERT_TRUE(0 < key_len && (uint64)key_len < sizeof(key));
          rc = splinterdb_insert(kvsb,
                                 slice_create((uint64)key_len, key),
-                                slice_create(sizeof(value), value),
+                                message_create(sizeof(value), value),
                                 NULL);
       }
       ASSERT_EQUAL(STATUS_NO_SPACE.r, rc);

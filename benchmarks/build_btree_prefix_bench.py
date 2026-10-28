@@ -131,6 +131,8 @@ def main():
                        '-I', str(tree / 'src/platform_linux'), str(source_copy),
                        identity['library'], '-laio', '-lxxhash', '-lm', '-lpthread',
                        '-o', str(binary)]
+            if 'message_create_internal(' not in (tree / 'src/data_internal.h').read_text():
+                command.append('-Dmessage_create_internal=message_create')
             log = artifact_dir / f'{name}-compile.log'
             invoke(command, log, environment)
             verify_profile(profiles[name])

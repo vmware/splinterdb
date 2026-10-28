@@ -44,9 +44,12 @@ def main():
         close_flags = (["-DKVBENCH_CLOSE_HAS_FORCE"]
                        if "splinterdb_close(splinterdb **kvs, bool32 force)" in
                        (source / "include/splinterdb/splinterdb.h").read_text() else [])
-        command = flags + close_flags + ["-I" + str(source / "include"),
-                                         str(harness), str(library), "-laio", "-lxxhash", "-lm",
-                                         "-o", str(binary)]
+        value_flags = ([] if "message_create(" in
+                       (source / "include/splinterdb/data.h").read_text()
+                       else ["-Dmessage_create=slice_create"])
+        command = flags + close_flags + value_flags + [
+            "-I" + str(source / "include"), str(harness), str(library),
+            "-laio", "-lxxhash", "-lm", "-o", str(binary)]
         subprocess.run(command, check=True)
         manifest["variants"][name] = dict(item, binary=str(binary), sha256=sha(binary),
                                           link_command=command)

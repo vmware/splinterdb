@@ -49,10 +49,35 @@ typedef enum message_type {
  */
 typedef struct message {
    message_type type;
-   // Internal: non-NULL means data is a blob descriptor.
+   // Internal: non-NULL means data is a blob descriptor. Do not change cc or
+   // descriptor bytes; use splinterdb_blob_create() to create reusable blobs.
    void *cc;
    slice data;
 } message;
+
+// Construct an input message borrowing direct bytes, without allocation or
+// copying. insert/update choose the operation type; the constructor leaves it
+// INVALID. The bytes must remain valid until the operation returns.
+// Keys and lookup results use slices.
+static inline message
+message_create(uint64 length, const void *data)
+{
+   return (message){.type = MESSAGE_TYPE_INVALID,
+                    .cc   = NULL,
+                    .data = slice_create(length, data)};
+}
+
+static inline message
+message_from_slice(slice data)
+{
+   return message_create(slice_length(data), slice_data(data));
+}
+
+// Copying a message borrows the same payload; it does not acquire ownership.
+// Release an API-created blob exactly once, after all uses of all copies
+// finish. Callback messages are borrowed and must not be released by callers.
+// For blobs, message_data/length/slice below describe the encoded descriptor,
+// not the logical bytes. Ordinary merge callbacks receive materialized data.
 
 static inline message_type
 message_class(message msg)

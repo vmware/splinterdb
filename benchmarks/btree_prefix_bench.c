@@ -472,7 +472,7 @@ make_inputs(benchmark *b)
       }
       b->tuples[i] = (tuple){
          .tuple_key = generated[2 * i].tuple_key,
-         .msg       = message_create(
+         .msg       = message_create_internal(
             MESSAGE_TYPE_INSERT, NULL, slice_create(o->value_bytes, v))};
       b->misses[i] = generated[2 * i + 1].tuple_key;
    }
@@ -658,7 +658,7 @@ run_inserts(benchmark *b)
          }
          verify_tree(b, root, PAGE_TYPE_MEMTABLE, false);
          for (uint64 i = 0; i < b->opt.keys; i++)
-            b->tuples[i].msg = message_create(
+            b->tuples[i].msg = message_create_internal(
                MESSAGE_TYPE_INSERT,
                NULL,
                slice_create(b->opt.value_bytes,
@@ -700,7 +700,7 @@ run_inserts(benchmark *b)
       }
       if (overwrite) {
          for (uint64 i = 0; i < b->opt.keys; i++)
-            b->tuples[i].msg = message_create(
+            b->tuples[i].msg = message_create_internal(
                MESSAGE_TYPE_INSERT,
                NULL,
                slice_create(b->opt.value_bytes,
