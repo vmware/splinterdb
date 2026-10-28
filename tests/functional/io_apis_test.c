@@ -556,8 +556,8 @@ test_readable_ranges(platform_heap_id hid, master_config *master_cfg)
 
    /* io_event.res is positive for a short read.  The async result API must
     * nevertheless reject it because the untouched suffix of buf is stale. */
-   io_async_state_buffer short_read_state;
-   rc = io_async_state_init(
+   io_async_state_page_buffer short_read_state;
+   rc = io_async_state_init_page(
       short_read_state, io, io_async_preadv, partial_page, NULL, NULL);
    platform_assert_status_ok(rc);
    rc = io_async_state_append_page(short_read_state, buf);
@@ -587,9 +587,9 @@ test_readable_ranges(platform_heap_id hid, master_config *master_cfg)
    platform_assert_status_ok(rc);
    platform_assert(!readable); // primes the pre-extension cached size again
 
-   io_async_state_buffer state;
-   rc =
-      io_async_state_init(state, io, io_async_pwritev, async_addr, NULL, NULL);
+   io_async_state_page_buffer state;
+   rc = io_async_state_init_page(
+      state, io, io_async_pwritev, async_addr, NULL, NULL);
    platform_assert_status_ok(rc);
    rc = io_async_state_append_page(state, buf);
    platform_assert_status_ok(rc);
@@ -946,10 +946,10 @@ load_thread_params(io_test_fn_args *io_test_param,
  */
 
 typedef struct async_read_state {
-   platform_heap_id      hid;
-   uint64                lock;
-   char                 *expected;
-   io_async_state_buffer iostate;
+   platform_heap_id           hid;
+   uint64                     lock;
+   char                      *expected;
+   io_async_state_page_buffer iostate;
 } async_read_state;
 
 static void
@@ -1055,12 +1055,12 @@ test_async_reads(platform_heap_id hid,
       state->lock     = 0;
       state->expected = exp;
       state->hid      = hid;
-      io_async_state_init(state->iostate,
-                          ioh,
-                          io_async_preadv,
-                          this_addr,
-                          read_async_callback,
-                          state);
+      io_async_state_init_page(state->iostate,
+                               ioh,
+                               io_async_preadv,
+                               this_addr,
+                               read_async_callback,
+                               state);
       io_async_state_append_page(state->iostate, buf_addr);
 
       async_read_state_lock(state);

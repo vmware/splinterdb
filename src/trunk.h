@@ -374,6 +374,34 @@ trunk_collect_branches(const trunk_context            *context,
 typedef struct trunk_ondisk_pivot  trunk_ondisk_pivot;
 typedef struct trunk_ondisk_bundle trunk_ondisk_bundle;
 
+/* Node navigation and bundle lookup occupy mutually exclusive phases. Within
+ * navigation, construct a child handle after all pivot/bundle page work is
+ * done. Within a bundle, consume the filter result before beginning B-tree
+ * lookup. */
+typedef union trunk_lookup_scratch {
+   struct {
+      union {
+         trunk_ondisk_node_handle child_handle;
+         struct {
+            uint64       offset;
+            page_handle *page;
+            uint64       pivot_num;
+            uint64       min;
+            uint64       max;
+         };
+      };
+      page_get_async_state_buffer cache_get_state;
+   } node;
+   struct {
+      uint64 found_values;
+      uint64 idx;
+      union {
+         routing_filter_lookup_async_state filter_state;
+         btree_lookup_async_state          btree_state;
+      };
+   } bundle;
+} trunk_lookup_scratch;
+
 // clang-format off
 DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
    param, trunk_context *,            context,
@@ -391,26 +419,7 @@ DEFINE_ASYNC_STATE(trunk_merge_lookup_async_state, 4,
    local, trunk_ondisk_pivot *,       pivot,
    local, uint64,                     inflight_bundle_num,
    local, trunk_ondisk_bundle *,      bndl,
-   local, trunk_ondisk_node_handle,   child_handle,
-   // ondisk_node_handle_setup_content_page
-   // ondisk_node_get_pivot
-   // ondisk_node_bundle_at_offset
-   // ondisk_node_get_first_inflight_bundle
-   local, uint64,                       offset,
-   local, page_handle *,                page,
-   local, uint64,                       pivot_num,
-   local, page_get_async_state_buffer,  cache_get_state,   
-   // ondisk_node_find_pivot
-   local, uint64,                       min,
-   local, uint64,                       max,
-   local, uint64,                       mid,
-   local, int,                          last_cmp,
-   local, trunk_ondisk_pivot *,         min_pivot,
-   // ondisk_bundle_merge_lookup
-   local, uint64,                             found_values,
-   local, uint64,                             idx,
-   local, routing_filter_lookup_async_state,  filter_state,
-   local, btree_lookup_async_state,           btree_state,
+   local, trunk_lookup_scratch,       work,
  )
 // clang-format on
 

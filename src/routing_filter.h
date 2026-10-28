@@ -239,17 +239,10 @@ DEFINE_ASYNC_STATE(routing_filter_lookup_async_state, 2,
    param, void *,                       callback_arg,
    local, platform_status,              __async_result,
    local, uint32,                       fp,
-   local, uint32,                       remainder_size,
-   local, uint32,                       bucket,
    local, uint32,                       index,
-   local, routing_hdr *,                hdr,
-   local, page_handle,                  filter_page,
-   local, uint64,                       page_size,
-   local, uint64,                       addrs_per_page,
-   local, uint64,                       index_addr,
+   // Reused for the index page, then the header page after releasing the index.
+   local, page_handle,                  page,
    local, uint64,                       hdr_raw_addr,
-   local, uint64,                       header_addr,
-   local, page_handle,                  index_page,
    local, page_get_async_state_buffer, cache_get_state)
 // clang-format on
 

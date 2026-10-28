@@ -502,19 +502,26 @@ typedef struct laio_async_state {
    void               *callback_arg;
    async_waiter        waiter_node;
    io_process_context *pctx;
-   platform_status     rc;
    struct iocb         req;
-   struct iocb        *reqs[1];
    long                status;
    uint64              iovlen;
+   uint64              iov_capacity;
    struct iovec        iovs[];
 } laio_async_state;
 
-_Static_assert(
-   sizeof(laio_async_state) <= IO_ASYNC_STATE_BUFFER_SIZE,
-   "laio_async_read_state is to large for IO_ASYNC_STATE_BUFFER_SIZE");
-_Static_assert(_Alignof(laio_async_state) <= _Alignof(io_async_state_buffer),
-               "io_async_state_buffer has insufficient alignment");
+_Static_assert(sizeof(laio_async_state) + sizeof(struct iovec)
+                  <= IO_ASYNC_STATE_PAGE_BUFFER_SIZE,
+               "page I/O state buffer is too small");
+_Static_assert(sizeof(laio_async_state)
+                     + IO_DEFAULT_PAGES_PER_EXTENT * sizeof(struct iovec)
+                  <= IO_ASYNC_STATE_EXTENT_BUFFER_SIZE,
+               "extent I/O state buffer is too small");
+_Static_assert(_Alignof(laio_async_state)
+                  <= _Alignof(io_async_state_page_buffer),
+               "page I/O state buffer has insufficient alignment");
+_Static_assert(_Alignof(laio_async_state)
+                  <= _Alignof(io_async_state_extent_buffer),
+               "extent I/O state buffer has insufficient alignment");
 
 static void
 laio_async_state_deinit(io_async_state *ios)
@@ -525,15 +532,12 @@ static platform_status
 laio_async_state_append_page(io_async_state *ios, void *buf)
 {
    laio_async_state *lios = (laio_async_state *)ios;
-   uint64            pages_per_extent =
-      lios->io->cfg->extent_size / lios->io->cfg->page_size;
-
-   if (lios->iovlen == pages_per_extent) {
+   if (lios->iovlen >= lios->iov_capacity) {
       platform_error_log("laio_async_state_append_page: request for addr %lu "
                          "already has %lu pages, limit %lu\n",
                          lios->addr,
                          lios->iovlen,
-                         pages_per_extent);
+                         lios->iov_capacity);
       return STATUS_LIMIT_EXCEEDED;
    }
 
@@ -645,7 +649,7 @@ laio_async_run(io_async_state *gios)
    //    ({
    //       async_yield_if(
    //          ios,
-   //          (submit_status = io_submit(ios->pctx->ctx, 1, ios->reqs)) == 1);
+   //          (submit_status = io_submit(ios->pctx->ctx, 1, &req)) == 1);
    //       submit_status != EAGAIN;
    //    }),
    //    ios,
@@ -663,8 +667,8 @@ laio_async_run(io_async_state *gios)
       }
 
       io_process_context *pctx = ios->pctx;
-
-      submit_status = io_submit(pctx->ctx, 1, ios->reqs);
+      struct iocb        *req  = &ios->req;
+      submit_status            = io_submit(pctx->ctx, 1, &req);
 
       if (submit_status == 1) {
          // Successfully submitted, which means that our state was stored on the
@@ -763,6 +767,7 @@ static io_async_state_ops laio_async_state_ops = {
 
 static platform_status
 laio_async_state_init(io_async_state   *state,
+                      uint64            buffer_size,
                       io_handle        *gio,
                       io_async_cmd      cmd,
                       uint64            addr,
@@ -772,6 +777,12 @@ laio_async_state_init(io_async_state   *state,
    laio_async_state *ios = (laio_async_state *)state;
    laio_handle      *io  = (laio_handle *)gio;
 
+   if (buffer_size < sizeof(*ios) + sizeof(struct iovec)) {
+      return STATUS_BAD_PARAM;
+   }
+   uint64 pages_per_extent = io->cfg->extent_size / io->cfg->page_size;
+   uint64 capacity = (buffer_size - sizeof(*ios)) / sizeof(struct iovec);
+
    ios->super.ops              = &laio_async_state_ops;
    ios->__async_state_stack[0] = ASYNC_STATE_INIT;
    ios->io                     = io;
@@ -780,9 +791,9 @@ laio_async_state_init(io_async_state   *state,
    ios->callback               = callback;
    ios->callback_arg           = callback_arg;
    async_waiter_init(&ios->waiter_node);
-   ios->reqs[0] = &ios->req;
-   ios->iovlen  = 0;
-   ios->status  = 0;
+   ios->iovlen       = 0;
+   ios->iov_capacity = MIN(capacity, pages_per_extent);
+   ios->status       = 0;
    return STATUS_OK;
 }
 
@@ -1108,7 +1119,7 @@ laio_config_valid(io_config *cfg)
    }
    uint64 pages_per_extent = cfg->extent_size / cfg->page_size;
 
-   if (IO_ASYNC_STATE_BUFFER_SIZE
+   if (IO_ASYNC_STATE_EXTENT_BUFFER_SIZE
        < sizeof(laio_async_state) + pages_per_extent * sizeof(struct iovec))
    {
       return STATUS_BAD_PARAM;

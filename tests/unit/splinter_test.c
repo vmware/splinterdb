@@ -5891,6 +5891,147 @@ test_splinter_bsearch(trunk_shadow *shadow, key needle)
    return lo;
 }
 
+static const cache_ops *async_scratch_saved_ops;
+static bool32           async_scratch_yield;
+static uint64           async_scratch_gets[NUM_PAGE_TYPES];
+
+static void
+async_scratch_get_init(void             *payload,
+                       cache            *cc,
+                       uint64            addr,
+                       page_type         type,
+                       async_callback_fn callback,
+                       void             *callback_arg)
+{
+   async_scratch_saved_ops->page_get_async_state_init(
+      payload, cc, addr, type, callback, callback_arg);
+   async_scratch_gets[type]++;
+   async_scratch_yield = TRUE;
+}
+
+static async_status
+async_scratch_get(void *payload)
+{
+   if (async_scratch_yield) {
+      async_scratch_yield = FALSE;
+      return ASYNC_STATUS_RUNNING;
+   }
+   return async_scratch_saved_ops->page_get_async(payload);
+}
+
+static void
+async_scratch_ready(void *arg)
+{
+}
+
+static void
+async_scratch_resume(void *arg)
+{
+   core_lookup_async_state *state = arg;
+   timestamp                start = platform_get_timestamp();
+   do {
+      cache_cleanup(state->spl->cc);
+      platform_assert(platform_timestamp_elapsed(start) < SEC_TO_NSEC(10));
+   } while (core_lookup_async(state) != ASYNC_STATUS_DONE);
+}
+
+/* Force every async page get to yield, including resident hits, and hand the
+ * suspended lookup to another thread. A multi-level tree exercises navigation,
+ * filter, B-tree traversal, leaf decoding, and child-handle union transitions.
+ */
+CTEST2(splinter, test_async_lookup_scratch_transitions)
+{
+   system_config *cfg                              = data->system_cfg;
+   cfg->trunk_node_cfg.incorporation_size_kv_bytes = 64 * KiB;
+   cfg->trunk_node_cfg.target_fanout               = 4;
+   cfg->trunk_node_cfg.use_stats                   = TRUE;
+   cache      *cc                                  = (cache *)data->clock_cache;
+   core_handle spl;
+   ASSERT_TRUE(SUCCESS(core_mkfs(&spl,
+                                 &cfg->splinter_cfg,
+                                 (allocator *)&data->al,
+                                 cc,
+                                 data->io,
+                                 &data->tasks,
+                                 test_generate_allocator_root_id(),
+                                 data->hid)));
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, data->hid);
+   const uint64 per_round = 2048;
+   const uint64 rounds    = 8;
+   for (uint64 round = 0; round < rounds; round++) {
+      for (uint64 i = round * per_round; i < (round + 1) * per_round; i++) {
+         test_key(
+            &keybuf, TEST_RANDOM, i, 0, 0, data->workload_cfg->key_size, 0);
+         generate_test_message(&data->gen, i, &msg);
+         ASSERT_TRUE(SUCCESS(core_insert(&spl,
+                                         key_buffer_key(&keybuf),
+                                         merge_accumulator_to_message(&msg),
+                                         NULL)));
+      }
+      ASSERT_TRUE(SUCCESS(core_checkpoint(&spl, 0)));
+   }
+   merge_accumulator_deinit(&msg);
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(&data->tasks)));
+   uint64 height;
+   ASSERT_TRUE(SUCCESS(trunk_get_height(&spl.trunk_context, &height)));
+   ASSERT_TRUE(height > 0);
+
+   async_scratch_saved_ops       = cc->ops;
+   cache_ops ops                 = *cc->ops;
+   ops.page_get_async_state_init = async_scratch_get_init;
+   ops.page_get_async            = async_scratch_get;
+   memset(async_scratch_gets, 0, sizeof(async_scratch_gets));
+   lookup_result result;
+   lookup_result_init(
+      &result, spl.cfg.data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   core_lookup_async_state state;
+   for (unsigned cold = 0; cold < 2; cold++) {
+      if (cold) {
+         cache_flush(cc);
+         // The empty active memtable retains its pinned pages.
+         ASSERT_TRUE(SUCCESS(cache_evict(cc, TRUE)));
+      }
+      for (uint64 sample = 0; sample < 64; sample++) {
+         bool32 present = sample % 2 == 0;
+         uint64 i = (sample / 2) * 257 + (present ? 0 : per_round * rounds);
+         test_key(
+            &keybuf, TEST_RANDOM, i, 0, 0, data->workload_cfg->key_size, 0);
+         memset(&state, 0xa5, sizeof(state));
+         core_lookup_async_state_init(&state,
+                                      &spl,
+                                      key_buffer_key(&keybuf),
+                                      &result,
+                                      async_scratch_ready,
+                                      NULL);
+         cc->ops = &ops;
+         ASSERT_EQUAL(ASYNC_STATUS_RUNNING, core_lookup_async(&state));
+         platform_thread thread;
+         ASSERT_TRUE(SUCCESS(platform_thread_create(
+            &thread, FALSE, async_scratch_resume, &state, data->hid)));
+         ASSERT_TRUE(SUCCESS(platform_thread_join(&thread)));
+         cc->ops = async_scratch_saved_ops;
+         ASSERT_TRUE(SUCCESS(async_result(&state)));
+         ASSERT_EQUAL(present, lookup_result_found(&result));
+         if (present) {
+            verify_tuple(
+               &spl,
+               &data->gen,
+               i,
+               key_buffer_key(&keybuf),
+               merge_accumulator_to_message(lookup_result_accumulator(&result)),
+               TRUE);
+         }
+      }
+   }
+   ASSERT_TRUE(async_scratch_gets[PAGE_TYPE_TRUNK] > 0);
+   ASSERT_TRUE(async_scratch_gets[PAGE_TYPE_FILTER] > 0);
+   ASSERT_TRUE(async_scratch_gets[PAGE_TYPE_BRANCH] > 0);
+   lookup_result_deinit(&result);
+   core_destroy(&spl);
+}
+
 /*
  * **************************************************************************
  * Test case to run a bunch of inserts into Splinter, and then perform

@@ -2071,6 +2071,7 @@ delayed_prefetch_result(io_async_state *state)
 
 static platform_status
 delayed_prefetch_init(io_async_state   *state,
+                      uint64            buffer_size,
                       io_handle        *io,
                       io_async_cmd      cmd,
                       uint64            addr,
@@ -2080,7 +2081,7 @@ delayed_prefetch_init(io_async_state   *state,
    platform_assert(cmd == io_async_preadv);
    platform_assert(delayed_prefetch.pending == NULL);
    platform_status rc = delayed_prefetch.saved_ops->async_state_init(
-      state, io, cmd, addr, callback, callback_arg);
+      state, buffer_size, io, cmd, addr, callback, callback_arg);
    if (SUCCESS(rc)) {
       delayed_prefetch.state_ops            = *state->ops;
       delayed_prefetch.state_ops.run        = delayed_prefetch_run;

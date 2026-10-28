@@ -374,6 +374,16 @@ btree_lookup_and_merge(cache              *cc,
                        lookup_result      *result,
                        bool32             *local_found);
 
+/* Traversal has consumed the cache result before the leaf tuple is decoded.
+ * Keep node ownership outside this union until the tuple has been merged. */
+typedef union btree_lookup_scratch {
+   page_get_async_state_buffer cache_get_state;
+   struct {
+      key     found_key;
+      message msg;
+   };
+} btree_lookup_scratch;
+
 // clang-format off
 DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    param, cache *,                      cc,
@@ -392,9 +402,7 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    local, btree_node,                   node,
    local, btree_node,                   child_node,
    local, uint32,                       h,
-   local, key,                          found_key,
-   local, message,                      msg,
-   local, page_get_async_state_buffer, cache_get_state)
+   local, btree_lookup_scratch,         work)
 // clang-format on
 
 static inline void

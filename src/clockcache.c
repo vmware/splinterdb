@@ -1257,8 +1257,8 @@ clockcache_try_claim_writeback(clockcache *cc,
 }
 
 struct async_io_state {
-   clockcache           *cc;
-   io_async_state_buffer iostate;
+   clockcache                  *cc;
+   io_async_state_extent_buffer iostate;
 };
 
 /* Bounded by the width of the bitvector that tracks the reserve. */
@@ -1467,13 +1467,14 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool32 is_urgent)
 
          async_io_state *state = clockcache_io_state_acquire(cc);
 
-         state->cc          = cc;
-         platform_status rc = io_async_state_init(state->iostate,
-                                                  cc->io,
-                                                  io_async_pwritev,
-                                                  first_addr,
-                                                  clockcache_write_callback,
-                                                  state);
+         state->cc = cc;
+         platform_status rc =
+            io_async_state_init_extent(state->iostate,
+                                       cc->io,
+                                       io_async_pwritev,
+                                       first_addr,
+                                       clockcache_write_callback,
+                                       state);
          if (!SUCCESS(rc)) {
             platform_error_log("clockcache_batch_start_writeback: "
                                "io_async_state_init failed: %s\n",
@@ -2512,6 +2513,13 @@ clockcache_get(clockcache  *cc,
  * Get addr if addr is at entry_number.  Returns TRUE if successful.
  */
 
+/* Waiting for another loader and issuing our own read are separate branches.
+ * An issued read completes this get; it never returns to the waiter arm. */
+typedef union clockcache_get_scratch {
+   io_async_state_page_buffer iostate;
+   async_waiter               wait_node;
+} clockcache_get_scratch;
+
 // clang-format off
 DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
    param, clockcache *, cc,
@@ -2525,10 +2533,8 @@ DEFINE_ASYNC_STATE(clockcache_get_async_state, 3,
    local, threadid, tid,
    local, uint64, entry_number,
    local, clockcache_entry *, entry,
-   local, platform_status, rc,
-   local, io_async_state_buffer, iostate,
    local, uint64, io_start_time,
-   local, async_waiter, wait_node)
+   local, clockcache_get_scratch, work)
 // clang-format on
 
 _Static_assert(sizeof(clockcache_get_async_state)
@@ -2581,7 +2587,7 @@ clockcache_get_in_cache_async(clockcache_get_async_state *state, uint64 depth)
          !clockcache_test_flag(state->cc, state->entry_number, CC_LOADING),
          state,
          &state->entry->waiters,
-         &state->wait_node,
+         &state->work.wait_node,
          state->callback,
          state->callback_arg);
 
@@ -2623,10 +2629,10 @@ clockcache_get_from_disk_async_callback(void *arg)
 
    // Check whether we are done.  If not, this will enqueue us for a future
    // callback so we can check again.
-   if (io_async_run(state->iostate) != ASYNC_STATUS_DONE) {
+   if (io_async_run(state->work.iostate) != ASYNC_STATUS_DONE) {
       return;
    }
-   platform_status rc = io_async_state_get_result(state->iostate);
+   platform_status rc = io_async_state_get_result(state->work.iostate);
    if (!SUCCESS(rc)) {
       platform_error_log("clockcache_get_from_disk_async_callback: async read "
                          "failed for addr %lu, entry %lu: %s\n",
@@ -2642,6 +2648,8 @@ static async_status
 clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
 {
    async_begin(state, depth);
+
+   platform_status rc;
 
    /* A miss must be allocated before it can reserve a cache entry or issue I/O.
     * Resident hits inherit allocation validity from their existing mapping.
@@ -2663,28 +2671,26 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
    // The normal idiom for async functions is to just pass the callback to the
    // async child, but we pass a wrapper function so that we can always clear
    // the CC_LOADING flag, even if our caller abandoned us.
-   state->rc = io_async_state_init(state->iostate,
-                                   state->cc->io,
-                                   io_async_preadv,
-                                   state->addr,
-                                   clockcache_get_from_disk_async_callback,
-                                   state);
-   if (!SUCCESS(state->rc)) {
-      clockcache_finish_load(
-         state->cc, state->addr, state->entry_number, state->rc);
-      state->result_status = state->rc;
+   rc = io_async_state_init_page(state->work.iostate,
+                                 state->cc->io,
+                                 io_async_preadv,
+                                 state->addr,
+                                 clockcache_get_from_disk_async_callback,
+                                 state);
+   if (!SUCCESS(rc)) {
+      clockcache_finish_load(state->cc, state->addr, state->entry_number, rc);
+      state->result_status = rc;
       clockcache_dec_ref(state->cc, state->entry_number, state->tid);
       state->succeeded = TRUE;
       async_return(state);
    }
 
-   state->rc =
-      io_async_state_append_page(state->iostate, state->entry->page.data);
-   if (!SUCCESS(state->rc)) {
-      io_async_state_deinit(state->iostate);
-      clockcache_finish_load(
-         state->cc, state->addr, state->entry_number, state->rc);
-      state->result_status = state->rc;
+   rc =
+      io_async_state_append_page(state->work.iostate, state->entry->page.data);
+   if (!SUCCESS(rc)) {
+      io_async_state_deinit(state->work.iostate);
+      clockcache_finish_load(state->cc, state->addr, state->entry_number, rc);
+      state->result_status = rc;
       clockcache_dec_ref(state->cc, state->entry_number, state->tid);
       state->succeeded = TRUE;
       async_return(state);
@@ -2694,25 +2700,24 @@ clockcache_get_from_disk_async(clockcache_get_async_state *state, uint64 depth)
       state->io_start_time = platform_get_timestamp();
    }
 
-   async_await(state, io_async_run(state->iostate) == ASYNC_STATUS_DONE);
-   state->rc = io_async_state_get_result(state->iostate);
+   async_await(state, io_async_run(state->work.iostate) == ASYNC_STATUS_DONE);
+   rc = io_async_state_get_result(state->work.iostate);
    /* Hard submission failures complete synchronously without invoking the
     * callback. On a callback-driven completion, the wrapper already published
     * readiness before notifying our caller. */
    if (clockcache_test_flag(state->cc, state->entry_number, CC_LOADING)) {
-      clockcache_finish_load(
-         state->cc, state->addr, state->entry_number, state->rc);
+      clockcache_finish_load(state->cc, state->addr, state->entry_number, rc);
    }
-   if (!SUCCESS(state->rc)) {
+   if (!SUCCESS(rc)) {
       platform_error_log("clockcache_get_from_disk_async: async read failed "
                          "for addr %lu, entry %lu: %s\n",
                          state->addr,
                          state->entry_number,
-                         platform_status_to_string(state->rc));
+                         platform_status_to_string(rc));
    }
-   io_async_state_deinit(state->iostate);
-   if (!SUCCESS(state->rc)) {
-      state->result_status = state->rc;
+   io_async_state_deinit(state->work.iostate);
+   if (!SUCCESS(rc)) {
+      state->result_status = rc;
       clockcache_dec_ref(state->cc, state->entry_number, state->tid);
       state->succeeded = TRUE;
       async_return(state);
@@ -3078,12 +3083,12 @@ clockcache_writeback_page(clockcache              *cc,
 
    state     = clockcache_io_state_acquire(cc);
    state->cc = cc;
-   status    = io_async_state_init(state->iostate,
-                                cc->io,
-                                io_async_pwritev,
-                                addr,
-                                clockcache_write_callback,
-                                state);
+   status    = io_async_state_init_extent(state->iostate,
+                                       cc->io,
+                                       io_async_pwritev,
+                                       addr,
+                                       clockcache_write_callback,
+                                       state);
    if (!SUCCESS(status)) {
       platform_error_log("clockcache_writeback_page: io_async_state_init "
                          "failed for addr %lu, entry %u, type %u: %s\n",
@@ -3173,15 +3178,16 @@ clockcache_writeback_extent(clockcache              *cc,
          }
 
          if (state == NULL) {
-            req_addr           = page_addr;
-            state              = clockcache_io_state_acquire(cc);
-            state->cc          = cc;
-            platform_status rc = io_async_state_init(state->iostate,
-                                                     cc->io,
-                                                     io_async_pwritev,
-                                                     req_addr,
-                                                     clockcache_write_callback,
-                                                     state);
+            req_addr  = page_addr;
+            state     = clockcache_io_state_acquire(cc);
+            state->cc = cc;
+            platform_status rc =
+               io_async_state_init_extent(state->iostate,
+                                          cc->io,
+                                          io_async_pwritev,
+                                          req_addr,
+                                          clockcache_write_callback,
+                                          state);
             if (!SUCCESS(rc)) {
                platform_error_log("clockcache_writeback_extent: "
                                   "io_async_state_init failed for extent addr "
@@ -3582,12 +3588,12 @@ clockcache_prefetch_pages(clockcache *cc,
                }
                state->cc = cc;
                platform_status rc =
-                  io_async_state_init(state->iostate,
-                                      cc->io,
-                                      io_async_preadv,
-                                      addr,
-                                      clockcache_prefetch_callback,
-                                      state);
+                  io_async_state_init_extent(state->iostate,
+                                             cc->io,
+                                             io_async_preadv,
+                                             addr,
+                                             clockcache_prefetch_callback,
+                                             state);
                if (!SUCCESS(rc)) {
                   platform_error_log("clockcache_prefetch_pages: "
                                      "io_async_state_init failed for first "
@@ -4112,7 +4118,7 @@ clockcache_get_async_state_init_virtual(void             *payload,
    // the waiter on the wait queue, because the async wait system has internal
    // instrumentation that can catch double enqueues, which could break if we
    // re-init before submission.
-   async_waiter_init(&state->wait_node);
+   async_waiter_init(&state->work.wait_node);
 }
 
 static async_status

@@ -1099,7 +1099,7 @@ trunk_ondisk_node_handle_init(trunk_ondisk_node_handle *handle,
  * - state->pivot->child_addr: the address of the node
  *
  * OUT Parameters:
- * - state->child_handle: the ondisk_node_handle
+ * - state->work.node.child_handle: the ondisk_node_handle
  * - state->rc: the return code
  */
 static async_status
@@ -1108,37 +1108,43 @@ trunk_ondisk_node_handle_init_async(trunk_merge_lookup_async_state *state,
 {
    async_begin(state, depth);
 
-   state->child_handle.cc          = state->context->cc;
-   state->child_handle.page_size   = cache_page_size(state->context->cc);
-   state->child_handle.extent_size = cache_extent_size(state->context->cc);
-   state->child_handle.header_page = (page_handle){0};
-   state->child_handle.pivot_page  = (page_handle){0};
-   state->child_handle.inflight_bundle_page = (page_handle){0};
+   state->work.node.child_handle.cc = state->context->cc;
+   state->work.node.child_handle.page_size =
+      cache_page_size(state->context->cc);
+   state->work.node.child_handle.extent_size =
+      cache_extent_size(state->context->cc);
+   state->work.node.child_handle.header_page          = (page_handle){0};
+   state->work.node.child_handle.pivot_page           = (page_handle){0};
+   state->work.node.child_handle.inflight_bundle_page = (page_handle){0};
    async_await_call(state,
                     cache_get_async,
-                    &state->cache_get_state,
+                    &state->work.node.cache_get_state,
                     state->context->cc,
                     state->pivot->child_addr,
                     PAGE_TYPE_TRUNK,
                     state->callback,
                     state->callback_arg);
-   state->rc = cache_get_async_state_result(&state->cache_get_state,
-                                            &state->child_handle.header_page);
+   state->rc =
+      cache_get_async_state_result(&state->work.node.cache_get_state,
+                                   &state->work.node.child_handle.header_page);
    if (!SUCCESS(state->rc)) {
       async_return(state);
    }
-   state->rc = trunk_ondisk_node_read_header(&state->child_handle);
+   state->rc = trunk_ondisk_node_read_header(&state->work.node.child_handle);
    if (!SUCCESS(state->rc)) {
-      cache_unget(state->context->cc, &state->child_handle.header_page);
-      state->child_handle.header_page = (page_handle){0};
+      cache_unget(state->context->cc,
+                  &state->work.node.child_handle.header_page);
+      state->work.node.child_handle.header_page = (page_handle){0};
       async_return(state);
    }
-   state->rc = state->height == 0 ? STATUS_INVALID_STATE
-                                  : trunk_ondisk_node_check_expected_height(
-                                       &state->child_handle, state->height - 1);
+   state->rc = state->height == 0
+                  ? STATUS_INVALID_STATE
+                  : trunk_ondisk_node_check_expected_height(
+                       &state->work.node.child_handle, state->height - 1);
    if (!SUCCESS(state->rc)) {
-      cache_unget(state->context->cc, &state->child_handle.header_page);
-      state->child_handle.header_page = (page_handle){0};
+      cache_unget(state->context->cc,
+                  &state->work.node.child_handle.header_page);
+      state->work.node.child_handle.header_page = (page_handle){0};
       async_return(state);
    }
    async_return(state);
@@ -1248,16 +1254,16 @@ trunk_ondisk_node_handle_setup_content_page(trunk_ondisk_node_handle *handle,
 /*
  * IN Parameters:
  * - state->handlep: the ondisk_node_handle
- * - state->offset: the offset of the page to get
+ * - state->work.node.offset: the offset of the page to get
  *
  * IN/OUT Parameters:
- * - state->page: Pointer to the page pointer in the handle to set up.
+ * - state->work.node.page: Pointer to the page pointer in the handle to set up.
  *
  * OUT Parameters:
  * - state->rc: the return code
  *
  * LOCAL Variables:
- * - state->cache_get_state: the state of the cache_get() operation
+ * - state->work.node.cache_get_state: the state of the cache_get() operation
  */
 static async_status
 trunk_ondisk_node_handle_setup_content_page_async(
@@ -1268,41 +1274,44 @@ trunk_ondisk_node_handle_setup_content_page_async(
 
    uint64 page_size = state->handlep->page_size;
 
-   if (state->handlep->extent_size <= state->offset) {
+   if (state->handlep->extent_size <= state->work.node.offset) {
       state->rc = STATUS_INVALID_STATE;
       async_return(state);
    }
 
-   if (offset_is_in_content_page(state->handlep, state->page, state->offset)) {
+   if (offset_is_in_content_page(
+          state->handlep, state->work.node.page, state->work.node.offset))
+   {
       state->rc = STATUS_OK;
       async_return(state);
    }
 
-   if (!page_handle_is_null(state->page)
-       && !page_handle_same_page(state->page, &state->handlep->header_page))
+   if (!page_handle_is_null(state->work.node.page)
+       && !page_handle_same_page(state->work.node.page,
+                                 &state->handlep->header_page))
    {
-      cache_unget(state->handlep->cc, state->page);
-      *state->page = (page_handle){0};
+      cache_unget(state->handlep->cc, state->work.node.page);
+      *state->work.node.page = (page_handle){0};
    }
 
-   if (state->offset < page_size) {
-      *state->page = state->handlep->header_page;
-      state->rc    = STATUS_OK;
+   if (state->work.node.offset < page_size) {
+      *state->work.node.page = state->handlep->header_page;
+      state->rc              = STATUS_OK;
       async_return(state);
    } else {
-      uint64 addr =
-         page_handle_addr(&state->handlep->header_page) + state->offset;
+      uint64 addr = page_handle_addr(&state->handlep->header_page)
+                    + state->work.node.offset;
       addr -= (addr % page_size);
       async_await_call(state,
                        cache_get_async,
-                       &state->cache_get_state,
+                       &state->work.node.cache_get_state,
                        state->handlep->cc,
                        addr,
                        PAGE_TYPE_TRUNK,
                        state->callback,
                        state->callback_arg);
-      state->rc =
-         cache_get_async_state_result(&state->cache_get_state, state->page);
+      state->rc = cache_get_async_state_result(
+         &state->work.node.cache_get_state, state->work.node.page);
       if (!SUCCESS(state->rc)) {
          async_return(state);
       }
@@ -1429,16 +1438,16 @@ trunk_ondisk_node_read_pivot(trunk_ondisk_node_handle *handle,
 /*
  * IN Parameters:
  * - state->handlep: the ondisk_node_handle
- * - state->pivot_num: the pivot number to get
+ * - state->work.node.pivot_num: the pivot number to get
  *
  * OUT Parameters:
  * - state->pivot: the pivot
  * - state->rc: the return code
  *
  * LOCAL Variables:
- * - state->offset: the offset of the pivot
- * - state->page: Pointer to the page pointer in the handle to set up.
- * - state->cache_get_state: the state of the cache_get() operation
+ * - state->work.node.offset: the offset of the pivot
+ * - state->work.node.page: Pointer to the page pointer in the handle to set up.
+ * - state->work.node.cache_get_state: the state of the cache_get() operation
  */
 static async_status
 trunk_ondisk_node_read_pivot_key_async(trunk_merge_lookup_async_state *state,
@@ -1447,12 +1456,12 @@ trunk_ondisk_node_read_pivot_key_async(trunk_merge_lookup_async_state *state,
    async_begin(state, depth);
 
    state->rc = trunk_ondisk_node_read_pivot_offset(
-      state->handlep, state->pivot_num, &state->offset);
+      state->handlep, state->work.node.pivot_num, &state->work.node.offset);
    if (!SUCCESS(state->rc)) {
       state->pivot = NULL;
       async_return(state);
    }
-   state->page = &state->handlep->pivot_page;
+   state->work.node.page = &state->handlep->pivot_page;
    async_await_subroutine(state,
                           trunk_ondisk_node_handle_setup_content_page_async);
    if (!SUCCESS(state->rc)) {
@@ -1466,11 +1475,11 @@ trunk_ondisk_node_read_pivot_key_async(trunk_merge_lookup_async_state *state,
    }
    state->pivot =
       (trunk_ondisk_pivot *)(page_handle_data(&state->handlep->pivot_page)
-                             + state->offset
+                             + state->work.node.offset
                              - content_page_offset(
                                 state->handlep, &state->handlep->pivot_page));
    uint64 page_offset =
-      state->offset
+      state->work.node.offset
       - content_page_offset(state->handlep, &state->handlep->pivot_page);
    uint64 page_size = state->handlep->page_size;
    if (page_size - page_offset < sizeof(*state->pivot)
@@ -1665,15 +1674,15 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
 /*
  * IN Parameters:
  * - state->handlep: the ondisk_node_handle
- * - state->offset: the offset of the bundle
+ * - state->work.node.offset: the offset of the bundle
  *
  * OUT Parameters:
  * - state->bndl: the bundle
  * - state->rc: the return code
  *
  * LOCAL Variables:
- * - state->page: Pointer to the page pointer in the handle to set up.
- * - state->cache_get_state: the state of the cache_get() operation
+ * - state->work.node.page: Pointer to the page pointer in the handle to set up.
+ * - state->work.node.cache_get_state: the state of the cache_get() operation
  */
 static async_status
 trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
@@ -1684,7 +1693,7 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
 
    async_begin(state, depth);
 
-   if (extent_size <= state->offset) {
+   if (extent_size <= state->work.node.offset) {
       state->bndl = NULL;
       state->rc   = STATUS_INVALID_STATE;
       async_return(state);
@@ -1692,16 +1701,19 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
 
    /* If there's not enough room for a bundle header, skip to the next
     * page. */
-   if (page_size - (state->offset % page_size) < sizeof(trunk_ondisk_bundle)) {
-      state->offset += page_size - (state->offset % page_size);
-      if (extent_size <= state->offset) {
+   if (page_size - (state->work.node.offset % page_size)
+       < sizeof(trunk_ondisk_bundle))
+   {
+      state->work.node.offset +=
+         page_size - (state->work.node.offset % page_size);
+      if (extent_size <= state->work.node.offset) {
          state->bndl = NULL;
          state->rc   = STATUS_INVALID_STATE;
          async_return(state);
       }
    }
 
-   state->page = &state->handlep->inflight_bundle_page;
+   state->work.node.page = &state->handlep->inflight_bundle_page;
    async_await_subroutine(state,
                           trunk_ondisk_node_handle_setup_content_page_async);
    if (!SUCCESS(state->rc)) {
@@ -1716,12 +1728,12 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
    state->bndl =
       (trunk_ondisk_bundle *)(page_handle_data(
                                  &state->handlep->inflight_bundle_page)
-                              + state->offset
+                              + state->work.node.offset
                               - content_page_offset(
                                  state->handlep,
                                  &state->handlep->inflight_bundle_page));
    uint64 page_offset =
-      state->offset
+      state->work.node.offset
       - content_page_offset(state->handlep,
                             &state->handlep->inflight_bundle_page);
    if (page_size - page_offset < sizeof(*state->bndl)) {
@@ -1733,13 +1745,14 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
    /* If there wasn't enough room for this bundle on this page, then we would
     * have zeroed the remaining bytes and put the bundle on the next page. */
    if (state->bndl->num_branches == 0) {
-      state->offset += page_size - (state->offset % page_size);
-      if (extent_size <= state->offset) {
+      state->work.node.offset +=
+         page_size - (state->work.node.offset % page_size);
+      if (extent_size <= state->work.node.offset) {
          state->bndl = NULL;
          state->rc   = STATUS_INVALID_STATE;
          async_return(state);
       }
-      state->page = &state->handlep->inflight_bundle_page;
+      state->work.node.page = &state->handlep->inflight_bundle_page;
       async_await_subroutine(state,
                              trunk_ondisk_node_handle_setup_content_page_async);
       if (!SUCCESS(state->rc)) {
@@ -1754,11 +1767,11 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
       state->bndl =
          (trunk_ondisk_bundle *)(page_handle_data(
                                     &state->handlep->inflight_bundle_page)
-                                 + state->offset
+                                 + state->work.node.offset
                                  - content_page_offset(
                                     state->handlep,
                                     &state->handlep->inflight_bundle_page));
-      page_offset = state->offset
+      page_offset = state->work.node.offset
                     - content_page_offset(
                        state->handlep, &state->handlep->inflight_bundle_page);
    }
@@ -1806,9 +1819,9 @@ trunk_ondisk_node_get_first_inflight_bundle(trunk_ondisk_node_handle *handle,
  * - state->rc: the return code
  *
  * LOCAL Variables:
- * - state->offset: the offset of the bundle
- * - state->page: Pointer to the page pointer in the handle to set up.
- * - state->cache_get_state: the state of the cache_get() operation
+ * - state->work.node.offset: the offset of the bundle
+ * - state->work.node.page: Pointer to the page pointer in the handle to set up.
+ * - state->work.node.cache_get_state: the state of the cache_get() operation
  */
 static async_status
 trunk_ondisk_node_get_first_inflight_bundle_async(
@@ -1825,12 +1838,14 @@ trunk_ondisk_node_get_first_inflight_bundle_async(
                                                          : STATUS_INVALID_STATE;
       async_return(state);
    }
-   state->offset = header->inflight_bundles_offset;
+   state->work.node.offset = header->inflight_bundles_offset;
    uint64 table_end =
       sizeof(*header)
       + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
-   if (state->offset < table_end || state->handlep->extent_size <= state->offset
-       || state->offset <= header->pivot_offsets[header->num_pivots - 1])
+   if (state->work.node.offset < table_end
+       || state->handlep->extent_size <= state->work.node.offset
+       || state->work.node.offset
+             <= header->pivot_offsets[header->num_pivots - 1])
    {
       state->bndl = NULL;
       state->rc   = STATUS_INVALID_STATE;
@@ -1864,9 +1879,9 @@ trunk_ondisk_node_get_next_inflight_bundle(trunk_ondisk_node_handle *handle,
  * - state->rc: the return code
  *
  * LOCAL Variables:
- * - state->offset: the offset of the bundle
- * - state->page: Pointer to the page pointer in the handle to set up.
- * - state->cache_get_state: the state of the cache_get() operation
+ * - state->work.node.offset: the offset of the bundle
+ * - state->work.node.page: Pointer to the page pointer in the handle to set up.
+ * - state->work.node.cache_get_state: the state of the cache_get() operation
  */
 static async_status
 trunk_ondisk_node_get_next_inflight_bundle_async(
@@ -1874,11 +1889,12 @@ trunk_ondisk_node_get_next_inflight_bundle_async(
    uint64                          depth)
 {
    async_begin(state, depth);
-   state->offset = ((char *)state->bndl)
-                   - page_handle_data(&state->handlep->inflight_bundle_page)
-                   + content_page_offset(state->handlep,
-                                         &state->handlep->inflight_bundle_page)
-                   + sizeof_trunk_ondisk_bundle(state->bndl);
+   state->work.node.offset =
+      ((char *)state->bndl)
+      - page_handle_data(&state->handlep->inflight_bundle_page)
+      + content_page_offset(state->handlep,
+                            &state->handlep->inflight_bundle_page)
+      + sizeof_trunk_ondisk_bundle(state->bndl);
    async_await_subroutine(state, trunk_ondisk_node_bundle_at_offset_async);
    async_return(state);
 }
@@ -7089,22 +7105,18 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
  * state->context: the trunk node context
  * state->handlep: the ondisk node handle
  * state->tgt: the target key
- * //state->cmp: the comparison to use
  *
  * OUT Parameters:
  * state->pivot: the pivot found
  * state->rc: the return code
  *
  * LOCAL Variables:
- * state->min: the minimum pivot index
- * state->max: the maximum pivot index
- * state->min_pivot: the minimum pivot found
- * state->last_cmp: the last comparison result
- * state->mid: the mid pivot index
- * state->pivot_num: the pivot number
- * state->offset: the offset
- * state->page: the page
- * state->cache_get_state: the cache get state
+ * state->work.node.min: the minimum pivot index
+ * state->work.node.max: the maximum pivot index
+ * state->work.node.pivot_num: the pivot number
+ * state->work.node.offset: the offset
+ * state->work.node.page: the page
+ * state->work.node.cache_get_state: the cache get state
  */
 static async_status
 trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
@@ -7112,14 +7124,13 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
 {
    async_begin(state, depth);
 
-   state->min = 0;
-   state->max = trunk_ondisk_node_num_pivots(state->handlep) - 1;
+   state->work.node.min = 0;
+   state->work.node.max = trunk_ondisk_node_num_pivots(state->handlep) - 1;
 
    // invariant: pivot[min] <= tgt < pivot[max]
-   state->min_pivot = NULL;
-   while (state->min + 1 < state->max) {
-      state->mid       = (state->min + state->max) / 2;
-      state->pivot_num = state->mid;
+   while (state->work.node.min + 1 < state->work.node.max) {
+      state->work.node.pivot_num =
+         (state->work.node.min + state->work.node.max) / 2;
       async_await_subroutine(state, trunk_ondisk_node_read_pivot_key_async);
       if (!SUCCESS(state->rc)) {
          platform_error_log("ondisk_node_find_pivot_async: "
@@ -7131,39 +7142,25 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
       int cmp =
          data_key_compare(state->context->cfg->data_cfg, state->tgt, mid_key);
       if (cmp < 0) {
-         state->max = state->mid;
+         state->work.node.max = state->work.node.pivot_num;
       } else {
-         state->min       = state->mid;
-         state->min_pivot = state->pivot;
-         state->last_cmp  = cmp;
+         state->work.node.min = state->work.node.pivot_num;
       }
    }
-   /* 0 < min means we executed the loop at least once.
-      last_cmp == 0 means we found an exact match at pivot[mid], and we then
-      assigned mid to min, which means that pivot[min] == tgt.
-   */
-   // if (0 < state->min && state->last_cmp == 0 && state->cmp == less_than) {
-   //    state->min--;
-   //    state->min_pivot = ondisk_node_get_pivot(state->handlep, state->min);
-   // }
-
    /* As in the synchronous path, reload the winner so state->pivot cannot
     * outlive the content page that supplied it. */
-   state->pivot_num = state->min;
+   state->work.node.pivot_num = state->work.node.min;
    async_await_subroutine(state, trunk_ondisk_node_read_pivot_key_async);
    if (!SUCCESS(state->rc)) {
-      state->min_pivot = NULL;
       async_return(state);
    }
    state->rc = trunk_ondisk_node_read_pivot_fields(
-      state->handlep, state->pivot_num, state->pivot);
+      state->handlep, state->work.node.pivot_num, state->pivot);
    if (!SUCCESS(state->rc)) {
-      state->pivot     = NULL;
-      state->min_pivot = NULL;
+      state->pivot = NULL;
       async_return(state);
    }
-   state->min_pivot = state->pivot;
-   state->rc        = STATUS_OK;
+   state->rc = STATUS_OK;
    async_return(state);
 }
 
@@ -7333,19 +7330,19 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
          state->rc = STATUS_INVALID_STATE;
          async_return(state);
       }
-      state->found_values = state->bndl->num_branches == 1 ? 1 : 0;
+      state->work.bundle.found_values = state->bndl->num_branches == 1 ? 1 : 0;
    } else {
       async_await_call(state,
                        routing_filter_lookup_async,
-                       &state->filter_state,
+                       &state->work.bundle.filter_state,
                        state->context->cc,
                        state->context->cfg->filter_cfg,
                        state->bndl->maplet,
                        state->tgt,
-                       &state->found_values,
+                       &state->work.bundle.found_values,
                        state->callback,
                        state->callback_arg);
-      state->rc = async_result(&state->filter_state);
+      state->rc = async_result(&state->work.bundle.filter_state);
       if (!SUCCESS(state->rc)) {
          platform_error_log("ondisk_bundle_merge_lookup_async: "
                             "routing_filter_lookup_async failed: %d\n",
@@ -7353,7 +7350,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
          async_return(state);
       }
 
-      if (state->found_values != 0
+      if (state->work.bundle.found_values != 0
           && !lookup_result_note_filter_hit(state->result)
           && state->log == NULL)
       {
@@ -7365,37 +7362,39 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
       }
    }
 
-   state->rc = trunk_ondisk_bundle_validate_found_values(state->bndl,
-                                                         state->found_values);
+   state->rc = trunk_ondisk_bundle_validate_found_values(
+      state->bndl, state->work.bundle.found_values);
    if (!SUCCESS(state->rc)) {
       async_return(state);
    }
 
    if (state->log) {
       platform_log(state->log, "maplet: %lu\n", state->bndl->maplet.addr);
-      platform_log(state->log, "found_values: %lu\n", state->found_values);
-      state->found_values = (1ULL << state->bndl->num_branches) - 1;
+      platform_log(
+         state->log, "found_values: %lu\n", state->work.bundle.found_values);
+      state->work.bundle.found_values = (1ULL << state->bndl->num_branches) - 1;
    }
 
-   for (state->idx = routing_filter_get_next_value(state->found_values,
-                                                   ROUTING_NOT_FOUND);
-        state->idx != ROUTING_NOT_FOUND;
-        state->idx =
-           routing_filter_get_next_value(state->found_values, state->idx))
+   for (state->work.bundle.idx = routing_filter_get_next_value(
+           state->work.bundle.found_values, ROUTING_NOT_FOUND);
+        state->work.bundle.idx != ROUTING_NOT_FOUND;
+        state->work.bundle.idx = routing_filter_get_next_value(
+           state->work.bundle.found_values, state->work.bundle.idx))
    {
-      async_await_call(state,
-                       btree_lookup_and_merge_async,
-                       &state->btree_state,
-                       state->context->cc,
-                       state->context->cfg->btree_cfg,
-                       branch_ref_addr(state->bndl->branches[state->idx]),
-                       state->bndl->branches[state->idx].format_version,
-                       trunk_ondisk_bundle_branch_type(state->bndl),
-                       state->tgt,
-                       state->result,
-                       state->callback,
-                       state->callback_arg);
-      state->rc = async_result(&state->btree_state);
+      async_await_call(
+         state,
+         btree_lookup_and_merge_async,
+         &state->work.bundle.btree_state,
+         state->context->cc,
+         state->context->cfg->btree_cfg,
+         branch_ref_addr(state->bndl->branches[state->work.bundle.idx]),
+         state->bndl->branches[state->work.bundle.idx].format_version,
+         trunk_ondisk_bundle_branch_type(state->bndl),
+         state->tgt,
+         state->result,
+         state->callback,
+         state->callback_arg);
+      state->rc = async_result(&state->work.bundle.btree_state);
       if (!SUCCESS(state->rc)) {
          platform_error_log("ondisk_bundle_merge_lookup_async: "
                             "btree_lookup_and_merge_async failed: %d\n",
@@ -7405,7 +7404,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
 
       if (state->context->stats) {
          state->context->stats[tid].branch_lookups[state->height]++;
-         if (key_is_null(state->btree_state.found_key)) {
+         if (key_is_null(state->work.bundle.btree_state.work.found_key)) {
             state->context->stats[tid].maplet_false_positives[state->height]++;
          }
       }
@@ -7425,8 +7424,8 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
          platform_status rc = btree_lookup_and_merge(
             state->context->cc,
             state->context->cfg->btree_cfg,
-            branch_ref_addr(state->bndl->branches[state->idx]),
-            state->bndl->branches[state->idx].format_version,
+            branch_ref_addr(state->bndl->branches[state->work.bundle.idx]),
+            state->bndl->branches[state->work.bundle.idx].format_version,
             trunk_ondisk_bundle_branch_type(state->bndl),
             state->tgt,
             &temp_result,
@@ -7440,10 +7439,11 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
             async_return(state);
          }
          bool32 found = lookup_result_found(&temp_result);
-         platform_log(state->log,
-                      "branch: %lu found: %u\n",
-                      branch_ref_addr(state->bndl->branches[state->idx]),
-                      found);
+         platform_log(
+            state->log,
+            "branch: %lu found: %u\n",
+            branch_ref_addr(state->bndl->branches[state->work.bundle.idx]),
+            found);
          if (found) {
             message msg = merge_accumulator_to_message(
                lookup_result_accumulator(&temp_result));
@@ -7638,7 +7638,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
       if (state->log) {
          platform_log(state->log,
                       "pivot_num: %lu pivot: %s\n",
-                      state->min,
+                      state->work.node.min,
                       key_string(state->context->cfg->data_cfg,
                                  trunk_ondisk_pivot_key(state->pivot)));
       }
@@ -7711,7 +7711,7 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
          if (state->handlep != state->inhandle) {
             trunk_ondisk_node_handle_deinit(state->handlep);
          }
-         state->handle  = state->child_handle;
+         state->handle  = state->work.node.child_handle;
          state->handlep = &state->handle;
       } else {
          if (state->handlep != state->inhandle) {

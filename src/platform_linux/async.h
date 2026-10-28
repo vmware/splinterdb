@@ -823,7 +823,6 @@ async_call_sync_callback_function(void *arg)
 #define DEFINE_ASYNC_STATE(name, height, ...)                                  \
    _Static_assert(0 < height, "height must be greater than 0");                \
    typedef struct name {                                                       \
-      int         __async_state_lock;                                          \
       async_state __async_state_stack[height];                                 \
       DEFINE_STATE_STRUCT_FIELDS(__VA_ARGS__)                                  \
    } name;                                                                     \
