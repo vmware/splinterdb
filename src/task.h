@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "splinterdb/platform_linux/public_platform.h"
+#include "splinterdb/public_platform.h"
 #include "platform_status.h"
 #include "platform_heap.h"
 #include "platform_threads.h"

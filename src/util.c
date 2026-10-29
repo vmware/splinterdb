@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "util.h"
-#include "splinterdb/platform_linux/public_platform.h"
+#include "splinterdb/public_platform.h"
 #include "platform_status.h"
 #include "platform_log.h"
 #include "platform_assert.h"
