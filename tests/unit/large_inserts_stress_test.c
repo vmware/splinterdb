@@ -20,7 +20,7 @@
 #include "platform_log.h"
 #include "platform_time.h"
 #include "splinterdb/default_data_config.h"
-#include "splinterdb/platform_linux/public_platform.h"
+#include "splinterdb/public_platform.h"
 #include "splinterdb/splinterdb.h"
 #include "config.h"
 #include "unit_tests.h"

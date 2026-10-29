@@ -7,7 +7,7 @@
 
 #include <stddef.h>
 
-#include "splinterdb/platform_linux/public_platform.h"
+#include "splinterdb/public_platform.h"
 
 #define SHARD_LOG_FORMAT_VERSION (1)
 
