@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Enter with: nix-shell
-# On this host, use /nix/var/nix/profiles/default/bin/nix-shell; the
-# nix-shell on PATH is older than the host's default Nixpkgs supports.
 
 let
   # Pin GCC, LLVM 19 and dependencies to one package collection.
