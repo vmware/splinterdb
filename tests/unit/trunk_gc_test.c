@@ -22,7 +22,9 @@ typedef struct ONDISK gc_node_header {
    uint16 height;
    uint16 num_pivots;
    uint16 num_inflight_bundles;
+   uint16 blob_key_prefix_size;
    uint32 inflight_bundles_offset;
+   uint32 tail_offset;
    uint32 pivot_offsets[2];
 } gc_node_header;
 
@@ -196,6 +198,7 @@ gc_init_node(gc_cache *cc, uint64 index, uint64 child_addr)
    gc_node_header *header   = (gc_node_header *)page_handle_data(page);
    header->height           = child_addr != 0;
    header->num_pivots       = 2;
+   header->tail_offset      = GC_EXTENT_SIZE;
    header->pivot_offsets[0] = sizeof(*header);
    header->pivot_offsets[1] =
       sizeof(*header) + sizeof(gc_pivot) + sizeof(gc_bundle);

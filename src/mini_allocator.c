@@ -38,6 +38,7 @@ typedef struct ONDISK mini_meta_hdr {
    uint64 meta_page_no;
    uint64 pos;
    uint32 num_entries;
+   uint64 num_charged_extents;
    uint16 format_version;
    char   entry_buffer[];
 } mini_meta_hdr;
@@ -61,17 +62,20 @@ typedef struct ONDISK mini_meta_hdr {
  * originating mini_allocator batch:
  *
  *   bits [ 0: 7]  batch          (one of MINI_MAX_BATCHES batches)
- *   bits [ 8:15]  type           (page_type)
+ *   bits [ 8:11]  type           (page_type)
+ *   bits [12:15]  height         (blob pointer depth; zero for other types)
  *   bits [16:63]  extent number  (extent_addr / extent_size)
  */
 typedef struct ONDISK meta_entry {
    uint64 packed;
 } meta_entry;
 
-#define META_ENTRY_BATCH_BITS (8)
-#define META_ENTRY_TYPE_BITS  (8)
-#define META_ENTRY_EXTENT_BITS                                                 \
-   (64 - META_ENTRY_BATCH_BITS - META_ENTRY_TYPE_BITS)
+#define META_ENTRY_BATCH_BITS  (8)
+#define META_ENTRY_TYPE_BITS   (4)
+#define META_ENTRY_HEIGHT_BITS (4)
+#define META_ENTRY_EXTENT_SHIFT                                                \
+   (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS + META_ENTRY_HEIGHT_BITS)
+#define META_ENTRY_EXTENT_BITS (64 - META_ENTRY_EXTENT_SHIFT)
 
 _Static_assert(MINI_MAX_BATCHES <= (1 << META_ENTRY_BATCH_BITS),
                "mini_allocator batch number does not fit in a meta_entry");
@@ -92,10 +96,19 @@ meta_entry_type(const meta_entry *entry)
 }
 
 static inline uint64
+meta_entry_height(const meta_entry *entry)
+{
+   return (entry->packed >> (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS))
+          & ((1 << META_ENTRY_HEIGHT_BITS) - 1);
+}
+
+_Static_assert(BLOB_MAX_HEIGHT <= (1 << META_ENTRY_HEIGHT_BITS),
+               "blob height does not fit in a meta_entry");
+
+static inline uint64
 meta_entry_extent_addr(cache *cc, const meta_entry *entry)
 {
-   uint64 extent_number =
-      entry->packed >> (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS);
+   uint64 extent_number = entry->packed >> (META_ENTRY_EXTENT_SHIFT);
    return extent_number * cache_extent_size(cc);
 }
 
@@ -104,7 +117,8 @@ meta_entry_pack(cache      *cc,
                 meta_entry *entry,
                 uint64      extent_addr,
                 page_type   type,
-                uint64      batch)
+                uint64      batch,
+                uint64      height)
 {
    platform_assert(cc != NULL);
    platform_assert(entry != NULL);
@@ -116,10 +130,12 @@ meta_entry_pack(cache      *cc,
    platform_assert(extent_number < (1ULL << META_ENTRY_EXTENT_BITS));
    platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
    platform_assert(batch < MINI_MAX_BATCHES);
+   platform_assert(height < BLOB_MAX_HEIGHT);
+   platform_assert(type == PAGE_TYPE_BLOB || height == 0);
 
-   entry->packed =
-      (extent_number << (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS))
-      | ((uint64)type << META_ENTRY_BATCH_BITS) | batch;
+   entry->packed = (extent_number << (META_ENTRY_EXTENT_SHIFT))
+                   | (height << (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS))
+                   | ((uint64)type << META_ENTRY_BATCH_BITS) | batch;
 }
 
 static meta_entry *
@@ -176,13 +192,14 @@ mini_init_meta_page(mini_allocator *mini,
                     page_handle    *meta_page,
                     uint64          meta_page_no)
 {
-   mini_meta_hdr *hdr  = (mini_meta_hdr *)page_handle_data(meta_page);
-   hdr->next_meta_addr = 0;
-   hdr->prev_meta_addr = 0;
-   hdr->meta_page_no   = meta_page_no;
-   hdr->pos            = offsetof(typeof(*hdr), entry_buffer);
-   hdr->num_entries    = 0;
-   hdr->format_version = MINI_ALLOCATOR_FORMAT_VERSION;
+   mini_meta_hdr *hdr       = (mini_meta_hdr *)page_handle_data(meta_page);
+   hdr->next_meta_addr      = 0;
+   hdr->prev_meta_addr      = 0;
+   hdr->meta_page_no        = meta_page_no;
+   hdr->pos                 = offsetof(typeof(*hdr), entry_buffer);
+   hdr->num_entries         = 0;
+   hdr->num_charged_extents = 0;
+   hdr->format_version      = MINI_ALLOCATOR_FORMAT_VERSION;
 }
 
 /*
@@ -421,7 +438,9 @@ mini_append_entry_to_page(mini_allocator *mini,
                           page_handle    *meta_page,
                           uint64          extent_addr,
                           page_type       type,
-                          uint64          batch)
+                          uint64          batch,
+                          uint64          height,
+                          uint64          charge)
 {
    platform_assert(mini != NULL);
    platform_assert(mini->cc != NULL);
@@ -435,15 +454,18 @@ mini_append_entry_to_page(mini_allocator *mini,
 
    mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(meta_page);
 
-   if (!entry_fits_in_page(page_size, hdr->pos, sizeof(meta_entry))) {
+   if (!entry_fits_in_page(page_size, hdr->pos, sizeof(meta_entry))
+       || charge > UINT64_MAX - hdr->num_charged_extents)
+   {
       return FALSE;
    }
 
    meta_entry *new_entry = pointer_byte_offset(hdr, hdr->pos);
-   meta_entry_pack(mini->cc, new_entry, extent_addr, type, batch);
+   meta_entry_pack(mini->cc, new_entry, extent_addr, type, batch, height);
 
    hdr->pos += sizeof(meta_entry);
    hdr->num_entries++;
+   hdr->num_charged_extents += charge;
    return TRUE;
 }
 
@@ -535,7 +557,13 @@ mini_set_prev_meta_addr(mini_allocator *mini,
 }
 
 static platform_status
-mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
+mini_append_entry(mini_allocator *mini,
+                  uint64          batch,
+                  uint64          next_addr,
+                  page_type       type,
+                  uint64          height,
+                  uint64          charge,
+                  uint64         *entry_meta_addr)
 {
    page_handle     meta_storage;
    page_handle    *meta_page = &meta_storage;
@@ -545,7 +573,7 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
    }
    bool32 success;
    success = mini_append_entry_to_page(
-      mini, meta_page, next_addr, mini->types[batch], batch);
+      mini, meta_page, next_addr, type, batch, height, charge);
    if (!success) {
       // need to allocate a new meta page
       uint64 old_meta_tail =
@@ -580,21 +608,42 @@ mini_append_entry(mini_allocator *mini, uint64 batch, uint64 next_addr)
       mini_set_prev_meta_addr(mini, meta_page, last_meta_addr);
 
       success = mini_append_entry_to_page(
-         mini, meta_page, next_addr, mini->types[batch], batch);
+         mini, meta_page, next_addr, type, batch, height, charge);
 
       if (mini->pinned) {
          cache_pin(mini->cc, meta_page);
       }
       debug_assert(success);
    }
-   // Record the meta page that now holds this extent's entry, so btree nodes
-   // allocated from this extent can point straight at it (see
-   // mini_current_extent_meta_page). Safe: the caller holds the batch lock, so
-   // mini->meta_tail cannot advance under us until we unlock the page below.
-   mini->cur_extent_meta_page[batch] =
-      __atomic_load_n(&mini->meta_tail, __ATOMIC_RELAXED);
+   if (entry_meta_addr != NULL) {
+      *entry_meta_addr = page_handle_addr(meta_page);
+   }
    mini_full_unlock_meta_page(mini, meta_page);
    return STATUS_OK;
+}
+
+platform_status
+mini_adopt_blob_ref(mini_allocator *mini,
+                    uint64          batch,
+                    blob_ref        ref,
+                    uint64          num_extents)
+{
+   platform_status rc = blob_ref_validate(mini->cc, ref);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   if (batch >= mini->num_batches || mini->types[batch] != PAGE_TYPE_BLOB
+       || num_extents == 0 || (ref.height == 0 && num_extents != 1)
+       || (ref.height != 0 && num_extents <= ref.height))
+   {
+      return STATUS_BAD_PARAM;
+   }
+   rc = mini_append_entry(
+      mini, batch, ref.addr, PAGE_TYPE_BLOB, ref.height, num_extents, NULL);
+   if (SUCCESS(rc)) {
+      __sync_fetch_and_add(&mini->num_extents, num_extents);
+   }
+   return rc;
 }
 
 platform_status
@@ -644,7 +693,13 @@ mini_alloc_bytes(mini_allocator *mini,
          }
          next_addr = extent_addr;
 
-         rc = mini_append_entry(mini, batch, next_addr);
+         rc = mini_append_entry(mini,
+                                batch,
+                                next_addr,
+                                mini->types[batch],
+                                0,
+                                1,
+                                &mini->cur_extent_meta_page[batch]);
          if (!SUCCESS(rc)) {
             refcount ref =
                allocator_dec_ref(mini->al, new_next_extent, mini->types[batch]);
@@ -736,12 +791,16 @@ mini_attach_extent(mini_allocator *mini, uint64 batch, uint64 addr)
       mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
       return rc;
    }
-   rc = mini_append_entry(mini, batch, addr);
+   rc = mini_append_entry(mini, batch, addr, mini->types[batch], 0, 1, NULL);
    if (!SUCCESS(rc)) {
       (void)allocator_dec_ref(mini->al, addr, mini->types[batch]);
       mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
       return rc;
    }
+   /* Memtable fullness bounds referenced data, even when extents are shared.
+    * Charge each successfully recorded reference, not just fresh allocations.
+    */
+   __sync_fetch_and_add(&mini->num_extents, 1);
    mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
    return STATUS_OK;
 }
@@ -974,13 +1033,14 @@ mini_validate_metadata_stream(cache *cc, uint64 meta_head, page_type type)
    return mini_for_each_meta_page(cc, meta_head, type, NULL, NULL, NULL);
 }
 
-/* mini_for_each(): call a function on each allocated extent in the
- * mini_allocator (not including the extents used by the mini_allocator itself).
+/* mini_for_each(): visit owned extents and blob roots in one metadata pass
+ * (not including the extents used by the mini allocator itself).
  */
-typedef void (*mini_for_each_fn)(cache    *cc,
-                                 page_type type,
-                                 uint64    extent_addr,
-                                 void     *arg);
+typedef platform_status (*mini_for_each_fn)(cache    *cc,
+                                            page_type type,
+                                            uint64    extent_addr,
+                                            uint64    height,
+                                            void     *arg);
 
 typedef struct for_each_func {
    mini_for_each_fn func;
@@ -993,16 +1053,18 @@ mini_for_each_meta_page_func(cache       *cc,
                              page_handle *meta_page,
                              void        *arg)
 {
-   for_each_func *fef = (for_each_func *)arg;
-
-   uint64      num_meta_entries = mini_num_entries(meta_page);
-   meta_entry *entry            = first_entry(meta_page);
-   for (uint64 i = 0; i < num_meta_entries; i++) {
-      fef->func(cc,
-                meta_entry_type(entry),
-                meta_entry_extent_addr(cc, entry),
-                fef->arg);
-      entry = next_entry(entry);
+   for_each_func *fef         = arg;
+   uint64         num_entries = mini_num_entries(meta_page);
+   meta_entry    *entry       = first_entry(meta_page);
+   for (uint64 i = 0; i < num_entries; i++, entry = next_entry(entry)) {
+      platform_status rc = fef->func(cc,
+                                     meta_entry_type(entry),
+                                     meta_entry_extent_addr(cc, entry),
+                                     meta_entry_height(entry),
+                                     fef->arg);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
    return STATUS_OK;
 }
@@ -1018,7 +1080,6 @@ mini_for_each(cache           *cc,
    return mini_for_each_meta_page(
       cc, meta_head, type, NULL, mini_for_each_meta_page_func, &fef);
 }
-
 
 /*
  *-----------------------------------------------------------------------------
@@ -1043,9 +1104,16 @@ mini_inc_ref(cache *cc, uint64 meta_head)
       cache_get_allocator(cc), base_addr(cc, meta_head), NULL);
 }
 
-static void
-mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
+static platform_status
+mini_dealloc_extent(cache    *cc,
+                    page_type type,
+                    uint64    base_addr,
+                    uint64    height,
+                    void     *out)
 {
+   if (type == PAGE_TYPE_BLOB) {
+      return blob_ref_release(cc, blob_ref_create(base_addr, height));
+   }
    allocator *al  = cache_get_allocator(cc);
    refcount   ref = allocator_dec_ref(al, base_addr, type);
    if (ref == AL_NO_REFS) {
@@ -1055,6 +1123,7 @@ mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
    } else {
       platform_assert(ref != AL_FREE);
    }
+   return STATUS_OK;
 }
 
 refcount
@@ -1095,7 +1164,8 @@ mini_dec_ref(cache *cc, uint64 meta_head, page_type type)
  *-----------------------------------------------------------------------------
  * mini_prefetch --
  *
- *      Prefetches all extents in the mini allocator.
+ *      Prefetches ordinary extents and blob roots recorded by the mini
+ *      allocator. Blob descendants are read ahead by the blob iterator.
  *
  * Results:
  *      None.
@@ -1104,10 +1174,15 @@ mini_dec_ref(cache *cc, uint64 meta_head, page_type type)
  *      Standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-static void
-mini_prefetch_extent(cache *cc, page_type type, uint64 base_addr, void *out)
+static platform_status
+mini_prefetch_extent(cache    *cc,
+                     page_type type,
+                     uint64    base_addr,
+                     uint64    height,
+                     void     *out)
 {
    cache_prefetch(cc, base_addr, type);
+   return STATUS_OK;
 }
 
 void
@@ -1203,7 +1278,9 @@ mini_validate_meta_header(const mini_meta_hdr *hdr,
 
    uint64 expected_pos =
       first_entry_offset + (uint64)hdr->num_entries * sizeof(meta_entry);
-   if (hdr->pos != expected_pos) {
+   if (hdr->pos != expected_pos || hdr->num_charged_extents < hdr->num_entries
+       || (hdr->num_entries == 0 && hdr->num_charged_extents != 0))
+   {
       return mini_metadata_corruption("metadata entry position is invalid",
                                       meta_addr);
    }
@@ -1278,13 +1355,14 @@ mini_validate_meta_entry(const allocator_config *cfg,
                          const meta_entry       *entry,
                          uint64                  meta_addr)
 {
-   uint64    batch       = meta_entry_batch(entry);
-   page_type extent_type = meta_entry_type(entry);
-   uint64    extent_number =
-      entry->packed >> (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS);
+   uint64    batch         = meta_entry_batch(entry);
+   page_type extent_type   = meta_entry_type(entry);
+   uint64    extent_number = entry->packed >> (META_ENTRY_EXTENT_SHIFT);
 
    if (batch >= MINI_MAX_BATCHES || extent_type < PAGE_TYPE_FIRST
-       || extent_type >= NUM_PAGE_TYPES || extent_number == 0
+       || extent_type >= NUM_PAGE_TYPES
+       || (extent_type != PAGE_TYPE_BLOB && meta_entry_height(entry) != 0)
+       || extent_number == 0
        || extent_number > UINT64_MAX / cfg->io_cfg->extent_size)
    {
       return mini_metadata_corruption("metadata extent entry is invalid",
@@ -1396,7 +1474,8 @@ mini_recover_visit_meta_extent(cache    *cc,
                                uint64    extent_addr,
                                void     *arg)
 {
-   mini_recover_state *state = (mini_recover_state *)arg;
+   for_each_func      *visitor = arg;
+   mini_recover_state *state   = visitor->arg;
 
    if (!mini_metadata_valid_extent_addr(state->cfg, extent_addr)) {
       return mini_metadata_corruption("metadata extent is out of range",
@@ -1405,38 +1484,18 @@ mini_recover_visit_meta_extent(cache    *cc,
    return allocator_recovery_record_reference(state->al, extent_addr, type);
 }
 
-/*
- * The "func" hook mini_for_each_meta_page() calls once per meta page, with the
- * page held. Validates the page and every data-extent entry on it before
- * trusting any of it, and records a reference for each data extent found (its
- * type is self-describing on disk, unlike a meta page's).
- */
 static platform_status
-mini_recover_visit_meta_page(cache       *cc,
-                             page_type    type,
-                             page_handle *meta_page,
-                             void        *arg)
+mini_recover_extent(cache    *cc,
+                    page_type type,
+                    uint64    extent_addr,
+                    uint64    height,
+                    void     *arg)
 {
-   mini_recover_state *state = (mini_recover_state *)arg;
-   (void)type;
-
-   mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(meta_page);
-
-   meta_entry *entry = first_entry(meta_page);
-   for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
-      page_type extent_type = meta_entry_type(entry);
-      uint64    extent_addr = meta_entry_extent_addr(cc, entry);
-
-      platform_status rc = allocator_recovery_record_reference(
-         state->al, extent_addr, extent_type);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-
-      entry = next_entry(entry);
-   }
-
-   return STATUS_OK;
+   mini_recover_state *state = arg;
+   return type == PAGE_TYPE_BLOB
+             ? blob_ref_recover(cc, blob_ref_create(extent_addr, height))
+             : allocator_recovery_record_reference(
+                  state->al, extent_addr, type);
 }
 
 /*
@@ -1446,16 +1505,16 @@ mini_recover_visit_meta_page(cache       *cc,
  *     trusting allocator refcounts -- the discovery primitive crash recovery
  *     uses to reconstruct them. Records one reference for every metadata
  *     extent and every data-extent entry found in the on-disk mini metadata
- *     stream (data entries are not deduplicated: repeated entries mean
- *     repeated references, and are recorded exactly as often as they occur).
+ *     stream. Repeated extent and blob-root records represent repeated incoming
+ *     references. A shared blob pointer extent's children are enumerated once.
  *
  *     meta_type is the page type of meta_head's own chain; each data extent's
  *     type is read from its own metadata entry.
  *
  *     Validates the metadata-page chain, page-header bounds, page types,
  *     batches, and extent addresses before using them. A malformed on-disk
- *     stream returns STATUS_INVALID_STATE. This function performs no writes
- *     and does not use allocator refcounts to decide what to traverse.
+ *     stream returns STATUS_INVALID_STATE. This function performs no writes;
+ *     blob recovery uses rebuilt refcounts to discover each subtree once.
  *
  *     This is a physical enumeration only. Recovering logical reference
  *     multiplicity, and deduplicating references shared by distinct mini
@@ -1482,14 +1541,15 @@ mini_recover_allocations(cache *cc, uint64 meta_head, page_type meta_type)
       return mini_metadata_corruption("metadata head is not a page", meta_head);
    }
 
-   mini_recover_state state = {.al = al, .cfg = cfg};
+   mini_recover_state state   = {.al = al, .cfg = cfg};
+   for_each_func      visitor = {mini_recover_extent, &state};
 
    return mini_for_each_meta_page(cc,
                                   meta_head,
                                   meta_type,
                                   mini_recover_visit_meta_extent,
-                                  mini_recover_visit_meta_page,
-                                  &state);
+                                  mini_for_each_meta_page_func,
+                                  &visitor);
 }
 
 platform_status
@@ -1569,8 +1629,7 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
    uint64 target_extent_number = target_extent_addr / cfg->io_cfg->extent_size;
    while (cursor->entry_idx < cursor->num_entries) {
       meta_entry *entry = first_entry(&cursor->meta_page) + cursor->entry_idx;
-      uint64      extent_number =
-         entry->packed >> (META_ENTRY_BATCH_BITS + META_ENTRY_TYPE_BITS);
+      uint64      extent_number = entry->packed >> (META_ENTRY_EXTENT_SHIFT);
       if (extent_number == target_extent_number) {
          /* The scan only compares fixed-width extent numbers. Validate the
           * matching entry before exposing its remaining fields through curr;
@@ -1610,7 +1669,9 @@ mini_meta_cursor_deinit(mini_meta_cursor *cursor)
 void
 mini_meta_cursor_curr(mini_meta_cursor *cursor,
                       uint64           *extent_addr,
-                      uint64           *batch)
+                      uint64           *batch,
+                      page_type        *type,
+                      uint64           *height)
 {
    platform_assert(cursor != NULL);
    platform_assert(cursor->cc != NULL);
@@ -1624,14 +1685,21 @@ mini_meta_cursor_curr(mini_meta_cursor *cursor,
    meta_entry *entry = first_entry(&cursor->meta_page) + cursor->entry_idx;
    *extent_addr      = meta_entry_extent_addr(cursor->cc, entry);
    *batch            = meta_entry_batch(entry);
+   if (type != NULL) {
+      *type = meta_entry_type(entry);
+   }
+   if (height != NULL) {
+      *height = meta_entry_height(entry);
+   }
 }
 
-mini_meta_cursor_status
-mini_meta_cursor_next(mini_meta_cursor *cursor)
+static mini_meta_cursor_status
+mini_meta_cursor_next_internal(mini_meta_cursor *cursor)
 {
    if (cursor == NULL || cursor->cc == NULL
        || page_handle_is_null(&cursor->meta_page)
-       || cursor->entry_idx >= cursor->num_entries)
+       || (cursor->num_entries != 0
+           && cursor->entry_idx >= cursor->num_entries))
    {
       return MINI_META_CURSOR_INVALID;
    }
@@ -1646,6 +1714,7 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_ENTRY;
    }
 
+next_page:;
    uint64 next_meta_addr = mini_get_next_meta_addr(&cursor->meta_page);
    if (next_meta_addr == 0) {
       return MINI_META_CURSOR_END;
@@ -1681,7 +1750,7 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
                                        cursor->meta_page_no + 1,
                                        TRUE);
    uint64 next_num_entries = SUCCESS(rc) ? mini_num_entries(next_page) : 0;
-   if (!SUCCESS(rc) || next_num_entries == 0) {
+   if (!SUCCESS(rc)) {
       cache_unget(cursor->cc, next_page);
       return MINI_META_CURSOR_INVALID;
    }
@@ -1692,18 +1761,22 @@ mini_meta_cursor_next(mini_meta_cursor *cursor)
    cursor->meta_page_no++;
    cursor->num_entries = next_num_entries;
    cursor->entry_idx   = 0;
+   if (next_num_entries == 0) {
+      goto next_page;
+   }
    if (!SUCCESS(mini_meta_cursor_validate_entry(cursor, 0))) {
       return MINI_META_CURSOR_INVALID;
    }
    return MINI_META_CURSOR_ENTRY;
 }
 
-mini_meta_cursor_status
-mini_meta_cursor_prev(mini_meta_cursor *cursor)
+static mini_meta_cursor_status
+mini_meta_cursor_prev_internal(mini_meta_cursor *cursor)
 {
    if (cursor == NULL || cursor->cc == NULL
        || page_handle_is_null(&cursor->meta_page)
-       || cursor->entry_idx >= cursor->num_entries)
+       || (cursor->num_entries != 0
+           && cursor->entry_idx >= cursor->num_entries))
    {
       return MINI_META_CURSOR_INVALID;
    }
@@ -1718,6 +1791,7 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
       return MINI_META_CURSOR_ENTRY;
    }
 
+prev_page:;
    mini_meta_hdr *hdr = (mini_meta_hdr *)page_handle_data(&cursor->meta_page);
    uint64         prev_addr = hdr->prev_meta_addr;
    if (prev_addr == 0) {
@@ -1755,9 +1829,7 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
       rc = mini_validate_next_meta_addr(
          cfg, page_handle_addr(prev_page), prev_hdr->next_meta_addr);
    }
-   if (!SUCCESS(rc) || prev_hdr->next_meta_addr != cursor->meta_addr
-       || prev_num_entries == 0)
-   {
+   if (!SUCCESS(rc) || prev_hdr->next_meta_addr != cursor->meta_addr) {
       cache_unget(cursor->cc, prev_page);
       return MINI_META_CURSOR_INVALID;
    }
@@ -1767,18 +1839,66 @@ mini_meta_cursor_prev(mini_meta_cursor *cursor)
    cursor->meta_addr = prev_addr;
    cursor->meta_page_no--;
    cursor->num_entries = prev_num_entries;
-   cursor->entry_idx   = cursor->num_entries - 1;
+   cursor->entry_idx   = prev_num_entries ? prev_num_entries - 1 : 0;
+   if (prev_num_entries == 0) {
+      goto prev_page;
+   }
    if (!SUCCESS(mini_meta_cursor_validate_entry(cursor, cursor->entry_idx))) {
       return MINI_META_CURSOR_INVALID;
    }
    return MINI_META_CURSOR_ENTRY;
 }
 
-static void
-space_use_add_extent(cache *cc, page_type type, uint64 extent_addr, void *out)
+/* Cross-page movement uses a temporary cursor so skipped blob-only pages do
+ * not change curr() on END, WOULD_BLOCK, or corruption. */
+static mini_meta_cursor_status
+mini_meta_cursor_move(mini_meta_cursor *cursor, bool32 forward)
 {
-   uint64 *sum = (uint64 *)out;
-   *sum += cache_extent_size(cc);
+   if (cursor == NULL || cursor->cc == NULL
+       || page_handle_is_null(&cursor->meta_page)
+       || cursor->entry_idx >= cursor->num_entries)
+   {
+      return MINI_META_CURSOR_INVALID;
+   }
+   if ((forward && cursor->entry_idx + 1 < cursor->num_entries)
+       || (!forward && cursor->entry_idx > 0))
+   {
+      return forward ? mini_meta_cursor_next_internal(cursor)
+                     : mini_meta_cursor_prev_internal(cursor);
+   }
+   mini_meta_cursor candidate = *cursor;
+   candidate.meta_page        = (page_handle){0};
+   platform_status rc         = cache_get(cursor->cc,
+                                  cursor->meta_addr,
+                                  FALSE,
+                                  cursor->meta_type,
+                                  &candidate.meta_page);
+   if (!SUCCESS(rc)) {
+      return STATUS_IS_EQ(rc, STATUS_BUSY) ? MINI_META_CURSOR_WOULD_BLOCK
+                                           : MINI_META_CURSOR_INVALID;
+   }
+   mini_meta_cursor_status status =
+      forward ? mini_meta_cursor_next_internal(&candidate)
+              : mini_meta_cursor_prev_internal(&candidate);
+   if (status == MINI_META_CURSOR_ENTRY) {
+      mini_meta_cursor_deinit(cursor);
+      *cursor = candidate;
+   } else {
+      mini_meta_cursor_deinit(&candidate);
+   }
+   return status;
+}
+
+mini_meta_cursor_status
+mini_meta_cursor_next(mini_meta_cursor *cursor)
+{
+   return mini_meta_cursor_move(cursor, TRUE);
+}
+
+mini_meta_cursor_status
+mini_meta_cursor_prev(mini_meta_cursor *cursor)
+{
+   return mini_meta_cursor_move(cursor, FALSE);
 }
 
 static platform_status
@@ -1787,8 +1907,17 @@ space_use_add_meta_page(cache       *cc,
                         page_handle *meta_page,
                         void        *out)
 {
-   uint64 *sum = (uint64 *)out;
-   *sum += cache_page_size(cc);
+   uint64        *sum         = out;
+   mini_meta_hdr *hdr         = (mini_meta_hdr *)page_handle_data(meta_page);
+   uint64         page_size   = cache_page_size(cc);
+   uint64         extent_size = cache_extent_size(cc);
+   if (*sum > UINT64_MAX - page_size
+       || hdr->num_charged_extents
+             > (UINT64_MAX - *sum - page_size) / extent_size)
+   {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   *sum += page_size + hdr->num_charged_extents * extent_size;
    return STATUS_OK;
 }
 
@@ -1796,20 +1925,13 @@ platform_status
 mini_space_use_bytes(cache *cc, uint64 meta_head, page_type type, uint64 *bytes)
 {
    uint64          total = 0;
-   platform_status rc =
-      mini_for_each(cc, meta_head, type, space_use_add_extent, &total);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   rc = mini_for_each_meta_page(
+   platform_status rc    = mini_for_each_meta_page(
       cc, meta_head, type, NULL, space_use_add_meta_page, &total);
-   if (!SUCCESS(rc)) {
-      return rc;
+   if (SUCCESS(rc)) {
+      *bytes = total;
    }
-   *bytes = total;
-   return STATUS_OK;
+   return rc;
 }
-
 
 /*
  *-----------------------------------------------------------------------------
@@ -1859,10 +1981,11 @@ mini_print(cache *cc, uint64 meta_head, page_type type)
       uint64      num_entries = mini_num_entries(meta_page);
       meta_entry *entry       = first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
-         platform_default_log("| %3lu | %35lu | %s\n",
+         platform_default_log("| %3lu | %35lu | %s height=%lu\n",
                               i,
                               meta_entry_extent_addr(cc, entry),
-                              page_type_str[meta_entry_type(entry)]);
+                              page_type_str[meta_entry_type(entry)],
+                              meta_entry_height(entry));
          entry = next_entry(entry);
       }
       platform_default_log("|-------------------------------------------|\n");

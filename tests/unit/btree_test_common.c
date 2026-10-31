@@ -69,5 +69,8 @@ init_btree_config_from_master_config(btree_config  *dbtree_cfg,
                                      data_config   *data_cfg)
 {
    btree_config_init(dbtree_cfg, cache_cfg, data_cfg);
-   return 1;
+   dbtree_cfg->blob_cfg.blob_max_descriptor_size =
+      master_cfg->blob_max_descriptor_size;
+   dbtree_cfg->blob_key_prefix_size = master_cfg->blob_key_prefix_size;
+   return SUCCESS(btree_config_validate(dbtree_cfg));
 }

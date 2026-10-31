@@ -30,6 +30,7 @@ typedef struct ONDISK test_mini_meta_hdr {
    uint64 meta_page_no;
    uint64 pos;
    uint32 num_entries;
+   uint64 num_charged_extents;
    uint16 format_version;
    char   entry_buffer[];
 } test_mini_meta_hdr;
@@ -424,10 +425,11 @@ test_filter_malicious_metadata(cache           *cc,
    memset(page_handle_data(second_meta_page), 0, page_size);
    test_mini_meta_hdr *second_meta_hdr =
       (test_mini_meta_hdr *)page_handle_data(second_meta_page);
-   second_meta_hdr->format_version = MINI_ALLOCATOR_FORMAT_VERSION;
-   second_meta_hdr->prev_meta_addr = filter.meta_head;
-   second_meta_hdr->meta_page_no   = 1;
-   second_meta_hdr->num_entries    = 1;
+   second_meta_hdr->format_version      = MINI_ALLOCATOR_FORMAT_VERSION;
+   second_meta_hdr->prev_meta_addr      = filter.meta_head;
+   second_meta_hdr->meta_page_no        = 1;
+   second_meta_hdr->num_entries         = 1;
+   second_meta_hdr->num_charged_extents = 1;
    second_meta_hdr->pos =
       offsetof(test_mini_meta_hdr, entry_buffer) + sizeof(test_mini_meta_entry);
    *(test_mini_meta_entry *)second_meta_hdr->entry_buffer = head_entry;
@@ -554,6 +556,25 @@ test_filter_malicious_metadata(cache           *cc,
    entry      = (test_mini_meta_entry *)meta_hdr->entry_buffer;
    uint64 saved_entry = entry->packed;
    entry->packed      = (saved_entry & ~UINT64_C(0xff)) | UINT64_C(0xff);
+   test_filter_unclaim_page(cc, meta_page);
+   cursor_rc = mini_meta_cursor_init(
+      &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);
+   mini_meta_cursor_deinit(&cursor);
+   *meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr   = (test_mini_meta_hdr *)page_handle_data(meta_page);
+   entry      = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   entry->packed = saved_entry;
+   test_filter_unclaim_page(cc, meta_page);
+   if (cursor_rc != MINI_META_CURSOR_INVALID) {
+      rc = STATUS_TEST_FAILED;
+      goto out;
+   }
+
+   /* Non-blob entries may not smuggle a pointer height into the type byte. */
+   *meta_page = test_filter_claim_page(cc, filter.meta_head, PAGE_TYPE_FILTER);
+   meta_hdr   = (test_mini_meta_hdr *)page_handle_data(meta_page);
+   entry      = (test_mini_meta_entry *)meta_hdr->entry_buffer;
+   entry->packed = saved_entry | (UINT64_C(1) << 12);
    test_filter_unclaim_page(cc, meta_page);
    cursor_rc = mini_meta_cursor_init(
       &cursor, cc, PAGE_TYPE_FILTER, filter.meta_head, target_extent);

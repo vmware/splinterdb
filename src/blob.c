@@ -321,13 +321,35 @@ blob_fragment_for_offset(blob_page_iterator *iter)
 static void
 maybe_do_prefetch(blob_page_iterator *iter)
 {
-   uint64 curr_extent_num = iter->offset / iter->extent_size;
-   if (iter->pblob.height == 1 && iter->mode == BLOB_PAGE_ITERATOR_MODE_PREFETCH
-       && curr_extent_num + 1 < iter->pblob.num_extents)
+   if (iter->mode != BLOB_PAGE_ITERATOR_MODE_PREFETCH) {
+      return;
+   }
+   uint64 next = iter->offset / iter->extent_size + 1;
+   if (iter->pblob.height == 1) {
+      if (next < iter->pblob.num_extents) {
+         cache_prefetch(
+            iter->cc, iter->pblob.base->addrs[next], PAGE_TYPE_BLOB);
+      }
+      return;
+   }
+   uint64 count = iter->pblob.base->length / iter->extent_size
+                  + (iter->pblob.base->length % iter->extent_size != 0);
+   uint64 per_page = iter->page_size / sizeof(uint64);
+   /* The current lowest-level pointer page already contains the next address,
+    * except at page boundaries. Read-ahead never blocks on pointer metadata. */
+   if (next < count && next % per_page != 0
+       && !page_handle_is_null(&iter->index_pages[1]))
    {
-      cache_prefetch(iter->cc,
-                     iter->pblob.base->addrs[curr_extent_num + 1],
-                     PAGE_TYPE_BLOB);
+      uint64 addr;
+      memcpy(&addr,
+             page_handle_data(&iter->index_pages[1])
+                + (next % per_page) * sizeof(uint64),
+             sizeof(addr));
+      if (blob_extent_is_valid(iter->cc, addr)
+          && allocator_page_valid(cache_get_allocator(iter->cc), addr))
+      {
+         cache_prefetch(iter->cc, addr, PAGE_TYPE_BLOB);
+      }
    }
 }
 
@@ -375,25 +397,15 @@ blob_page_iterator_init(cache                  *cc,
    return STATUS_OK;
 }
 
-/*
- * This function must be kept in sync with the code that decides
- * whether to call cache_alloc in blob_build.c.
- *
- * The current policy is: The blob_build thread that gets the first
- * byte of any page is reponsible for calling cache_alloc on that
- * page.  If the thread gets only part of the page, then it calls
- * cache_alloc before calling mini_alloc_bytes_finish
- * (i.e. immediately after getting the page from the mini_allocator).
- *
- * Thus we need to call cache_alloc now only if we got the entire
- * page.  Any partial page that we got will have already been
- * cache_alloced by us (in blob_build) or by some other thread.
- */
+/* Whole-extent pages are initialized by the builder's iterator. Tail pages
+ * are initialized by the container's allocation callback before publication. */
 
 static bool
 should_alloc(blob_page_iterator *iter)
 {
-   return iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC
+   bool32 tail = iter->pblob.height == 1
+                 && iter->offset / iter->extent_size >= iter->pblob.num_extents;
+   return !tail && iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC
           && iter->fragment.offset == 0
           && (iter->page_size <= iter->fragment.length
               || can_round_up(iter->page_size, iter->pblob.base->length));
@@ -580,7 +592,9 @@ blob_validate(cache *cc, slice sblob)
 out:
    blob_page_iterator_deinit(&iter);
    XXH3_freeState(checksum_state);
-   return rc;
+   /* Check the terminator pages before log recovery admits this descriptor.
+    * They are ownership metadata even though the checksum covers only data. */
+   return SUCCESS(rc) ? blob_walk_extents(cc, sblob, TRUE, NULL, NULL) : rc;
 }
 
 platform_status
@@ -656,7 +670,7 @@ blob_walk_extent(cache               *cc,
    if (!blob_extent_is_valid(cc, addr)) {
       return STATUS_INVALID_STATE;
    }
-   platform_status rc = visit(cc, addr, arg);
+   platform_status rc = visit != NULL ? visit(cc, addr, arg) : STATUS_OK;
    if (!SUCCESS(rc) || height == 0) {
       return rc;
    }
@@ -690,6 +704,27 @@ blob_walk_extent(cache               *cc,
          break;
       }
       data_extents -= count;
+   }
+   /* Format 2 requires the physical child set to match the descriptor, even
+    * when its terminator occupies a page with no child pointers. */
+   if (SUCCESS(rc) && children < fanout) {
+      if (children % per_page == 0) {
+         if (!page_handle_is_null(page)) {
+            cache_unget(cc, page);
+            *page = (page_handle){0};
+         }
+         rc = blob_get_pointer_page(
+            cc, addr + children * sizeof(uint64), disk_only, page);
+      }
+      if (SUCCESS(rc)) {
+         uint64 terminator;
+         memcpy(&terminator,
+                page_handle_data(page) + (children % per_page) * sizeof(uint64),
+                sizeof(terminator));
+         if (terminator != 0) {
+            rc = STATUS_INVALID_STATE;
+         }
+      }
    }
    if (!page_handle_is_null(page)) {
       cache_unget(cc, page);
@@ -730,6 +765,150 @@ blob_walk_extents(cache               *cc,
    return STATUS_OK;
 }
 
+
+blob_ref
+blob_ref_create(uint64 addr, uint64 height)
+{
+   platform_assert(height < BLOB_MAX_HEIGHT);
+   return (blob_ref){addr, height};
+}
+
+blob_ref
+blob_get_ref(cache *cc, const parsed_blob *parsed, uint64 index)
+{
+   platform_assert(index < parsed->num_extents);
+   return blob_ref_create(parsed->base->addrs[index], parsed->height - 1);
+}
+
+platform_status
+blob_ref_validate(cache *cc, blob_ref ref)
+{
+   return blob_extent_is_valid(cc, ref.addr) && ref.height < BLOB_MAX_HEIGHT
+             ? STATUS_OK
+             : STATUS_INVALID_STATE;
+}
+
+uint64
+blob_root_num_extents(cache *cc, const parsed_blob *parsed, uint64 index)
+{
+   platform_assert(index < parsed->num_extents);
+   uint64 extent = cache_extent_size(cc);
+   uint64 count =
+      parsed->base->length / extent + (parsed->base->length % extent != 0);
+   count        = MIN(count - index * parsed->extent_span, parsed->extent_span);
+   uint64 total = count;
+   uint64 fanout = extent / sizeof(uint64);
+   for (uint64 level = 1; level < parsed->height; level++) {
+      count = count / fanout + (count % fanout != 0);
+      total += count;
+   }
+   return total;
+}
+
+/* Each pointer extent owns its outgoing edges once, irrespective of the number
+ * of references to that extent. Its zero terminator defines its child set;
+ * blob edits must rebuild any pointer extent whose child set changes. */
+static platform_status
+blob_ref_children(cache *cc, blob_ref ref, bool32 recovery)
+{
+   uint64 height = ref.height;
+   if (height == 0) {
+      return STATUS_OK;
+   }
+   uint64          fanout   = cache_extent_size(cc) / sizeof(uint64);
+   uint64          per_page = cache_page_size(cc) / sizeof(uint64);
+   page_handle     page     = {0};
+   platform_status rc       = STATUS_OK;
+   for (uint64 i = 0; i < fanout; i++) {
+      if (i % per_page == 0) {
+         if (!page_handle_is_null(&page)) {
+            cache_unget(cc, &page);
+            page = (page_handle){0};
+         }
+         rc = blob_get_pointer_page(
+            cc, ref.addr + i * sizeof(uint64), recovery, &page);
+         if (!SUCCESS(rc)) {
+            break;
+         }
+      }
+      uint64 addr;
+      memcpy(&addr,
+             page_handle_data(&page) + (i % per_page) * sizeof(uint64),
+             sizeof(addr));
+      if (addr == 0) {
+         break;
+      }
+      blob_ref child = blob_ref_create(addr, height - 1);
+      if (addr == ref.addr) {
+         rc = STATUS_INVALID_STATE;
+         break;
+      }
+      rc = recovery ? blob_ref_recover(cc, child) : blob_ref_release(cc, child);
+      if (!SUCCESS(rc)) {
+         break;
+      }
+   }
+   if (!page_handle_is_null(&page)) {
+      cache_unget(cc, &page);
+   }
+   return rc;
+}
+
+platform_status
+blob_ref_release(cache *cc, blob_ref ref)
+{
+   allocator      *al = cache_get_allocator(cc);
+   platform_status rc = blob_ref_validate(cc, ref);
+   if (SUCCESS(rc) && allocator_get_refcount(al, ref.addr) <= AL_NO_REFS) {
+      rc = STATUS_INVALID_STATE;
+   }
+   if (SUCCESS(rc)
+       && allocator_dec_ref(al, ref.addr, PAGE_TYPE_BLOB) == AL_NO_REFS)
+   {
+      rc = blob_ref_children(cc, ref, FALSE);
+      if (SUCCESS(rc)) {
+         cache_extent_discard(cc, ref.addr, PAGE_TYPE_BLOB);
+         refcount count = allocator_dec_ref(al, ref.addr, PAGE_TYPE_BLOB);
+         platform_assert(count == AL_FREE);
+      }
+   }
+   if (!SUCCESS(rc)) {
+      allocator_record_reclamation_failure(al, rc);
+   }
+   return rc;
+}
+
+platform_status
+blob_ref_recover(cache *cc, blob_ref ref)
+{
+   platform_status rc = blob_ref_validate(cc, ref);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   allocator *al    = cache_get_allocator(cc);
+   bool32     first = allocator_get_refcount(al, ref.addr) == AL_FREE;
+   rc = allocator_recovery_record_reference(al, ref.addr, PAGE_TYPE_BLOB);
+   return SUCCESS(rc) && first ? blob_ref_children(cc, ref, TRUE) : rc;
+}
+
+platform_status
+blob_release_refs(cache *cc, slice descriptor)
+{
+   parsed_blob     parsed;
+   platform_status rc = blob_parse_descriptor(cc, descriptor, &parsed);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   for (uint64 i = 0; i < parsed.num_extents; i++) {
+      platform_status release_rc =
+         blob_ref_release(cc, blob_get_ref(cc, &parsed, i));
+      if (SUCCESS(rc)) {
+         rc = release_rc;
+      }
+   }
+   return rc;
+}
+
 /*
  * Record one reference for the extent containing addr, unless something already
  * has.  See blob_recover_allocations().
@@ -758,7 +937,12 @@ blob_recover_allocations(cache *cc, slice sblob)
       return rc;
    }
 
-   rc = blob_walk_extents(cc, sblob, TRUE, blob_recover_extent, NULL);
+   for (uint64 i = 0; i < pblob.num_extents; i++) {
+      rc = blob_ref_recover(cc, blob_get_ref(cc, &pblob, i));
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
    if (!SUCCESS(rc)) {
       return rc;
    }

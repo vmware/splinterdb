@@ -411,7 +411,7 @@ test_btree_lookup(cache        *cc,
    lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
 
    rc = btree_lookup(
-      cc, cfg, root_addr, BTREE_BRANCH_FORMAT_VERSION, type, target, &result);
+      cc, cfg, root_addr, BTREE_DEFAULT_FORMAT, type, target, &result);
    platform_assert_status_ok(rc);
 
    message data =
@@ -649,7 +649,7 @@ test_btree_scan_once(cache        *cc,
                           btree_cfg,
                           &itor,
                           root_addr,
-                          BTREE_BRANCH_FORMAT_VERSION,
+                          BTREE_DEFAULT_FORMAT,
                           type,
                           &(const btree_iterator_init_options){
                              .lower_limit = key_greater_than_or_equal(min_key),
@@ -946,7 +946,7 @@ test_btree_scan_perf(cache                         *cc,
                             btree_cfg,
                             &itor,
                             root_addr,
-                            0,
+                            (btree_format){0},
                             PAGE_TYPE_MEMTABLE,
                             &(const btree_iterator_init_options){0});
    if (!SUCCESS(rc)) {
@@ -1174,7 +1174,7 @@ test_btree_async_lookup(cache                   *cc,
                                  cc,
                                  cfg,
                                  root_addr,
-                                 BTREE_BRANCH_FORMAT_VERSION,
+                                 BTREE_DEFAULT_FORMAT,
                                  type,
                                  target,
                                  &async_ctxt->result,
@@ -1245,7 +1245,7 @@ test_btree_lookup_status(cache        *cc,
    lookup_result result;
    lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    platform_status rc = btree_lookup(
-      cc, cfg, root_addr, BTREE_BRANCH_FORMAT_VERSION, type, target, &result);
+      cc, cfg, root_addr, BTREE_DEFAULT_FORMAT, type, target, &result);
    lookup_result_deinit(&result);
    return rc;
 }
@@ -1264,7 +1264,7 @@ test_btree_async_lookup_status(cache        *cc,
                                  cc,
                                  cfg,
                                  root_addr,
-                                 BTREE_BRANCH_FORMAT_VERSION,
+                                 BTREE_DEFAULT_FORMAT,
                                  type,
                                  target,
                                  &ctxt.result,
@@ -1330,7 +1330,7 @@ test_btree_iterator_init_status(cache        *cc,
          cfg,
          &itor,
          root_addr,
-         BTREE_BRANCH_FORMAT_VERSION,
+         BTREE_DEFAULT_FORMAT,
          PAGE_TYPE_BRANCH,
          &(const btree_iterator_init_options){
             .start_position = make_key_start_position(start_type, start_key)});
@@ -1347,7 +1347,7 @@ test_btree_iterator_init_status(cache        *cc,
                                    cfg,
                                    &itor,
                                    root_addr,
-                                   BTREE_BRANCH_FORMAT_VERSION,
+                                   BTREE_DEFAULT_FORMAT,
                                    PAGE_TYPE_BRANCH,
                                    greater_than_or_equal,
                                    NEGATIVE_INFINITY_KEY,
@@ -1423,7 +1423,7 @@ test_btree_query_validation(cache           *cc,
                           cfg,
                           &itor,
                           root_addr,
-                          BTREE_BRANCH_FORMAT_VERSION,
+                          BTREE_DEFAULT_FORMAT,
                           PAGE_TYPE_BRANCH,
                           &(const btree_iterator_init_options){0});
    if (!SUCCESS(rc) || !iterator_can_curr(&itor.super)) {
@@ -1560,7 +1560,7 @@ test_btree_query_validation(cache           *cc,
       cfg,
       &sequence_itor,
       root_addr,
-      BTREE_BRANCH_FORMAT_VERSION,
+      BTREE_DEFAULT_FORMAT,
       PAGE_TYPE_BRANCH,
       &(const btree_iterator_init_options){
          .start_position = key_start_at_or_after(key_buffer_key(&first_key))});
@@ -1696,8 +1696,8 @@ test_btree_query_validation(cache           *cc,
       child_idx = 0;
    }
    index_entry *index            = btree_get_index_entry(cfg, hdr, child_idx);
-   uint64       saved_child_addr = index->pivot_data.child_addr;
-   index->pivot_data.child_addr  = root_addr;
+   uint64       saved_child_addr = index->child_addr;
+   index->child_addr             = root_addr;
    test_btree_unclaim_page(cc, page);
 
    bool32 height_rejected =
@@ -1715,7 +1715,7 @@ test_btree_query_validation(cache           *cc,
       cfg,
       &height_itor,
       root_addr,
-      BTREE_BRANCH_FORMAT_VERSION,
+      BTREE_DEFAULT_FORMAT,
       PAGE_TYPE_BRANCH,
       &(const btree_iterator_init_options){
          .lower_limit = key_greater_than_or_equal(key_buffer_key(&touched_key)),
@@ -1727,10 +1727,10 @@ test_btree_query_validation(cache           *cc,
       btree_iterator_deinit(&height_itor);
    }
 
-   *page = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
-   hdr   = (btree_hdr *)page_handle_data(page);
-   index = btree_get_index_entry(cfg, hdr, child_idx);
-   index->pivot_data.child_addr = saved_child_addr;
+   *page             = test_btree_claim_page(cc, root_addr, PAGE_TYPE_BRANCH);
+   hdr               = (btree_hdr *)page_handle_data(page);
+   index             = btree_get_index_entry(cfg, hdr, child_idx);
+   index->child_addr = saved_child_addr;
    test_btree_unclaim_page(cc, page);
    if (!height_rejected || !iterator_rejected || !diagnostic_cycle_rejected
        || !test_btree_query_status_matches(cc,
@@ -1885,7 +1885,7 @@ test_btree_basic(cache             *cc,
                             btree_cfg,
                             &itor,
                             root_addr,
-                            0,
+                            (btree_format){0},
                             PAGE_TYPE_MEMTABLE,
                             &(const btree_iterator_init_options){0});
    platform_assert_status_ok(rc);
@@ -2069,7 +2069,7 @@ test_btree_create_packed_trees(cache             *cc,
                                btree_cfg,
                                &itor,
                                memtable_root_addr(mt),
-                               0,
+                               (btree_format){0},
                                PAGE_TYPE_MEMTABLE,
                                &(const btree_iterator_init_options){0});
       platform_assert_status_ok(rc);
@@ -2120,7 +2120,7 @@ test_count_tuples_in_range(cache        *cc,
          cfg,
          &itor,
          root_addr[i],
-         BTREE_BRANCH_FORMAT_VERSION,
+         BTREE_DEFAULT_FORMAT,
          type,
          &(const btree_iterator_init_options){
             .lower_limit        = key_greater_than_or_equal(low_key),
@@ -2217,7 +2217,7 @@ test_btree_print_all_keys(cache        *cc,
          cfg,
          &itor,
          root_addr[i],
-         BTREE_BRANCH_FORMAT_VERSION,
+         BTREE_DEFAULT_FORMAT,
          type,
          &(const btree_iterator_init_options){
             .lower_limit        = key_greater_than_or_equal(low_key),
@@ -2294,7 +2294,7 @@ test_btree_merge_basic(cache             *cc,
                                 btree_cfg,
                                 &btree_itor_arr[tree_no],
                                 root_addr[tree_no],
-                                BTREE_BRANCH_FORMAT_VERSION,
+                                BTREE_DEFAULT_FORMAT,
                                 PAGE_TYPE_BRANCH,
                                 &(const btree_iterator_init_options){
                                    .lower_limit = key_greater_than_or_equal(lo),
@@ -2434,7 +2434,7 @@ test_btree_count_in_range(cache             *cc,
       rc                        = btree_count_in_range(cc,
                                 btree_cfg,
                                 root_addr,
-                                BTREE_BRANCH_FORMAT_VERSION,
+                                BTREE_DEFAULT_FORMAT,
                                 min_key,
                                 max_key,
                                 &stats);
@@ -2523,7 +2523,7 @@ test_btree_rough_iterator(cache             *cc,
          btree_cfg,
          &rough_btree_itor[tree_no],
          root_addr[tree_no],
-         BTREE_BRANCH_FORMAT_VERSION,
+         BTREE_DEFAULT_FORMAT,
          PAGE_TYPE_BRANCH,
          &(const btree_iterator_init_options){
             .copy_nodes = TRUE, .height = 1, .prefetch_lookahead = 1});
@@ -2684,7 +2684,7 @@ test_btree_merge_perf(cache             *cc,
                btree_cfg,
                &btree_itor_arr[tree_no],
                root_addr[global_tree_no],
-               BTREE_BRANCH_FORMAT_VERSION,
+               BTREE_DEFAULT_FORMAT,
                PAGE_TYPE_BRANCH,
                &(const btree_iterator_init_options){
                                      .lower_limit        = key_greater_than_or_equal(min_key),

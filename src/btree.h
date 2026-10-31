@@ -13,7 +13,7 @@
 #include "platform_log.h"
 #include "platform_typed_alloc.h"
 #include "async.h"
-#include "blob_build.h"
+#include "mini_blob.h"
 #include "mini_allocator.h"
 #include "iterator.h"
 #include "lookup_result.h"
@@ -34,15 +34,20 @@
 #define BTREE_MAX_HEIGHT (8)
 
 /*
- * Immutable branch versions travel with the root address. Query and recovery
- * entry points validate the version before interpreting branch pages. The
- * Version 2 adds the common-prefix length to the page header and encodes
- * branch leaf keys as suffixes when that length is nonzero. The construction
- * opt-in is not required to read existing prefix-compressed leaves.
- * The version argument is ignored for PAGE_TYPE_MEMTABLE (an in-memory
- * structure).
+ * A branch pointer carries the version of the entire B-tree format and its
+ * fixed blob-key prefix length. Version 4 stores contiguous counters after
+ * each index key, with an entry flag selecting 32-bit or 64-bit fields.
  */
-#define BTREE_BRANCH_FORMAT_VERSION (2)
+#define BTREE_BRANCH_FORMAT_VERSION   (6)
+#define BTREE_DEFAULT_KEY_PREFIX_SIZE UINT64_C(256)
+
+typedef struct ONDISK btree_format {
+   uint16 version;
+   uint16 key_prefix_size;
+} btree_format;
+
+#define BTREE_DEFAULT_FORMAT                                                   \
+   ((btree_format){BTREE_BRANCH_FORMAT_VERSION, BTREE_DEFAULT_KEY_PREFIX_SIZE})
 
 /*
  * Mini-allocator uses separate batches for each height of the BTree.
@@ -68,7 +73,6 @@ _Static_assert(BTREE_MAX_HEIGHT + NUM_BLOB_BATCHES <= MINI_MAX_BATCHES,
  *
  * (This limit is indirectly 'disk-resident' as it affects the node's layout.)
  */
-#define MAX_INLINE_KEY_SIZE(page_size) ((page_size) / 8) // Bytes
 
 /*
  * Size of messages are limited so that a single split will always enable an
@@ -93,12 +97,27 @@ _Static_assert(BTREE_MAX_HEIGHT + NUM_BLOB_BATCHES <= MINI_MAX_BATCHES,
  *----------------------------------------------------------------------
  */
 typedef struct btree_config {
-   cache_config     *cache_cfg;
-   data_config      *data_cfg;
-   uint64            page_size;
-   uint64            extent_size;
-   blob_build_config blob_cfg;
+   cache_config    *cache_cfg;
+   data_config     *data_cfg;
+   uint64           page_size;
+   uint64           extent_size;
+   mini_blob_config blob_cfg;
+   uint64           blob_key_prefix_size;
+   cache *cc; /* Per-operation copy: used only for stored blob keys. */
 } btree_config;
+
+static inline btree_format
+btree_config_format(const btree_config *cfg)
+{
+   return (btree_format){
+      .version = BTREE_BRANCH_FORMAT_VERSION,
+      .key_prefix_size =
+         cfg->data_cfg->key_compare_is_lexical ? cfg->blob_key_prefix_size : 0,
+   };
+}
+
+platform_status
+btree_config_validate(const btree_config *cfg);
 
 typedef struct ONDISK btree_hdr btree_hdr;
 
@@ -133,8 +152,8 @@ btree_scratch_size(const btree_config *cfg)
  * Iterators at (height > 0) return this struct as a value for each pivot.
  * *************************************************************************
  */
-/* In-memory counters. Index entries retain the legacy narrow representation
- * unless a flagged high-word extension is needed; see btree_private.h. */
+/* In-memory counters are always 64-bit. The on-disk representation uses three
+ * contiguous 32-bit or 64-bit fields; see btree_private.h. */
 typedef struct btree_pivot_stats {
    uint64 num_kvs;
    uint64 key_bytes;
@@ -193,6 +212,7 @@ typedef struct btree_iterator {
    iterator            super;
    cache              *cc;
    const btree_config *cfg;
+   btree_config        local_cfg;
    uint32              height;
    page_type           page_type;
    // Active memtable iterators copy nodes here and release page locks.
@@ -229,6 +249,7 @@ typedef struct btree_pack_req {
    // inputs to the pack
    cache              *cc;
    const btree_config *cfg;
+   btree_config        local_cfg;
    iterator           *itor; // the itor which is being packed
    uint64              max_tuples;
    unsigned int        seed; // seed used for calculating filter_hash
@@ -242,14 +263,17 @@ typedef struct btree_pack_req {
    bool32            level_has_nodes[BTREE_MAX_HEIGHT];
    uint64            next_page_no[BTREE_MAX_HEIGHT];
    merge_accumulator blob_buffer;
+   key_buffer        key_blob_buffer;
+   bool32            leaf_has_blob_key; // Current packing leaf only.
 
    mini_allocator mini;
 
    // output of the compaction
-   uint64 root_addr;     // root address of the output tree
-   uint64 num_tuples;    // no. of tuples in the output tree
-   uint64 key_bytes;     // total size of keys in tuples of the output tree
-   uint64 message_bytes; // total size of msgs in tuples of the output tree
+   btree_format format;
+   uint64       root_addr;  // root address of the output tree
+   uint64       num_tuples; // no. of tuples in the output tree
+   uint64       key_bytes;  // total size of keys in tuples of the output tree
+   uint64 message_bytes;    // total size of msgs in tuples of the output tree
 } btree_pack_req;
 
 typedef platform_status (*btree_insert_callback_fn)(void *arg);
@@ -316,7 +340,7 @@ btree_create(cache              *cc,
  * also validate before reading pages. Refcount operations below require a
  * validated root or one freshly created by this module. */
 platform_status
-btree_validate_root(uint64 root_addr, uint16 format_version, page_type type);
+btree_validate_root(uint64 root_addr, btree_format format, page_type type);
 
 __attribute__((warn_unused_result)) platform_status
 btree_inc_ref(cache *cc, const btree_config *cfg, uint64 root_addr);
@@ -331,7 +355,7 @@ platform_status
 btree_get_root_height(cache              *cc,
                       const btree_config *cfg,
                       uint64              root_addr,
-                      uint16              format_version,
+                      btree_format        format,
                       page_type           type,
                       uint32             *height);
 
@@ -343,7 +367,7 @@ platform_status
 btree_recover_allocations(cache              *cc,
                           const btree_config *cfg,
                           uint64              root_addr,
-                          uint16              format_version,
+                          btree_format        format,
                           page_type           type);
 
 void
@@ -353,7 +377,7 @@ platform_status
 btree_lookup(cache         *cc,
              btree_config  *cfg,
              uint64         root_addr,
-             uint16         format_version,
+             btree_format   format,
              page_type      type,
              key            target,
              lookup_result *result);
@@ -368,9 +392,9 @@ platform_status
 btree_lookup_and_merge(cache              *cc,
                        const btree_config *cfg,
                        uint64              root_addr,
-                       uint16              format_version,
+                       btree_format        format,
                        page_type           type,
-                       key                 target,
+                       const key          *target,
                        lookup_result      *result,
                        bool32             *local_found);
 
@@ -389,13 +413,14 @@ DEFINE_ASYNC_STATE(btree_lookup_async_state, 3,
    param, cache *,                      cc,
    param, const btree_config *,         cfg,
    param, uint64,                       root_addr,
-   param, uint16,                       format_version,
+   param, btree_format,                 format,
    param, page_type,                    type,
    param, key,                          target,
    param, lookup_result *,              result,
    param, async_callback_fn,            callback,
    param, void *,                       callback_arg,
    local, platform_status,              __async_result,
+   local, btree_config,                 local_cfg,
    local, uint16,                       stop_at_height,
    local, btree_pivot_stats *,          stats,
    local, bool32,                       get_node,
@@ -410,18 +435,18 @@ btree_lookup_and_merge_async_state_init(btree_lookup_async_state *state,
                                         cache                    *cc,
                                         const btree_config       *cfg,
                                         uint64                    root_addr,
-                                        uint16            format_version,
-                                        page_type         type,
-                                        key               target,
-                                        lookup_result    *result,
-                                        async_callback_fn callback,
-                                        void             *callback_arg)
+                                        btree_format              format,
+                                        page_type                 type,
+                                        key                       target,
+                                        lookup_result            *result,
+                                        async_callback_fn         callback,
+                                        void                     *callback_arg)
 {
    btree_lookup_async_state_init(state,
                                  cc,
                                  cfg,
                                  root_addr,
-                                 format_version,
+                                 format,
                                  type,
                                  target,
                                  result,
@@ -455,7 +480,7 @@ btree_iterator_init(cache                             *cc,
                     const btree_config                *cfg,
                     btree_iterator                    *itor,
                     uint64                             root_addr,
-                    uint16                             format_version,
+                    btree_format                       format,
                     page_type                          page_type,
                     const btree_iterator_init_options *options);
 
@@ -465,7 +490,7 @@ DEFINE_ASYNC_STATE(btree_iterator_async_state, 6,
    param, const btree_config *,         cfg,
    param, btree_iterator *,             itor,
    param, uint64,                       root_addr,
-   param, uint16,                       format_version,
+   param, btree_format,                 format,
    param, page_type,                    type,
    param, comparison,                   min_key_comparison,
    param, key,                          min_key,
@@ -530,15 +555,25 @@ btree_pack_req_init_full(btree_pack_req                    *req,
                          platform_heap_id                   hid,
                          const btree_pack_req_init_options *options)
 {
-   unsigned int seed                 = options->seed;
-   bool32       collect_fingerprints = options->collect_fingerprints;
+   unsigned int    seed = options->seed;
+   platform_status rc   = btree_config_validate(cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   bool32 collect_fingerprints = options->collect_fingerprints;
    memset(req, 0, sizeof(*req));
-   req->cc         = cc;
-   req->cfg        = cfg;
+   req->cc           = cc;
+   req->local_cfg    = *cfg;
+   req->local_cfg.cc = cc;
+   req->local_cfg.blob_key_prefix_size =
+      btree_config_format(cfg).key_prefix_size;
+   req->cfg        = &req->local_cfg;
    req->itor       = itor;
    req->max_tuples = max_tuples;
    req->seed       = seed;
+   req->format     = btree_config_format(cfg);
    merge_accumulator_init(&req->blob_buffer, hid);
+   key_buffer_init(&req->key_blob_buffer, hid);
    if (collect_fingerprints && cfg->data_cfg->key_hash != NULL
        && max_tuples > 0)
    {
@@ -558,6 +593,7 @@ static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
    merge_accumulator_deinit(&req->blob_buffer);
+   key_buffer_deinit(&req->key_blob_buffer);
    if (req->fingerprint_arr) {
       platform_free(hid, req->fingerprint_arr);
    }
@@ -570,7 +606,7 @@ platform_status
 btree_count_in_range(cache              *cc,
                      const btree_config *cfg,
                      uint64              root_addr,
-                     uint16              format_version,
+                     btree_format        format,
                      key                 min_key,
                      key                 max_key,
                      btree_pivot_stats  *stats);
@@ -579,7 +615,7 @@ platform_status
 btree_count_in_range_by_iterator(cache             *cc,
                                  btree_config      *cfg,
                                  uint64             root_addr,
-                                 uint16             format_version,
+                                 btree_format       format,
                                  key                min_key,
                                  key                max_key,
                                  btree_pivot_stats *stats);
@@ -644,13 +680,42 @@ btree_config_init(btree_config *btree_cfg,
                   cache_config *cache_cfg,
                   data_config  *data_cfg);
 
+platform_status
+btree_key_validate(const btree_config *cfg, key k);
+
+platform_status
+btree_key_materialize(const btree_config *cfg, key k, key_buffer *result);
+
+platform_status
+btree_key_encode(const btree_config *cfg,
+                 mini_allocator     *mini,
+                 key                 logical,
+                 key_buffer         *result);
+
+platform_status
+btree_blob_key_compare(const btree_config *cfg, key a, key b, int *cmp);
+
+/* Keep ordinary comparisons in the caller; only blob keys need fallible I/O. */
+static inline platform_status
+btree_key_compare_checked(const btree_config *cfg, key a, key b, int *cmp)
+{
+   if (!a.is_blob && !b.is_blob) {
+      *cmp = data_key_compare(cfg->data_cfg, a, b);
+      return STATUS_OK;
+   }
+   return btree_blob_key_compare(cfg, a, b, cmp);
+}
+
 // robj: I propose making all the following functions private to
 // btree.c
 
 static inline int
 btree_key_compare(const btree_config *cfg, key key1, key key2)
 {
-   return data_key_compare(cfg->data_cfg, key1, key2);
+   int             cmp;
+   platform_status rc = btree_key_compare_checked(cfg, key1, key2, &cmp);
+   platform_assert_status_ok(rc);
+   return cmp;
 }
 
 static inline void

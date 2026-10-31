@@ -10,9 +10,9 @@
 #include "util.h"
 #include "writeback_set.h"
 
-#define BLOB_FORMAT        UINT16_C(1)
+#define BLOB_FORMAT        UINT16_C(2)
 #define BLOB_CHECKSUM_SEED UINT64_C(0x424C4F424353554D)
-#define BLOB_MAX_HEIGHT    64
+#define BLOB_MAX_HEIGHT    16
 
 typedef struct ONDISK blob {
    uint64      length;
@@ -44,6 +44,44 @@ typedef struct parsed_blob {
    uint64            num_extents;
    parsed_blob_entry leftovers[3];
 } parsed_blob;
+
+/* In-memory ownership reference to an immutable whole-extent subtree.
+ * Height zero is data; higher extents contain child pointers terminated by
+ * zero, unless completely full. Packed tails belong to their container.
+ * Keep the owning container alive, or clone into another container. */
+typedef struct blob_ref {
+   uint64 addr;
+   uint64 height;
+} blob_ref;
+
+blob_ref
+blob_ref_create(uint64 addr, uint64 height);
+
+blob_ref
+blob_get_ref(cache *cc, const parsed_blob *parsed, uint64 index);
+
+platform_status
+blob_ref_validate(cache *cc, blob_ref ref);
+
+/* Whole extents charged to this descriptor root, including pointer extents.
+ * Counts shared storage again and uses descriptor geometry without I/O. */
+uint64
+blob_root_num_extents(cache *cc, const parsed_blob *parsed, uint64 index);
+
+/* Consumes the reference, including on failure. Failed reclamation is recorded
+ * with the allocator and must not be retried. Never touches packed tails. */
+platform_status
+blob_ref_release(cache *cc, blob_ref ref);
+
+/* Count this incoming edge, and discover outgoing edges only on first visit.
+ * Only valid during an allocator recovery rebuild. */
+platform_status
+blob_ref_recover(cache *cc, blob_ref ref);
+
+/* Release the whole-extent references of a successfully built, unadopted
+ * descriptor. Tail allocations remain owned by the destination container. */
+platform_status
+blob_release_refs(cache *cc, slice descriptor);
 
 typedef struct page_fragment {
    uint64 addr;
@@ -147,12 +185,14 @@ blob_writeback(cache *cc, slice sblob, writeback_set *set);
 /* Preorder walk of whole extents, including intermediate pointer extents.
  * The callback runs before an extent is read, permitting recovery to mark it.
  * Packed tails are excluded. disk_only checks pointer-page readability before
- * strict reads. Child counts and depth come only from the descriptor's shape.
+ * strict reads. Descriptor geometry bounds traversal; each partial pointer
+ * extent must terminate at the expected zero slot.
  */
 typedef platform_status (*blob_extent_callback)(cache *cc,
                                                 uint64 addr,
                                                 void  *arg);
 
+/* A NULL visitor validates pointer topology and terminators only. */
 platform_status
 blob_walk_extents(cache               *cc,
                   slice                sblob,
@@ -160,20 +200,9 @@ blob_walk_extents(cache               *cc,
                   blob_extent_callback visit,
                   void                *arg);
 
-/*
- * Record the allocator references this blob's storage holds, for a crash-
- * recovery rebuild.  Call between allocator_recovery_begin() and
- * allocator_recovery_finish().
- *
- * Marks each intermediate extent before reading it, then follows its children.
- * Stops at the first bad address or absent pointer page. References recorded
- * before failure remain conservative reservations until the root-only rebuild.
- *
- * Records at most one reference per extent, skipping any that already has one.
- * That is the correct count and not merely deduplication: an extent gets a
- * single reference when its mini allocator hands it out, and blobs share
- * extents -- one holds the tails of many -- so counting per blob would leave
- * extents referenced several times over and never freed.
- */
+/* Recover one container-owned descriptor from a validated log record. Whole
+ * extent roots count incoming edges; pointer descendants are enumerated once.
+ * Tail extents are reserved once because packed tails share container storage.
+ * Call only during an allocator recovery rebuild. */
 platform_status
 blob_recover_allocations(cache *cc, slice sblob);

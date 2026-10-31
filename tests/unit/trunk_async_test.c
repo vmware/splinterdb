@@ -20,7 +20,9 @@ typedef struct ONDISK trunk_async_test_node {
    uint16 height;
    uint16 num_pivots;
    uint16 num_inflight_bundles;
+   uint16 blob_key_prefix_size;
    uint32 inflight_bundles_offset;
+   uint32 tail_offset;
    uint32 pivot_offsets[];
 } trunk_async_test_node;
 
@@ -171,6 +173,7 @@ trunk_async_test_pivot_lookup(bool32 fail)
       (trunk_async_test_node *)page_handle_data(&header_page);
    header->height           = 0;
    header->num_pivots       = 2;
+   header->tail_offset      = TRUNK_ASYNC_TEST_EXTENT_SIZE;
    header->pivot_offsets[0] = TRUNK_ASYNC_TEST_PAGE_SIZE;
    header->pivot_offsets[1] = 2 * TRUNK_ASYNC_TEST_PAGE_SIZE;
 

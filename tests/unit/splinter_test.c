@@ -23,7 +23,7 @@
  */
 #include "core.h"
 #include "shard_log.h"
-#include "blob_build.h"
+#include "mini_blob.h"
 #include "clockcache.h"
 #include "allocator.h"
 #include "mini_allocator.h"
@@ -42,7 +42,9 @@ typedef struct ONDISK test_trunk_node_hdr {
    uint16 height;
    uint16 num_pivots;
    uint16 num_inflight_bundles;
+   uint16 blob_key_prefix_size;
    uint32 inflight_bundles_offset;
+   uint32 tail_offset;
    uint32 pivot_offsets[];
 } test_trunk_node_hdr;
 
@@ -949,13 +951,13 @@ static const iterator_ops pack_abort_test_ops = {
 };
 
 static platform_status
-blob_checksum_test_build_and_check(const blob_build_config *cfg,
-                                   cache                   *cc,
-                                   mini_allocator          *mini,
-                                   uint64                   length,
-                                   writable_buffer         *data,
-                                   writable_buffer         *descriptor,
-                                   writable_buffer         *materialized)
+blob_checksum_test_build_and_check(const mini_blob_config *cfg,
+                                   cache                  *cc,
+                                   mini_allocator         *mini,
+                                   uint64                  length,
+                                   writable_buffer        *data,
+                                   writable_buffer        *descriptor,
+                                   writable_buffer        *materialized)
 {
    platform_status rc = writable_buffer_resize(data, length);
    if (!SUCCESS(rc)) {
@@ -963,7 +965,8 @@ blob_checksum_test_build_and_check(const blob_build_config *cfg,
    }
    blob_checksum_test_fill(data, length);
 
-   rc = blob_build(cfg, cc, mini, writable_buffer_to_slice(data), descriptor);
+   rc = mini_blob_build(
+      cfg, cc, mini, writable_buffer_to_slice(data), descriptor);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1008,7 +1011,6 @@ blob_checksum_test_mini_init(cache *cc, mini_allocator *mini, uint64 *meta_head)
 {
    allocator *al                      = cache_get_allocator(cc);
    page_type  types[NUM_BLOB_BATCHES] = {
-      PAGE_TYPE_BLOB,
       PAGE_TYPE_BLOB,
       PAGE_TYPE_BLOB,
    };
@@ -1275,6 +1277,51 @@ CTEST2(splinter, test_retain_failure_log_handle_unwinds)
    ASSERT_EQUAL_U(initial, allocator_in_use(al));
 }
 
+CTEST2(splinter, test_mini_attachment_counts_toward_memtable_fullness)
+{
+   cache         *cc      = (cache *)data->clock_cache;
+   allocator     *al      = (allocator *)&data->al;
+   btree_config  *cfg     = &data->system_cfg->btree_cfg;
+   uint64         initial = allocator_in_use(al);
+   mini_allocator source;
+   uint64         source_head, addr;
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+   ASSERT_TRUE(SUCCESS(mini_alloc_extent(&source, 0, &addr, NULL)));
+   memtable target = {0};
+   ASSERT_TRUE(SUCCESS(btree_create(
+      cc, cfg, &target.mini, PAGE_TYPE_MEMTABLE, &target.root_addr)));
+   uint64          before = mini_num_extents(&target.mini);
+   memtable_config mt_cfg = {.max_extents_per_memtable = before + 2};
+   ASSERT_FALSE(memtable_is_full(&mt_cfg, &target));
+
+   // A failed ownership acquisition must not charge capacity.
+   retain_test_saved_ops                = al->ops;
+   allocator_ops fault_ops              = *al->ops;
+   fault_ops.inc_ref                    = retain_test_fail;
+   retain_test_successes_before_failure = 0;
+   al->ops                              = &fault_ops;
+   platform_status rc =
+      mini_attach_extent(&target.mini, cfg->blob_cfg.page_batch, addr);
+   al->ops = retain_test_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
+   ASSERT_EQUAL_U(before, mini_num_extents(&target.mini));
+
+   // Charge each reference, even when two logical blobs share one extent.
+   for (uint64 i = 1; i <= 2; i++) {
+      ASSERT_TRUE(SUCCESS(
+         mini_attach_extent(&target.mini, cfg->blob_cfg.page_batch, addr)));
+      ASSERT_EQUAL_U(before + i, mini_num_extents(&target.mini));
+      ASSERT_EQUAL(i == 2, memtable_is_full(&mt_cfg, &target));
+      ASSERT_EQUAL_U(AL_ONE_REF + i, allocator_get_refcount(al, addr));
+   }
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
+   mini_release(&target.mini);
+   ASSERT_TRUE(btree_dec_ref(cc, cfg, target.root_addr, PAGE_TYPE_MEMTABLE));
+   ASSERT_EQUAL_U(initial, allocator_in_use(al));
+}
+
 CTEST2(splinter, test_retain_failure_blob_lookup_and_old_value_are_atomic)
 {
    cache         *cc      = (cache *)data->clock_cache;
@@ -1322,24 +1369,24 @@ CTEST2(splinter, test_retain_failure_blob_lookup_and_old_value_are_atomic)
       for (uint64 failure = 0; failure < 2; failure++) {
          retain_test_successes_before_failure = failure;
          al->ops                              = &fault_ops;
-         platform_status rc =
-            async ? async_call_sync_callback(cache_cleanup(cc),
-                                             btree_lookup_async,
-                                             cc,
-                                             cfg,
-                                             root,
-                                             BTREE_BRANCH_FORMAT_VERSION,
-                                             PAGE_TYPE_MEMTABLE,
-                                             tuple_key,
-                                             &result)
-                  : btree_lookup(cc,
-                                 cfg,
-                                 root,
-                                 BTREE_BRANCH_FORMAT_VERSION,
-                                 PAGE_TYPE_MEMTABLE,
-                                 tuple_key,
-                                 &result);
-         al->ops = retain_test_saved_ops;
+         platform_status rc                   = async
+                                                   ? async_call_sync_callback(cache_cleanup(cc),
+                                                            btree_lookup_async,
+                                                            cc,
+                                                            cfg,
+                                                            root,
+                                                            (btree_format){0},
+                                                            PAGE_TYPE_MEMTABLE,
+                                                            tuple_key,
+                                                            &result)
+                                                   : btree_lookup(cc,
+                                                cfg,
+                                                root,
+                                                (btree_format){0},
+                                                PAGE_TYPE_MEMTABLE,
+                                                tuple_key,
+                                                &result);
+         al->ops                              = retain_test_saved_ops;
          ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
          ASSERT_FALSE(lookup_result_found(&result));
          ASSERT_TRUE(ondisk_ref_is_null(&result.blob_ref));
@@ -1378,7 +1425,7 @@ CTEST2(splinter, test_retain_failure_blob_lookup_and_old_value_are_atomic)
       ASSERT_TRUE(SUCCESS(btree_lookup(cc,
                                        cfg,
                                        root,
-                                       BTREE_BRANCH_FORMAT_VERSION,
+                                       (btree_format){0},
                                        PAGE_TYPE_MEMTABLE,
                                        tuple_key,
                                        &result)));
@@ -1425,17 +1472,15 @@ CTEST2(splinter, test_retain_failure_blob_clone_prefix_cleanup)
       SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
    ASSERT_TRUE(
       SUCCESS(btree_create(cc, cfg, &target, PAGE_TYPE_MEMTABLE, &root)));
-   blob_build_config blob_cfg = {.extent_batch             = 0,
-                                 .page_batch               = 1,
-                                 .subpage_batch            = 2,
-                                 .blob_max_descriptor_size = 512};
-   writable_buffer   bytes, descriptor;
+   mini_blob_config blob_cfg = {
+      .page_batch = 0, .subpage_batch = 1, .blob_max_descriptor_size = 512};
+   writable_buffer bytes, descriptor;
    writable_buffer_init(&bytes, data->hid);
    writable_buffer_init(&descriptor, data->hid);
    ASSERT_TRUE(
       SUCCESS(writable_buffer_resize(&bytes, 2 * cache_extent_size(cc))));
    blob_checksum_test_fill(&bytes, writable_buffer_length(&bytes));
-   ASSERT_TRUE(SUCCESS(blob_build(
+   ASSERT_TRUE(SUCCESS(mini_blob_build(
       &blob_cfg, cc, &source, writable_buffer_to_slice(&bytes), &descriptor)));
    parsed_blob parsed;
    ASSERT_TRUE(SUCCESS(blob_parse_descriptor(
@@ -1473,14 +1518,14 @@ CTEST2(splinter, test_retain_failure_blob_clone_prefix_cleanup)
    al->ops                              = retain_test_saved_ops;
    ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_MEMORY, rc));
    ASSERT_EQUAL_U(0, callbacks);
-   ASSERT_EQUAL_U(AL_ONE_REF + 1, allocator_get_refcount(al, first));
+   ASSERT_EQUAL_U(AL_ONE_REF, allocator_get_refcount(al, first));
    ASSERT_EQUAL_U(AL_ONE_REF, allocator_get_refcount(al, second));
    lookup_result result;
    lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
    ASSERT_TRUE(SUCCESS(btree_lookup(cc,
                                     cfg,
                                     root,
-                                    BTREE_BRANCH_FORMAT_VERSION,
+                                    (btree_format){0},
                                     PAGE_TYPE_MEMTABLE,
                                     tuple_key,
                                     &result)));
@@ -1498,7 +1543,7 @@ CTEST2(splinter, test_retain_failure_blob_clone_prefix_cleanup)
    ASSERT_TRUE(SUCCESS(btree_lookup(cc,
                                     cfg,
                                     root,
-                                    BTREE_BRANCH_FORMAT_VERSION,
+                                    (btree_format){0},
                                     PAGE_TYPE_MEMTABLE,
                                     tuple_key,
                                     &result)));
@@ -1525,11 +1570,10 @@ CTEST2(splinter, test_retain_failure_blob_clone_prefix_cleanup)
 
 CTEST2(splinter, test_blob_checksums)
 {
-   cache            *cc  = (cache *)data->clock_cache;
-   blob_build_config cfg = {
-      .extent_batch  = 0,
-      .page_batch    = 1,
-      .subpage_batch = 2,
+   cache           *cc  = (cache *)data->clock_cache;
+   mini_blob_config cfg = {
+      .page_batch    = 0,
+      .subpage_batch = 1,
       .alignment     = 0,
    };
 
@@ -1603,11 +1647,11 @@ CTEST2(splinter, test_blob_checksums)
       goto cleanup;
    }
    checked_clone_mini_live = TRUE;
-   rc                      = blob_clone(&cfg,
-                   cc,
-                   &checked_clone_mini,
-                   writable_buffer_to_slice(&descriptor),
-                   &checked_clone);
+   rc                      = mini_blob_clone(&cfg,
+                        cc,
+                        &checked_clone_mini,
+                        writable_buffer_to_slice(&descriptor),
+                        &checked_clone);
    if (!SUCCESS(rc)) {
       goto cleanup;
    }
@@ -1662,7 +1706,7 @@ CTEST2(splinter, test_blob_checksums)
    platform_status materialize_rc =
       blob_materialize_full(cc, invalid, &materialized);
    platform_status clone_rc =
-      blob_clone(&cfg, cc, &checked_clone_mini, invalid, &invalid_clone);
+      mini_blob_clone(&cfg, cc, &checked_clone_mini, invalid, &invalid_clone);
    mutable_blob->format = expected_format;
    if (!STATUS_IS_EQ(validate_rc, STATUS_INVALID_STATE)
        || !STATUS_IS_EQ(materialize_rc, STATUS_INVALID_STATE)
@@ -1678,7 +1722,7 @@ CTEST2(splinter, test_blob_checksums)
    validate_rc     = blob_validate(cc, truncated);
    materialize_rc  = blob_materialize_full(cc, truncated, &materialized);
    clone_rc =
-      blob_clone(&cfg, cc, &checked_clone_mini, truncated, &invalid_clone);
+      mini_blob_clone(&cfg, cc, &checked_clone_mini, truncated, &invalid_clone);
    if (!STATUS_IS_EQ(validate_rc, STATUS_INVALID_STATE)
        || !STATUS_IS_EQ(materialize_rc, STATUS_INVALID_STATE)
        || !STATUS_IS_EQ(clone_rc, STATUS_INVALID_STATE))
@@ -2133,7 +2177,7 @@ CTEST2(splinter, test_invalid_branch_reference_rejected)
          (test_trunk_bundle *)(page_handle_data(page) + offset % page_size);
       bundle->maplet = filter;
       if (invalid_field == 0) {
-         bundle->branches[0].format_version++;
+         bundle->branches[0].format.version++;
       } else {
          bundle->branches[0].addr = 0;
       }
@@ -2252,9 +2296,9 @@ CTEST2(splinter, test_persisted_old_branch_version_rejected)
       uint64 bundle_offset = (char *)bundle - page_handle_data(&page);
       ASSERT_TRUE(bundle->num_branches != 0);
       branch_ref saved_branch = bundle->branches[0];
-      ASSERT_EQUAL(BTREE_BRANCH_FORMAT_VERSION, saved_branch.format_version);
+      ASSERT_EQUAL(BTREE_BRANCH_FORMAT_VERSION, saved_branch.format.version);
       /* Version 1 predates the prefix_length field in the branch header. */
-      bundle->branches[0].format_version = 1;
+      bundle->branches[0].format.version = 1;
       test_splinter_unclaim_page(cc, &page);
       ASSERT_TRUE(SUCCESS(cache_writeback_dirty(cc)));
       ASSERT_TRUE(SUCCESS(cache_durable_barrier(cc)));
@@ -6846,10 +6890,10 @@ CTEST2(splinter, test_cache_read_errors_reach_core_operations)
  * allocating or multiplying a rounded capacity past UINT64_MAX. */
 CTEST2(splinter, test_blob_descriptor_sizes)
 {
-   uint64            extent = cache_extent_size((cache *)data->clock_cache);
-   uint64            fanout = extent / sizeof(uint64);
-   uint64            roots  = (512 - sizeof(blob)) / sizeof(uint64);
-   blob_build_config cfg    = {.blob_max_descriptor_size = 512};
+   uint64           extent = cache_extent_size((cache *)data->clock_cache);
+   uint64           fanout = extent / sizeof(uint64);
+   uint64           roots  = (512 - sizeof(blob)) / sizeof(uint64);
+   mini_blob_config cfg    = {.blob_max_descriptor_size = 512};
    const struct {
       uint64 length;
       uint64 addresses;
@@ -6862,21 +6906,22 @@ CTEST2(splinter, test_blob_descriptor_sizes)
    };
    for (uint64 i = 0; i < ARRAY_SIZE(cases); i++) {
       uint64 size;
-      ASSERT_TRUE(SUCCESS(
-         blob_descriptor_size_bound(&cfg, extent, cases[i].length, &size)));
+      ASSERT_TRUE(SUCCESS(mini_blob_descriptor_size_bound(
+         &cfg, extent, cases[i].length, &size)));
       ASSERT_EQUAL(sizeof(blob) + cases[i].addresses * sizeof(uint64), size);
    }
    uint64 size;
-   ASSERT_TRUE(
-      SUCCESS(blob_descriptor_size_bound(&cfg, extent, UINT64_MAX, &size)));
+   ASSERT_TRUE(SUCCESS(
+      mini_blob_descriptor_size_bound(&cfg, extent, UINT64_MAX, &size)));
    ASSERT_TRUE(size <= 512);
    cfg.blob_max_descriptor_size = 0;
-   ASSERT_TRUE(
-      SUCCESS(blob_descriptor_size_bound(&cfg, extent, roots * extent, &size)));
+   roots = (BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE - sizeof(blob)) / sizeof(uint64);
+   ASSERT_TRUE(SUCCESS(
+      mini_blob_descriptor_size_bound(&cfg, extent, roots * extent, &size)));
    ASSERT_EQUAL(sizeof(blob) + roots * sizeof(uint64), size);
    cfg.blob_max_descriptor_size = BLOB_MIN_MAX_DESCRIPTOR_SIZE - 1;
    ASSERT_TRUE(
-      STATUS_IS_EQ(blob_descriptor_size_bound(&cfg, extent, extent, &size),
+      STATUS_IS_EQ(mini_blob_descriptor_size_bound(&cfg, extent, extent, &size),
                    STATUS_BAD_PARAM));
 }
 
@@ -6885,18 +6930,16 @@ CTEST2(splinter, test_blob_descriptor_sizes)
  * the clone owns every level, not just its descriptor's children. */
 CTEST2(splinter, test_blob_trees)
 {
-   cache            *cc        = (cache *)data->clock_cache;
-   uint64            extent    = cache_extent_size(cc);
-   uint64            page      = cache_page_size(cc);
-   blob_build_config cfg       = {.extent_batch             = 0,
-                                  .page_batch               = 1,
-                                  .subpage_batch            = 2,
-                                  .blob_max_descriptor_size = 512};
-   uint64            roots     = (512 - sizeof(blob)) / sizeof(uint64);
-   uint64            lengths[] = {roots * extent - 1,
-                                  roots * extent,
-                                  roots * extent + 1,
-                                  (page / sizeof(uint64) + 1) * extent + 17};
+   cache           *cc     = (cache *)data->clock_cache;
+   uint64           extent = cache_extent_size(cc);
+   uint64           page   = cache_page_size(cc);
+   mini_blob_config cfg    = {
+         .page_batch = 0, .subpage_batch = 1, .blob_max_descriptor_size = 512};
+   uint64 roots     = (512 - sizeof(blob)) / sizeof(uint64);
+   uint64 lengths[] = {roots * extent - 1,
+                       roots * extent,
+                       roots * extent + 1,
+                       (page / sizeof(uint64) + 1) * extent + 17};
    for (uint64 trial = 0; trial < ARRAY_SIZE(lengths); trial++) {
       uint64         length = lengths[trial];
       mini_allocator source, target;
@@ -6912,7 +6955,7 @@ CTEST2(splinter, test_blob_trees)
       writable_buffer_init(&result, data->hid);
       ASSERT_TRUE(SUCCESS(writable_buffer_resize(&bytes, length)));
       blob_checksum_test_fill(&bytes, length);
-      ASSERT_TRUE(SUCCESS(blob_build(
+      ASSERT_TRUE(SUCCESS(mini_blob_build(
          &cfg, cc, &source, writable_buffer_to_slice(&bytes), &desc)));
       slice       descriptor = writable_buffer_to_slice(&desc);
       parsed_blob parsed;
@@ -6920,8 +6963,8 @@ CTEST2(splinter, test_blob_trees)
       ASSERT_EQUAL(trial < 2 ? 1 : 2, parsed.height);
       ASSERT_TRUE(slice_length(descriptor) <= 512);
       uint64 bound;
-      ASSERT_TRUE(
-         SUCCESS(blob_descriptor_size_bound(&cfg, extent, length, &bound)));
+      ASSERT_TRUE(SUCCESS(
+         mini_blob_descriptor_size_bound(&cfg, extent, length, &bound)));
       ASSERT_EQUAL(slice_length(descriptor), bound);
 
       writeback_set set;
@@ -6933,7 +6976,8 @@ CTEST2(splinter, test_blob_trees)
       ASSERT_TRUE(SUCCESS(writeback_set_wait(&set)));
       writeback_set_deinit(&set);
       ASSERT_TRUE(SUCCESS(blob_validate(cc, descriptor)));
-      ASSERT_TRUE(SUCCESS(blob_clone(&cfg, cc, &target, descriptor, &cloned)));
+      ASSERT_TRUE(
+         SUCCESS(mini_blob_clone(&cfg, cc, &target, descriptor, &cloned)));
       ASSERT_TRUE(
          SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
       ASSERT_TRUE(
@@ -6985,8 +7029,8 @@ CTEST2(splinter, test_blob_trees)
    ASSERT_EQUAL(1, parsed.height);
    ASSERT_TRUE(writable_buffer_length(&desc) > 512);
    cfg.blob_max_descriptor_size = 512;
-   ASSERT_TRUE(SUCCESS(
-      blob_clone(&cfg, cc, &target, writable_buffer_to_slice(&desc), &cloned)));
+   ASSERT_TRUE(SUCCESS(mini_blob_clone(
+      &cfg, cc, &target, writable_buffer_to_slice(&desc), &cloned)));
    ASSERT_TRUE(
       SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
    ASSERT_TRUE(SUCCESS(
@@ -7129,12 +7173,11 @@ CTEST2(splinter, test_blob_height_three_and_large_stats)
    }
    /* Force the encoder through two levels of pointer extents, sharing the
     * sparse data instead of materializing tens of GiB in the test process. */
-   blob_build_config cfg = {.extent_batch  = 0,
-                            .page_batch    = 1,
-                            .subpage_batch = 2,
-                            .blob_max_descriptor_size =
-                               BLOB_MIN_MAX_DESCRIPTOR_SIZE};
-   ASSERT_TRUE(SUCCESS(blob_clone(
+   mini_blob_config cfg = {.page_batch    = 0,
+                           .subpage_batch = 1,
+                           .blob_max_descriptor_size =
+                              BLOB_MIN_MAX_DESCRIPTOR_SIZE};
+   ASSERT_TRUE(SUCCESS(mini_blob_clone(
       &cfg, cc, &target, writable_buffer_to_slice(&flat), &descriptor)));
    ASSERT_TRUE(
       SUCCESS(blob_checksum_test_mini_deinit(cc, &source, source_head)));
@@ -7221,7 +7264,7 @@ CTEST2(splinter, test_blob_height_three_and_large_stats)
    ASSERT_TRUE(SUCCESS(btree_count_in_range(cc,
                                             req->cfg,
                                             req->root_addr,
-                                            BTREE_BRANCH_FORMAT_VERSION,
+                                            BTREE_DEFAULT_FORMAT,
                                             NEGATIVE_INFINITY_KEY,
                                             POSITIVE_INFINITY_KEY,
                                             &stats)));
@@ -7235,4 +7278,380 @@ CTEST2(splinter, test_blob_height_three_and_large_stats)
    platform_free(data->hid, req);
    writable_buffer_deinit(&result);
    writable_buffer_deinit(&descriptor);
+}
+
+/* Sparse leaves exercise the builder at pointer-page and pointer-extent
+ * boundaries without materializing the logical multi-GiB value. */
+CTEST2(splinter, test_blob_pointer_termination)
+{
+   cache       *cc        = (cache *)data->clock_cache;
+   allocator   *al        = cache_get_allocator(cc);
+   uint64       initial   = allocator_in_use(al);
+   uint64       extent    = cache_extent_size(cc);
+   uint64       page_size = cache_page_size(cc);
+   uint64       per_page  = page_size / sizeof(uint64);
+   uint64       fanout    = extent / sizeof(uint64);
+   const uint64 lengths[] = {
+      per_page - 1, per_page, per_page + 1, fanout, fanout + 1};
+   mini_blob_config cfg = {.page_batch    = 0,
+                           .subpage_batch = 1,
+                           .blob_max_descriptor_size =
+                              BLOB_MIN_MAX_DESCRIPTOR_SIZE};
+   for (uint64 trial = 0; trial < ARRAY_SIZE(lengths); trial++) {
+      uint64         leaves = lengths[trial];
+      mini_allocator source, target;
+      uint64         source_head, target_head;
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+      ASSERT_TRUE(
+         SUCCESS(blob_checksum_test_mini_init(cc, &target, &target_head)));
+      auto_writable_buffer flat, descriptor;
+      writable_buffer_init(&flat, data->hid);
+      writable_buffer_init(&descriptor, data->hid);
+      ASSERT_TRUE(SUCCESS(writable_buffer_resize(
+         &flat, sizeof(blob) + leaves * sizeof(uint64))));
+      blob *b = writable_buffer_data(&flat);
+      *b      = (blob){.length = leaves * extent, .format = BLOB_FORMAT};
+      for (uint64 i = 0; i < leaves; i++) {
+         uint64 addr;
+         ASSERT_TRUE(SUCCESS(mini_alloc_extent(&source, 0, &addr, NULL)));
+         b->addrs[i] = addr;
+      }
+      ASSERT_TRUE(SUCCESS(mini_blob_clone(
+         &cfg, cc, &target, writable_buffer_to_slice(&flat), &descriptor)));
+      parsed_blob parsed;
+      ASSERT_TRUE(SUCCESS(blob_parse_descriptor(
+         cc, writable_buffer_to_slice(&descriptor), &parsed)));
+      ASSERT_EQUAL(2, parsed.height);
+      for (uint64 i = 0; i < parsed.num_extents; i++) {
+         uint64      children  = MIN(leaves - i * fanout, fanout);
+         uint64      slot      = children < fanout ? children : children - 1;
+         uint64      addr      = parsed.base->addrs[i] + slot * sizeof(uint64);
+         uint64      page_addr = addr - addr % page_size;
+         page_handle page;
+         ASSERT_TRUE(
+            SUCCESS(cache_get(cc, page_addr, TRUE, PAGE_TYPE_BLOB, &page)));
+         uint64 value;
+         memcpy(
+            &value, page_handle_data(&page) + addr % page_size, sizeof(value));
+         cache_unget(cc, &page);
+         if (children < fanout) {
+            ASSERT_EQUAL(0, value);
+            if (children % per_page == 0) {
+               blob_tree_read_saved_ops   = cc->ops;
+               cache_ops fault_ops        = *cc->ops;
+               fault_ops.page_get         = blob_tree_fail_get;
+               blob_tree_read_failed_addr = page_addr;
+               blob_tree_read_failures    = 0;
+               cc->ops                    = &fault_ops;
+               platform_status rc         = blob_walk_extents(
+                  cc, writable_buffer_to_slice(&descriptor), FALSE, NULL, NULL);
+               cc->ops = blob_tree_read_saved_ops;
+               ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+               ASSERT_EQUAL(1, blob_tree_read_failures);
+            }
+            page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_BLOB);
+            memcpy(page_handle_data(&page) + addr % page_size,
+                   &b->addrs[0],
+                   sizeof(uint64));
+            test_splinter_unclaim_page(cc, &page);
+            ASSERT_TRUE(STATUS_IS_EQ(
+               blob_walk_extents(
+                  cc, writable_buffer_to_slice(&descriptor), FALSE, NULL, NULL),
+               STATUS_INVALID_STATE));
+            page = test_splinter_claim_page(cc, page_addr, PAGE_TYPE_BLOB);
+            memset(
+               page_handle_data(&page) + addr % page_size, 0, sizeof(uint64));
+            test_splinter_unclaim_page(cc, &page);
+         } else {
+            ASSERT_NOT_EQUAL(0, value);
+         }
+      }
+      blob *stored   = writable_buffer_data(&descriptor);
+      stored->format = BLOB_FORMAT - 1;
+      ASSERT_TRUE(
+         STATUS_IS_EQ(blob_parse_descriptor(
+                         cc, writable_buffer_to_slice(&descriptor), &parsed),
+                      STATUS_INVALID_STATE));
+      stored->format = BLOB_FORMAT;
+      mini_release(&source);
+      mini_release(&target);
+      cache_flush(cc);
+      ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+      ASSERT_TRUE(SUCCESS(blob_walk_extents(
+         cc, writable_buffer_to_slice(&descriptor), TRUE, NULL, NULL)));
+      ASSERT_TRUE(SUCCESS(allocator_recovery_begin(al)));
+      ASSERT_TRUE(
+         SUCCESS(mini_recover_references(cc, source_head, PAGE_TYPE_MISC)));
+      ASSERT_TRUE(
+         SUCCESS(mini_recover_references(cc, target_head, PAGE_TYPE_MISC)));
+      allocator_recovery_finish(al);
+      for (uint64 i = 0; i < leaves; i++) {
+         ASSERT_EQUAL(AL_ONE_REF + 1, allocator_get_refcount(al, b->addrs[i]));
+      }
+      ASSERT_EQUAL(0, mini_dec_ref(cc, source_head, PAGE_TYPE_MISC));
+      ASSERT_EQUAL(0, mini_dec_ref(cc, target_head, PAGE_TYPE_MISC));
+      ASSERT_EQUAL(initial, allocator_in_use(al));
+      ASSERT_TRUE(SUCCESS(allocator_reclamation_status(al)));
+   }
+}
+
+/* A pointer extent owns its children once even when hundreds of container
+ * records reference it. Cursors must return those roots in order across
+ * metadata pages, preserving curr() on misses and at either end. */
+CTEST2(splinter, test_blob_ownership_graph_recovery_and_cursor)
+{
+   cache            *cc      = (cache *)data->clock_cache;
+   allocator        *al      = (allocator *)&data->al;
+   allocator_config *acfg    = allocator_get_config(al);
+   uint64            initial = allocator_in_use(al);
+   uint64            extent  = cache_extent_size(cc);
+   mini_allocator    source, target;
+   uint64            source_head, target_head;
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &source, &source_head)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_mini_init(cc, &target, &target_head)));
+   mini_blob_config cfg = {.page_batch    = 0,
+                           .subpage_batch = 1,
+                           .blob_max_descriptor_size =
+                              BLOB_MIN_MAX_DESCRIPTOR_SIZE};
+   uint64           leaves =
+      (BLOB_MIN_MAX_DESCRIPTOR_SIZE - sizeof(blob)) / sizeof(uint64) + 1;
+   auto_writable_buffer bytes, descriptor, cloned;
+   writable_buffer_init(&bytes, data->hid);
+   writable_buffer_init(&descriptor, data->hid);
+   writable_buffer_init(&cloned, data->hid);
+   ASSERT_TRUE(SUCCESS(writable_buffer_resize(&bytes, leaves * extent)));
+   blob_checksum_test_fill(&bytes, leaves * extent);
+   ASSERT_TRUE(SUCCESS(mini_blob_build(
+      &cfg, cc, &source, writable_buffer_to_slice(&bytes), &descriptor)));
+   parsed_blob parsed;
+   ASSERT_TRUE(SUCCESS(blob_parse_descriptor(
+      cc, writable_buffer_to_slice(&descriptor), &parsed)));
+   ASSERT_EQUAL(2, parsed.height);
+   ASSERT_EQUAL(1, parsed.num_extents);
+   uint64      root = parsed.base->addrs[0];
+   page_handle page;
+   ASSERT_TRUE(SUCCESS(cache_get(cc, root, TRUE, PAGE_TYPE_BLOB, &page)));
+   uint64 child;
+   memcpy(&child, page_handle_data(&page), sizeof(child));
+   cache_unget(cc, &page);
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, child));
+
+   uint64 first, last;
+   ASSERT_TRUE(SUCCESS(mini_alloc_extent(&target, 0, &first, NULL)));
+   uint64       first_meta    = mini_current_extent_meta_page(&target, 0);
+   uint64       before_charge = mini_num_extents(&target);
+   const uint64 copies        = 600;
+   blob_tree_read_saved_ops   = cc->ops;
+   cache_ops clone_ops        = *cc->ops;
+   clone_ops.page_get         = blob_tree_fail_get;
+   blob_tree_read_failed_addr = root;
+   blob_tree_read_failures    = 0;
+   cc->ops                    = &clone_ops;
+   for (uint64 i = 0; i < copies; i++) {
+      ASSERT_TRUE(SUCCESS(mini_blob_clone(
+         &cfg, cc, &target, writable_buffer_to_slice(&descriptor), &cloned)));
+   }
+   cc->ops = blob_tree_read_saved_ops;
+   ASSERT_EQUAL(0, blob_tree_read_failures);
+   ASSERT_EQUAL(before_charge + copies * (leaves + 1),
+                mini_num_extents(&target));
+   ASSERT_EQUAL(AL_ONE_REF + copies, allocator_get_refcount(al, root));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, child));
+   ASSERT_TRUE(SUCCESS(mini_alloc_extent(&target, 0, &last, NULL)));
+   ASSERT_TRUE(mini_current_extent_meta_page(&target, 0) != first_meta);
+   mini_release(&source);
+   mini_release(&target);
+   uint64 space_bytes;
+   cc->ops = &clone_ops;
+   ASSERT_TRUE(SUCCESS(
+      mini_space_use_bytes(cc, target_head, PAGE_TYPE_MISC, &space_bytes)));
+   cc->ops = blob_tree_read_saved_ops;
+   ASSERT_EQUAL(0, blob_tree_read_failures);
+   ASSERT_EQUAL((copies * (leaves + 1) + 2) * extent
+                   + (target.meta_tail - target_head + cache_page_size(cc)),
+                space_bytes);
+   ASSERT_TRUE(SUCCESS(mini_inc_ref(cc, source_head)));
+
+   refcount *expected =
+      TYPED_ARRAY_MALLOC(data->hid, expected, acfg->extent_capacity);
+   ASSERT_NOT_NULL(expected);
+   for (uint64 i = 0; i < acfg->extent_capacity; i++) {
+      expected[i] = allocator_get_refcount(al, i * extent);
+   }
+   cache_flush(cc);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   ASSERT_TRUE(SUCCESS(allocator_recovery_begin(al)));
+   ASSERT_TRUE(
+      SUCCESS(mini_recover_references(cc, target_head, PAGE_TYPE_MISC)));
+   ASSERT_TRUE(
+      SUCCESS(mini_recover_references(cc, source_head, PAGE_TYPE_MISC)));
+   ASSERT_TRUE(
+      SUCCESS(mini_recover_references(cc, source_head, PAGE_TYPE_MISC)));
+   allocator_recovery_finish(al);
+   for (uint64 i = 0; i < acfg->extent_capacity; i++) {
+      ASSERT_EQUAL(expected[i],
+                   allocator_get_refcount(al, i * extent),
+                   "blob graph extent %lu",
+                   i);
+   }
+   platform_free(data->hid, expected);
+   ASSERT_TRUE(SUCCESS(cache_evict(cc, FALSE)));
+   mini_meta_cursor        cursor;
+   mini_meta_cursor_status status;
+   do {
+      status =
+         mini_meta_cursor_init(&cursor, cc, PAGE_TYPE_MISC, first_meta, first);
+   } while (status == MINI_META_CURSOR_WOULD_BLOCK);
+   ASSERT_EQUAL(MINI_META_CURSOR_ENTRY, status);
+   uint64    addr, batch, height;
+   page_type type;
+   for (uint64 direction = 0; direction < 2; direction++) {
+      uint64 previous = direction == 0 ? first : last;
+      for (uint64 i = 0; i <= copies; i++) {
+         do {
+            status = direction == 0 ? mini_meta_cursor_next(&cursor)
+                                    : mini_meta_cursor_prev(&cursor);
+            if (status == MINI_META_CURSOR_WOULD_BLOCK) {
+               mini_meta_cursor_curr(&cursor, &addr, &batch, &type, &height);
+               ASSERT_EQUAL(previous, addr);
+            }
+         } while (status == MINI_META_CURSOR_WOULD_BLOCK);
+         ASSERT_EQUAL(MINI_META_CURSOR_ENTRY, status);
+         mini_meta_cursor_curr(&cursor, &addr, &batch, &type, &height);
+         uint64 expected_addr =
+            i < copies ? root : (direction == 0 ? last : first);
+         ASSERT_EQUAL(expected_addr, addr);
+         ASSERT_EQUAL(PAGE_TYPE_BLOB, type);
+         ASSERT_EQUAL(i < copies ? 1 : 0, height);
+         ASSERT_EQUAL(0, batch);
+         previous = addr;
+      }
+      status = direction == 0 ? mini_meta_cursor_next(&cursor)
+                              : mini_meta_cursor_prev(&cursor);
+      ASSERT_EQUAL(MINI_META_CURSOR_END, status);
+      mini_meta_cursor_curr(&cursor, &addr, &batch, &type, &height);
+      ASSERT_EQUAL(previous, addr);
+   }
+   mini_meta_cursor_deinit(&cursor);
+
+   ASSERT_EQUAL(1, mini_dec_ref(cc, source_head, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(0, mini_dec_ref(cc, source_head, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(AL_ONE_REF + copies - 1, allocator_get_refcount(al, root));
+   ASSERT_TRUE(SUCCESS(blob_validate(cc, writable_buffer_to_slice(&cloned))));
+   ASSERT_EQUAL(0, mini_dec_ref(cc, target_head, PAGE_TYPE_MISC));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, root));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(al, child));
+   ASSERT_EQUAL(initial, allocator_in_use(al));
+}
+
+typedef struct blob_test_tail_container {
+   uint64 addr;
+   uint64 used;
+   uint64 capacity;
+   bool32 fail;
+} blob_test_tail_container;
+
+static platform_status
+blob_test_container_allocate(void  *arg,
+                             uint64 bytes,
+                             uint64 alignment,
+                             uint64 boundary,
+                             uint64 addrs[2])
+{
+   blob_test_tail_container *container = arg;
+   uint64                    align     = MAX(alignment, 1);
+   uint64 start = (container->used + align - 1) / align * align;
+   if (container->fail || start > container->capacity
+       || bytes > container->capacity - start)
+   {
+      return STATUS_NO_SPACE;
+   }
+   addrs[0]        = container->addr + start;
+   addrs[1]        = 0;
+   container->used = start + bytes;
+   return STATUS_OK;
+}
+
+/* No mini allocator: two descriptors borrow disjoint tails within an existing
+ * container page. Clone must stage source bytes before locking that same page.
+ */
+CTEST2(splinter, test_blob_ownership_custom_tails_and_failures)
+{
+   cache     *cc      = (cache *)data->clock_cache;
+   allocator *al      = (allocator *)&data->al;
+   uint64     initial = allocator_in_use(al);
+   uint64     extent  = cache_extent_size(cc);
+   uint64     addr;
+   ASSERT_TRUE(SUCCESS(allocator_alloc(al, &addr, PAGE_TYPE_BLOB)));
+   page_handle page;
+   ASSERT_NOT_NULL(cache_alloc(cc, addr, PAGE_TYPE_BLOB, &page));
+   memset(page_handle_data(&page), 0xa5, cache_page_size(cc));
+   test_splinter_unclaim_page(cc, &page);
+   blob_test_tail_container container = {addr, 64, cache_page_size(cc), FALSE};
+   blob_tail_allocator      tails = {blob_test_container_allocate, &container};
+   blob_build_config        cfg   = {.blob_max_descriptor_size =
+                                        BLOB_MIN_MAX_DESCRIPTOR_SIZE};
+   auto_writable_buffer     bytes, descriptor, clone, result;
+   writable_buffer_init(&bytes, data->hid);
+   writable_buffer_init(&descriptor, data->hid);
+   writable_buffer_init(&clone, data->hid);
+   writable_buffer_init(&result, data->hid);
+   ASSERT_TRUE(SUCCESS(writable_buffer_resize(&bytes, 900)));
+   blob_checksum_test_fill(&bytes, 900);
+   ASSERT_TRUE(SUCCESS(blob_build(
+      &cfg, cc, &tails, writable_buffer_to_slice(&bytes), &descriptor)));
+   ASSERT_TRUE(SUCCESS(blob_clone(
+      &cfg, cc, &tails, writable_buffer_to_slice(&descriptor), &clone)));
+   ASSERT_TRUE(
+      SUCCESS(blob_checksum_test_roundtrip(cc,
+                                           writable_buffer_to_slice(&clone),
+                                           writable_buffer_to_slice(&bytes),
+                                           &result)));
+   ASSERT_TRUE(
+      SUCCESS(blob_release_refs(cc, writable_buffer_to_slice(&descriptor))));
+   ASSERT_TRUE(
+      SUCCESS(blob_release_refs(cc, writable_buffer_to_slice(&clone))));
+   ASSERT_EQUAL(AL_ONE_REF, allocator_get_refcount(al, addr));
+   ASSERT_TRUE(SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_BLOB, &page)));
+   for (uint64 i = 0; i < 64; i++) {
+      ASSERT_EQUAL(0xa5, (unsigned char)page_handle_data(&page)[i]);
+   }
+   cache_unget(cc, &page);
+
+   container.fail = TRUE;
+   ASSERT_TRUE(SUCCESS(writable_buffer_resize(&bytes, extent + 900)));
+   blob_checksum_test_fill(&bytes, writable_buffer_length(&bytes));
+   ASSERT_TRUE(STATUS_IS_EQ(
+      STATUS_NO_SPACE,
+      blob_build(
+         &cfg, cc, &tails, writable_buffer_to_slice(&bytes), &descriptor)));
+   ASSERT_EQUAL(initial + 1, allocator_in_use(al));
+
+   uint64 leaves =
+      (BLOB_MIN_MAX_DESCRIPTOR_SIZE - sizeof(blob)) / sizeof(uint64) + 1;
+   ASSERT_TRUE(SUCCESS(writable_buffer_resize(&bytes, leaves * extent)));
+   blob_checksum_test_fill(&bytes, writable_buffer_length(&bytes));
+   for (uint64 allocations = 0; allocations <= leaves; allocations++) {
+      mini_init_saved_ops                  = al->ops;
+      allocator_ops ops                    = *al->ops;
+      ops.alloc                            = mini_init_fail_allocation;
+      mini_init_allocations_before_failure = allocations;
+      al->ops                              = &ops;
+      platform_status rc                   = blob_build(
+         &cfg, cc, NULL, writable_buffer_to_slice(&bytes), &descriptor);
+      al->ops = mini_init_saved_ops;
+      ASSERT_TRUE(STATUS_IS_EQ(STATUS_NO_SPACE, rc));
+      ASSERT_EQUAL(initial + 1,
+                   allocator_in_use(al),
+                   "partial blob after %lu allocations",
+                   allocations);
+   }
+   ASSERT_TRUE(SUCCESS(allocator_reclamation_status(al)));
+   ASSERT_EQUAL(AL_NO_REFS, allocator_dec_ref(al, addr, PAGE_TYPE_BLOB));
+   cache_extent_discard(cc, addr, PAGE_TYPE_BLOB);
+   ASSERT_EQUAL(AL_FREE, allocator_dec_ref(al, addr, PAGE_TYPE_BLOB));
+   ASSERT_EQUAL(initial, allocator_in_use(al));
 }

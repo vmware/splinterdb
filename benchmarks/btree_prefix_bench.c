@@ -42,6 +42,11 @@
 #   define BTREE_BENCH_PREFIX_SUPPORT 0
 #endif
 
+/* The identical workload also builds against the pre-blob-key B-tree API. */
+#ifndef BTREE_DEFAULT_FORMAT
+#   define BTREE_DEFAULT_FORMAT BTREE_BRANCH_FORMAT_VERSION
+#endif
+
 #define MIB          (UINT64_C(1) << 20)
 #define PAGE_BYTES   4096
 #define EXTENT_BYTES (32 * PAGE_BYTES)
@@ -282,6 +287,7 @@ measured_write(io_handle *io, void *buf, uint64 bytes, uint64 addr)
 
 static platform_status
 measured_async_init(io_async_state   *state,
+                    uint64            state_size,
                     io_handle        *io,
                     io_async_cmd      cmd,
                     uint64            addr,
@@ -296,7 +302,7 @@ measured_async_init(io_async_state   *state,
       }
    }
    return underlying_io_ops->async_state_init(
-      state, io, cmd, addr, callback, arg);
+      state, state_size, io, cmd, addr, callback, arg);
 }
 
 static void
@@ -436,8 +442,8 @@ make_inputs(benchmark *b)
                                 >> (8 * (j % 8)));
       }
       if (strcmp(o->pattern, "common") == 0) {
-         memset(k, 'p', 48);
-         put_be(k + 48, mix(i + o->seed));
+         memset(k, 'p', o->key_bytes - 16);
+         put_be(k + o->key_bytes - 16, mix(i + o->seed));
       } else {
          /* mix is a permutation, so first words are random and unique. */
          put_be(k, mix(i + o->seed));
@@ -513,7 +519,7 @@ init_iterator(benchmark      *b,
                           &b->btree_cfg,
                           it,
                           root,
-                          BTREE_BRANCH_FORMAT_VERSION,
+                          BTREE_DEFAULT_FORMAT,
                           type,
                           &(const btree_iterator_init_options){
                              .start_position = key_start_at_or_after(start)}),
@@ -722,7 +728,7 @@ run_lookups(benchmark *b, uint64 root, bool verify)
       check(btree_lookup((cache *)&b->cc,
                          &b->btree_cfg,
                          root,
-                         BTREE_BRANCH_FORMAT_VERSION,
+                         BTREE_DEFAULT_FORMAT,
                          PAGE_TYPE_BRANCH,
                          target,
                          &result),
@@ -976,7 +982,7 @@ parse_options(int argc, char **argv)
    o.read_lexical = false;
 #endif
    if (o.keys < 2 || o.keys > UINT64_MAX / 2 || o.ops == 0 || o.batches == 0
-       || o.key_bytes < 64 || o.key_bytes > MAX_INLINE_KEY_SIZE(PAGE_BYTES)
+       || o.key_bytes < 16 || o.key_bytes > MAX_INLINE_KEY_SIZE(PAGE_BYTES)
        || o.value_bytes < 8
        || o.value_bytes > MAX_INLINE_MESSAGE_SIZE(PAGE_BYTES)
        || o.cache_mib < 32 || o.disk_mib < 64 || o.cache_mib > UINT64_MAX / MIB

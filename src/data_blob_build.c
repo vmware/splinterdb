@@ -11,36 +11,36 @@
 #include "poison.h"
 
 platform_status
-message_to_blob(const blob_build_config *cfg,
-                cache                   *cc,
-                mini_allocator          *mini,
-                message                  msg,
-                merge_accumulator       *ma)
+message_to_blob(const mini_blob_config *cfg,
+                cache                  *cc,
+                mini_allocator         *mini,
+                message                 msg,
+                merge_accumulator      *ma)
 {
    platform_assert(!message_is_blob(msg));
    ma->type = message_class(msg);
    ma->cc   = cc;
-   return blob_build(cfg, cc, mini, message_slice(msg), &ma->data);
+   return mini_blob_build(cfg, cc, mini, message_slice(msg), &ma->data);
 }
 
 platform_status
-message_clone(const blob_build_config *cfg,
-              cache                   *cc,
-              mini_allocator          *mini,
-              message                  msg,
-              merge_accumulator       *result)
+message_clone(const mini_blob_config *cfg,
+              cache                  *cc,
+              mini_allocator         *mini,
+              message                 msg,
+              merge_accumulator      *result)
 {
    platform_assert(message_is_blob(msg));
    result->type = message_class(msg);
    result->cc   = cc;
-   return blob_clone(cfg, cc, mini, message_slice(msg), &result->data);
+   return mini_blob_clone(cfg, cc, mini, message_slice(msg), &result->data);
 }
 
 platform_status
-merge_accumulator_convert_to_blob(const blob_build_config *cfg,
-                                  cache                   *cc,
-                                  mini_allocator          *mini,
-                                  merge_accumulator       *ma)
+merge_accumulator_convert_to_blob(const mini_blob_config *cfg,
+                                  cache                  *cc,
+                                  mini_allocator         *mini,
+                                  merge_accumulator      *ma)
 {
    if (merge_accumulator_is_blob(ma)) {
       return STATUS_OK;
@@ -48,8 +48,8 @@ merge_accumulator_convert_to_blob(const blob_build_config *cfg,
 
    writable_buffer blob;
    writable_buffer_init(&blob, ma->data.heap_id);
-   platform_status rc =
-      blob_build(cfg, cc, mini, writable_buffer_to_slice(&ma->data), &blob);
+   platform_status rc = mini_blob_build(
+      cfg, cc, mini, writable_buffer_to_slice(&ma->data), &blob);
    if (!SUCCESS(rc)) {
       writable_buffer_deinit(&blob);
       return rc;

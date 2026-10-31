@@ -4,6 +4,7 @@
 #include "splinterdb/default_data_config.h"
 #include "splinterdb_tests_private.h"
 #include "platform_threads.h"
+#include "rc_allocator.h"
 #include "ctest.h"
 
 typedef struct split_test_iterator {
@@ -245,7 +246,7 @@ CTEST2(trunk_split, split_scan_propagates_io_error)
                                   data->cfg.btree_cfg,
                                   &itor,
                                   branch,
-                                  BTREE_BRANCH_FORMAT_VERSION,
+                                  BTREE_DEFAULT_FORMAT,
                                   PAGE_TYPE_BRANCH,
                                   &(const btree_iterator_init_options){0})));
    uint64 first_page = itor.curr.addr;
@@ -450,4 +451,598 @@ CTEST2(trunk_split, maplet_cow_retain_failure_restores_full_reference_map)
    ASSERT_TRUE(succeeded);
    platform_free(context->hid, counts);
    btree_dec_ref(context->cc, data->cfg.btree_cfg, branch, PAGE_TYPE_BRANCH);
+}
+
+#define TRUNK_BLOB_TEST_KEYS 16
+
+typedef struct split_blob_iterator {
+   iterator super;
+   uint64   pos;
+   uint64   length;
+   char    *bytes;
+   uint64   value;
+} split_blob_iterator;
+
+static void
+split_blob_curr(iterator *base, key *k, message *msg)
+{
+   split_blob_iterator *iter     = (split_blob_iterator *)base;
+   iter->bytes[iter->length - 1] = iter->pos + 1;
+   iter->value                   = iter->pos;
+   *k                            = key_create(FALSE, iter->length, iter->bytes);
+   *msg =
+      message_create_internal(MESSAGE_TYPE_INSERT,
+                              NULL,
+                              slice_create(sizeof(iter->value), &iter->value));
+}
+
+static bool32
+split_blob_can_next(iterator *base)
+{
+   return ((split_blob_iterator *)base)->pos < TRUNK_BLOB_TEST_KEYS;
+}
+
+static platform_status
+split_blob_next(iterator *base)
+{
+   ((split_blob_iterator *)base)->pos++;
+   return STATUS_OK;
+}
+
+static const iterator_ops split_blob_ops = {
+   .curr     = split_blob_curr,
+   .can_next = split_blob_can_next,
+   .can_prev = split_test_can_prev,
+   .next     = split_blob_next,
+};
+
+static uint64
+split_blob_pack(trunk_context *context, uint64 length)
+{
+   split_blob_iterator iter = {
+      .super  = {.ops = &split_blob_ops},
+      .length = length,
+   };
+   iter.bytes = TYPED_ARRAY_MALLOC(context->hid, iter.bytes, length);
+   ASSERT_NOT_NULL(iter.bytes);
+   memset(iter.bytes, 'k', length);
+   btree_pack_req req;
+   ASSERT_TRUE(SUCCESS(btree_pack_req_init(&req,
+                                           context->cc,
+                                           context->cfg->btree_cfg,
+                                           &iter.super,
+                                           TRUNK_BLOB_TEST_KEYS,
+                                           context->hid,
+                                           .seed = 42)));
+   ASSERT_TRUE(SUCCESS(btree_pack(&req)));
+   uint64 addr = req.root_addr;
+   btree_pack_req_deinit(&req, context->hid);
+   platform_free(context->hid, iter.bytes);
+   return addr;
+}
+
+static void
+split_blob_ready(void *arg)
+{
+   __atomic_store_n((bool32 *)arg, TRUE, __ATOMIC_RELEASE);
+}
+
+static void
+split_blob_check(trunk_context *context, uint64 length)
+{
+   char *bytes = TYPED_ARRAY_MALLOC(context->hid, bytes, length);
+   ASSERT_NOT_NULL(bytes);
+   memset(bytes, 'k', length);
+   for (uint64 i = 0; i < TRUNK_BLOB_TEST_KEYS; i++) {
+      bytes[length - 1]          = i + 1;
+      key                      k = key_create(FALSE, length, bytes);
+      trunk_ondisk_node_handle handle;
+      ASSERT_TRUE(SUCCESS(trunk_init_root_handle(context, &handle)));
+      for (uint64 async = 0; async < 2; async++) {
+         lookup_result result;
+         lookup_result_init(
+            &result, context->cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+         platform_status rc;
+         if (async) {
+            bool32                         ready = FALSE;
+            trunk_merge_lookup_async_state state;
+            trunk_merge_lookup_async_state_init(&state,
+                                                context,
+                                                &handle,
+                                                k,
+                                                &result,
+                                                NULL,
+                                                split_blob_ready,
+                                                &ready);
+            while (trunk_merge_lookup_async(&state) != ASYNC_STATUS_DONE) {
+               while (!__atomic_exchange_n(&ready, FALSE, __ATOMIC_ACQUIRE)) {
+                  cache_cleanup(context->cc);
+               }
+            }
+            rc = state.__async_result;
+         } else {
+            rc = trunk_merge_lookup(context, &handle, k, &result, NULL);
+         }
+         ASSERT_TRUE(
+            SUCCESS(rc), "lookup key %lu async %lu: %d", i, async, rc.r);
+         ASSERT_TRUE(lookup_result_found(&result));
+         uint64 value;
+         memcpy(&value, merge_accumulator_data(&result.value), sizeof(value));
+         ASSERT_EQUAL(i, value);
+         lookup_result_deinit(&result);
+      }
+      key_buffer min, max;
+      key_buffer_init(&min, context->hid);
+      key_buffer_init(&max, context->hid);
+      trunk_branch_info branches[64];
+      uint64            count = 0;
+      ASSERT_TRUE(SUCCESS(trunk_collect_branches(context,
+                                                 &handle,
+                                                 k,
+                                                 greater_than_or_equal,
+                                                 NULL,
+                                                 ARRAY_SIZE(branches),
+                                                 &count,
+                                                 branches,
+                                                 &min,
+                                                 &max)));
+      ASSERT_TRUE(
+         data_key_compare(context->cfg->data_cfg, key_buffer_key(&min), k)
+         <= 0);
+      ASSERT_TRUE(
+         data_key_compare(context->cfg->data_cfg, k, key_buffer_key(&max)) < 0);
+      for (uint64 j = 0; j < count; j++) {
+         btree_dec_ref(context->cc,
+                       context->cfg->btree_cfg,
+                       branches[j].addr,
+                       branches[j].type);
+      }
+      key_buffer_deinit(&min);
+      key_buffer_deinit(&max);
+      trunk_ondisk_node_handle_deinit(&handle);
+   }
+   platform_free(context->hid, bytes);
+}
+
+typedef struct ONDISK split_blob_node_header {
+   uint16 height;
+   uint16 num_pivots;
+   uint16 num_inflight_bundles;
+   uint16 blob_key_prefix_size;
+   uint32 inflight_bundles_offset;
+   uint32 tail_offset;
+   uint32 pivot_offsets[];
+} split_blob_node_header;
+
+typedef struct ONDISK split_blob_pivot {
+   int64      num_kv_bytes;
+   int64      num_tuples;
+   uint64     child_addr;
+   uint64     num_live_inflight_bundles;
+   ondisk_key key;
+} split_blob_pivot;
+
+static void
+split_blob_root_descriptor(trunk_context *context, writable_buffer *descriptor)
+{
+   uint64      root = context->root->ref.addr;
+   page_handle header_page, pivot_page;
+   ASSERT_TRUE(SUCCESS(
+      cache_get(context->cc, root, TRUE, PAGE_TYPE_TRUNK, &header_page)));
+   split_blob_node_header *header = (void *)page_handle_data(&header_page);
+   ASSERT_TRUE(header->height > 0);
+   if (!context->cfg->data_cfg->key_compare_is_lexical) {
+      ASSERT_EQUAL(0, header->blob_key_prefix_size);
+   }
+   ASSERT_TRUE(header->num_pivots > 2);
+   uint64 page_size = cache_page_size(context->cc);
+   uint64 offset    = header->pivot_offsets[1];
+   ASSERT_TRUE(SUCCESS(cache_get(context->cc,
+                                 root + offset / page_size * page_size,
+                                 TRUE,
+                                 PAGE_TYPE_TRUNK,
+                                 &pivot_page)));
+   split_blob_pivot *pivot =
+      (void *)((char *)page_handle_data(&pivot_page) + offset % page_size);
+   ASSERT_EQUAL(ONDISK_KEY_IS_BLOB, pivot->key.flags);
+   ASSERT_TRUE(SUCCESS(writable_buffer_copy_slice(
+      descriptor,
+      slice_create(pivot->key.length - header->blob_key_prefix_size,
+                   pivot->key.bytes + header->blob_key_prefix_size))));
+   cache_unget(context->cc, &pivot_page);
+   cache_unget(context->cc, &header_page);
+}
+
+static int
+split_blob_compare(const data_config *cfg, user_key a, user_key b)
+{
+   ASSERT_TRUE(slice_length(a.key) > 512);
+   ASSERT_TRUE(slice_length(b.key) > 512);
+   return slice_lex_cmp(a.key, b.key);
+}
+
+static page_handle *
+split_blob_fail_tail_page(cache       *cc,
+                          uint64       addr,
+                          page_type    type,
+                          page_handle *page)
+{
+   if (type == PAGE_TYPE_BLOB
+       && ++split_test_alloc_calls == split_test_fail_alloc_at)
+   {
+      return NULL;
+   }
+   return split_test_real_ops->page_alloc(cc, addr, type, page);
+}
+
+static void
+split_blob_incorporate_failures(trunk_context *context, uint64 branch)
+{
+   uint64    old_root    = context->root->ref.addr;
+   uint64    extent_size = cache_extent_size(context->cc);
+   uint64    count = allocator_get_config(context->al)->capacity / extent_size;
+   refcount *expected = TYPED_ARRAY_MALLOC(context->hid, expected, count);
+   ASSERT_NOT_NULL(expected);
+   for (uint64 i = 0; i < count; i++) {
+      expected[i] = allocator_get_refcount(context->al, i * extent_size);
+   }
+   uint64 allocated               = allocator_in_use(context->al);
+   split_test_real_ops            = context->cc->ops;
+   cache_ops cache_faults         = *split_test_real_ops;
+   cache_faults.page_alloc        = split_blob_fail_tail_page;
+   split_test_real_allocator_ops  = context->al->ops;
+   allocator_ops allocator_faults = *split_test_real_allocator_ops;
+   allocator_faults.inc_ref       = split_test_inc_ref;
+   for (uint64 mode = 0; mode < 2; mode++) {
+      bool32 succeeded = FALSE;
+      for (uint64 at = 1; at < 200; at++) {
+         split_test_alloc_calls = split_test_retain_calls = 0;
+         split_test_fail_alloc_at = split_test_fail_retain_at = at;
+         split_test_fail_limit                                = at % 2 == 0;
+         if (mode == 0) {
+            context->cc->ops = &cache_faults;
+         } else {
+            context->al->ops = &allocator_faults;
+         }
+         platform_status rc = trunk_incorporate_prepare(context, branch);
+         context->cc->ops   = split_test_real_ops;
+         context->al->ops   = split_test_real_allocator_ops;
+         if (SUCCESS(rc)) {
+            ASSERT_TRUE(at > 2);
+            if (mode == 0) {
+               // A successful prepare owns a provisional tree; release it by
+               // committing it before beginning the independent retain sweep.
+               trunk_incorporate_commit(context);
+               trunk_incorporate_cleanup(context);
+               old_root  = context->root->ref.addr;
+               allocated = allocator_in_use(context->al);
+               for (uint64 i = 0; i < count; i++) {
+                  expected[i] =
+                     allocator_get_refcount(context->al, i * extent_size);
+               }
+            } else {
+               trunk_incorporate_commit(context);
+               trunk_incorporate_cleanup(context);
+            }
+            succeeded = TRUE;
+            break;
+         }
+         ASSERT_EQUAL(mode && split_test_fail_limit ? STATUS_LIMIT_EXCEEDED.r
+                                                    : STATUS_NO_MEMORY.r,
+                      rc.r);
+         ASSERT_EQUAL(old_root, context->root->ref.addr);
+         ASSERT_NULL(context->post_incorporation_root);
+         ASSERT_EQUAL(allocated, allocator_in_use(context->al));
+         for (uint64 i = 0; i < count; i++) {
+            ASSERT_EQUAL(expected[i],
+                         allocator_get_refcount(context->al, i * extent_size),
+                         "mode %lu failure %lu extent %lu",
+                         mode,
+                         at,
+                         i);
+         }
+         ASSERT_TRUE(SUCCESS(context->allocator_cleanup_status));
+      }
+      ASSERT_TRUE(succeeded);
+   }
+   split_test_fail_limit = FALSE;
+   platform_free(context->hid, expected);
+}
+
+static void
+split_blob_exercise(trunk_context *context, uint64 length, bool32 custom)
+{
+   const trunk_config *saved = context->cfg;
+   trunk_config        cfg   = *saved;
+   btree_config        bcfg  = *cfg.btree_cfg;
+   data_config         dc    = *cfg.data_cfg;
+   if (custom) {
+      dc.key_compare            = split_blob_compare;
+      dc.key_compare_is_lexical = FALSE;
+      /* The writer must suppress prefixes for custom comparators even when
+       * the configured lexical prefix budget is nonzero. */
+      bcfg.blob_key_prefix_size = 256;
+   }
+   bcfg.data_cfg                   = &dc;
+   cfg.data_cfg                    = &dc;
+   cfg.btree_cfg                   = &bcfg;
+   cfg.incorporation_size_kv_bytes = length + sizeof(uint64);
+   cfg.target_fanout               = 4;
+   cfg.branch_rough_count_height   = 0;
+   context->cfg                    = &cfg;
+   uint64 branch                   = split_blob_pack(context, length);
+   split_test_incorporate(context, branch);
+   btree_dec_ref(context->cc, &bcfg, branch, PAGE_TYPE_BRANCH);
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(context->ts)));
+   split_blob_check(context, length);
+
+   auto_writable_buffer old_descriptor, new_descriptor;
+   writable_buffer_init(&old_descriptor, context->hid);
+   writable_buffer_init(&new_descriptor, context->hid);
+   split_blob_root_descriptor(context, &old_descriptor);
+   parsed_blob old_blob;
+   ASSERT_TRUE(SUCCESS(blob_parse_descriptor(
+      context->cc, writable_buffer_to_slice(&old_descriptor), &old_blob)));
+   uint64 extent_size = cache_extent_size(context->cc);
+   uint64 old_root    = context->root->ref.addr;
+   ASSERT_EQUAL(old_root,
+                old_blob.leftovers[0].addr / extent_size * extent_size);
+   trunk_snapshot snapshot;
+   ASSERT_TRUE(SUCCESS(trunk_snapshot_create(context, &snapshot)));
+
+   // Copy the existing pivots while changing only the root's bundle list.
+   cfg.incorporation_size_kv_bytes = UINT64_MAX;
+   branch                          = split_blob_pack(context, length);
+   if (old_blob.num_extents != 0) {
+      split_blob_incorporate_failures(context, branch);
+   } else {
+      split_test_incorporate(context, branch);
+   }
+   btree_dec_ref(context->cc, &bcfg, branch, PAGE_TYPE_BRANCH);
+   split_blob_root_descriptor(context, &new_descriptor);
+   parsed_blob new_blob;
+   ASSERT_TRUE(SUCCESS(blob_parse_descriptor(
+      context->cc, writable_buffer_to_slice(&new_descriptor), &new_blob)));
+   ASSERT_EQUAL(old_blob.num_extents, new_blob.num_extents);
+   for (uint64 i = 0; i < old_blob.num_extents; i++) {
+      ASSERT_EQUAL(old_blob.base->addrs[i], new_blob.base->addrs[i]);
+   }
+   ASSERT_NOT_EQUAL(old_blob.leftovers[0].addr, new_blob.leftovers[0].addr);
+   ASSERT_EQUAL(context->root->ref.addr,
+                new_blob.leftovers[0].addr / extent_size * extent_size);
+   ASSERT_TRUE(SUCCESS(trunk_snapshot_release(context, &snapshot)));
+   ASSERT_EQUAL(AL_FREE, allocator_get_refcount(context->al, old_root));
+   cache_flush(context->cc);
+   cache_evict(context->cc, FALSE);
+   split_blob_check(context, length);
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(context->ts)));
+   ASSERT_TRUE(SUCCESS(context->allocator_cleanup_status));
+   context->cfg = saved;
+}
+
+CTEST2(trunk_split, blob_pivots_copy_colocated_tails)
+{
+   split_blob_exercise(data->context, 4096 + 37, FALSE);
+}
+
+CTEST2(trunk_split, blob_pivots_copy_overflow_tails)
+{
+   split_blob_exercise(
+      data->context, cache_extent_size(data->context->cc) * 3 / 2 + 37, FALSE);
+}
+
+CTEST2(trunk_split, blob_pivots_custom_comparator)
+{
+   split_blob_exercise(data->context, 65536 + 37, TRUE);
+}
+
+CTEST2(trunk_split, blob_pivots_recovery_rebuild)
+{
+   uint64 length = cache_extent_size(data->context->cc) * 3 / 2 + 37;
+   split_blob_exercise(data->context, length, FALSE);
+   core_handle     *core = (core_handle *)splinterdb_get_trunk_handle(data->db);
+   core_config      cfg  = core->cfg;
+   allocator       *al   = core->al;
+   cache           *cc   = core->cc;
+   task_system     *ts   = core->ts;
+   io_handle       *io   = core->superblock.io;
+   platform_heap_id hid  = core->heap_id;
+   allocator_root_id id  = core->id;
+   data->context->cfg    = data->original_cfg;
+   ASSERT_TRUE(SUCCESS(core_unmount(core, FALSE)));
+
+   allocator_config  *acfg = allocator_get_config(al);
+   superblock_context sb;
+   ASSERT_TRUE(SUCCESS(superblock_context_init(&sb, io, acfg, hid)));
+   ASSERT_TRUE(SUCCESS(superblock_mount(&sb, acfg)));
+   superblock_tree_record record;
+   superblock_get_tree_record(&sb, &record);
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(record.live_log));
+   ASSERT_TRUE(SUPERBLOCK_NO_LOG(record.sealed_log));
+   superblock_snapshot_tree(
+      &sb, record.root_addr, record.first_unincorporated_generation);
+   ASSERT_TRUE(SUCCESS(superblock_make_durable(&sb)));
+   superblock_context_deinit(&sb);
+   ASSERT_TRUE(SUCCESS(rc_allocator_release_snapshot((rc_allocator *)al)));
+
+   uint64    extent_size = cache_extent_size(cc);
+   uint64    count       = acfg->capacity / extent_size;
+   refcount *expected    = TYPED_ARRAY_MALLOC(hid, expected, count);
+   ASSERT_NOT_NULL(expected);
+   for (uint64 i = 0; i < count; i++) {
+      expected[i] = allocator_get_refcount(al, i * extent_size);
+   }
+   uint64 allocated = allocator_in_use(al);
+   for (uint64 round = 0; round < 2; round++) {
+      cache_evict(cc, FALSE);
+      ASSERT_TRUE(SUCCESS(allocator_recovery_begin(al)));
+      ASSERT_TRUE(SUCCESS(trunk_recover_allocations(
+         cfg.trunk_node_cfg, cc, hid, record.root_addr)));
+      allocator_recovery_finish(al);
+      ASSERT_EQUAL(allocated, allocator_in_use(al));
+      for (uint64 i = 0; i < count; i++) {
+         ASSERT_EQUAL(expected[i],
+                      allocator_get_refcount(al, i * extent_size),
+                      "round %lu extent %lu",
+                      round,
+                      i);
+      }
+   }
+   platform_free(hid, expected);
+   ASSERT_TRUE(SUCCESS(core_mount(core, &cfg, al, cc, io, ts, id, hid)));
+   data->context      = &core->trunk_context;
+   data->original_cfg = data->context->cfg;
+   data->cfg          = *data->original_cfg;
+   data->context->cfg = &data->cfg;
+   split_blob_check(data->context, length);
+}
+
+static platform_status
+split_blob_fail_read(cache       *cc,
+                     uint64       addr,
+                     bool32       blocking,
+                     page_type    type,
+                     page_handle *page)
+{
+   if (type == PAGE_TYPE_BLOB) {
+      *page = (page_handle){0};
+      return STATUS_IO_ERROR;
+   }
+   return split_test_real_ops->page_get(cc, addr, blocking, type, page);
+}
+
+CTEST2(trunk_split, blob_pivots_propagate_read_failures)
+{
+   trunk_context *context                = data->context;
+   uint64         length                 = 65536 + 37;
+   data->cfg.incorporation_size_kv_bytes = length;
+   data->cfg.target_fanout               = 4;
+   data->cfg.branch_rough_count_height   = 0;
+   uint64 branch                         = split_blob_pack(context, length);
+   split_test_incorporate(context, branch);
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(context->ts)));
+   uint64 allocated = allocator_in_use(context->al);
+   uint64 old_root  = context->root->ref.addr;
+   char  *bytes     = TYPED_ARRAY_MALLOC(context->hid, bytes, length);
+   ASSERT_NOT_NULL(bytes);
+   memset(bytes, 'k', length);
+   bytes[length - 1]   = TRUNK_BLOB_TEST_KEYS;
+   key query           = key_create(FALSE, length, bytes);
+   split_test_real_ops = context->cc->ops;
+   cache_ops ops       = *split_test_real_ops;
+   ops.page_get        = split_blob_fail_read;
+   for (uint64 async = 0; async < 2; async++) {
+      trunk_ondisk_node_handle handle;
+      ASSERT_TRUE(SUCCESS(trunk_init_root_handle(context, &handle)));
+      lookup_result result;
+      lookup_result_init(
+         &result, context->cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      context->cc->ops = &ops;
+      platform_status rc;
+      if (async) {
+         bool32                         ready = FALSE;
+         trunk_merge_lookup_async_state state;
+         trunk_merge_lookup_async_state_init(&state,
+                                             context,
+                                             &handle,
+                                             query,
+                                             &result,
+                                             NULL,
+                                             split_blob_ready,
+                                             &ready);
+         while (trunk_merge_lookup_async(&state) != ASYNC_STATUS_DONE) {
+            while (!__atomic_exchange_n(&ready, FALSE, __ATOMIC_ACQUIRE)) {
+               cache_cleanup(context->cc);
+            }
+         }
+         rc = state.__async_result;
+      } else {
+         rc = trunk_merge_lookup(context, &handle, query, &result, NULL);
+      }
+      context->cc->ops = split_test_real_ops;
+      ASSERT_EQUAL(STATUS_IO_ERROR.r, rc.r);
+      lookup_result_deinit(&result);
+      trunk_ondisk_node_handle_deinit(&handle);
+   }
+   context->cc->ops   = &ops;
+   platform_status rc = trunk_incorporate_prepare(context, branch);
+   context->cc->ops   = split_test_real_ops;
+   ASSERT_EQUAL(STATUS_IO_ERROR.r, rc.r);
+   ASSERT_EQUAL(old_root, context->root->ref.addr);
+   ASSERT_NULL(context->post_incorporation_root);
+   ASSERT_EQUAL(allocated, allocator_in_use(context->al));
+   platform_free(context->hid, bytes);
+   btree_dec_ref(context->cc, data->cfg.btree_cfg, branch, PAGE_TYPE_BRANCH);
+   split_blob_check(context, length);
+}
+
+CTEST2(trunk_split, blob_pivots_reject_metadata_as_tail)
+{
+   trunk_context *context                = data->context;
+   uint64         length                 = 65536 + 37;
+   data->cfg.incorporation_size_kv_bytes = length;
+   data->cfg.target_fanout               = 4;
+   data->cfg.branch_rough_count_height   = 0;
+   uint64 branch                         = split_blob_pack(context, length);
+   split_test_incorporate(context, branch);
+   btree_dec_ref(context->cc, data->cfg.btree_cfg, branch, PAGE_TYPE_BRANCH);
+   ASSERT_TRUE(SUCCESS(task_perform_until_quiescent(context->ts)));
+
+   uint64      root = context->root->ref.addr;
+   page_handle page;
+   ASSERT_TRUE(
+      SUCCESS(cache_get(context->cc, root, TRUE, PAGE_TYPE_TRUNK, &page)));
+   split_blob_node_header *header = (void *)page_handle_data(&page);
+   ASSERT_TRUE(header->num_pivots > 2);
+   uint64 offset = header->pivot_offsets[1];
+   uint64 prefix = header->blob_key_prefix_size;
+   cache_unget(context->cc, &page);
+   uint64 page_size = cache_page_size(context->cc);
+   uint64 addr      = root + offset / page_size * page_size;
+   ASSERT_TRUE(
+      SUCCESS(cache_get(context->cc, addr, TRUE, PAGE_TYPE_TRUNK, &page)));
+   split_blob_pivot *pivot =
+      (void *)(page_handle_data(&page) + offset % page_size);
+   ASSERT_EQUAL(ONDISK_KEY_IS_BLOB, pivot->key.flags);
+   blob       *descriptor = (void *)(pivot->key.bytes + prefix);
+   parsed_blob parsed;
+   ASSERT_TRUE(SUCCESS(blob_parse_descriptor(
+      context->cc,
+      slice_create(pivot->key.length - prefix, descriptor),
+      &parsed)));
+   ASSERT_EQUAL(0, parsed.num_extents);
+   uint64 saved_addr = descriptor->addrs[0];
+   ASSERT_TRUE(cache_try_claim(context->cc, &page));
+   cache_lock(context->cc, &page);
+   descriptor->addrs[0] = root;
+   cache_unlock(context->cc, &page);
+   cache_unclaim(context->cc, &page);
+   cache_unget(context->cc, &page);
+
+   char *bytes = TYPED_ARRAY_MALLOC(context->hid, bytes, length);
+   ASSERT_NOT_NULL(bytes);
+   memset(bytes, 'k', length);
+   bytes[length - 1] = 1;
+   trunk_ondisk_node_handle handle;
+   ASSERT_TRUE(SUCCESS(trunk_init_root_handle(context, &handle)));
+   lookup_result result;
+   lookup_result_init(
+      &result, context->cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   platform_status rc = trunk_merge_lookup(
+      context, &handle, key_create(FALSE, length, bytes), &result, NULL);
+   trunk_ondisk_node_handle_deinit(&handle);
+   lookup_result_deinit(&result);
+   platform_free(context->hid, bytes);
+   ASSERT_TRUE(
+      SUCCESS(cache_get(context->cc, addr, TRUE, PAGE_TYPE_TRUNK, &page)));
+   pivot      = (void *)(page_handle_data(&page) + offset % page_size);
+   descriptor = (void *)(pivot->key.bytes + prefix);
+   ASSERT_TRUE(cache_try_claim(context->cc, &page));
+   cache_lock(context->cc, &page);
+   descriptor->addrs[0] = saved_addr;
+   cache_unlock(context->cc, &page);
+   cache_unclaim(context->cc, &page);
+   cache_unget(context->cc, &page);
+   ASSERT_EQUAL(STATUS_INVALID_STATE.r, rc.r);
+   split_blob_check(context, length);
 }

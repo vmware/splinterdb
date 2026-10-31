@@ -62,7 +62,7 @@ btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              uint64                *generation)
 {
    platform_status rc = btree_create_leaf_incorporate_spec(
-      cfg, NULL, NULL, hid, hdr, tuple_key, msg, spec);
+      cfg, NULL, NULL, hid, hdr, &tuple_key, &msg, spec);
    ASSERT_TRUE(SUCCESS(rc));
    return btree_try_perform_leaf_incorporate_spec(cfg, hdr, spec, generation);
 }
@@ -218,12 +218,15 @@ CTEST2(btree, test_defragmented_index_bytes)
  * A NULL cache makes an accidental read fail, including in the async paths.
  */
 static const struct {
-   uint64 addr;
-   uint16 format_version;
+   uint64       addr;
+   btree_format format;
 } invalid_branch_refs[] = {
-   {4096, BTREE_BRANCH_FORMAT_VERSION - 1},
-   {4096, BTREE_BRANCH_FORMAT_VERSION + 1},
-   {0, BTREE_BRANCH_FORMAT_VERSION},
+   {4096, {1, 256}},
+   {4096, {2, 256}},
+   {4096, {3, 256}},
+   {4096, {BTREE_BRANCH_FORMAT_VERSION + 1, 256}},
+   {0, BTREE_DEFAULT_FORMAT},
+   {4096, {BTREE_BRANCH_FORMAT_VERSION, UINT16_MAX}},
 };
 
 CTEST2(btree, test_invalid_branch_point_lookup)
@@ -238,7 +241,7 @@ CTEST2(btree, test_invalid_branch_point_lookup)
       platform_status rc = btree_lookup(NULL,
                                         &data->dbtree_cfg,
                                         invalid_branch_refs[i].addr,
-                                        invalid_branch_refs[i].format_version,
+                                        invalid_branch_refs[i].format,
                                         PAGE_TYPE_BRANCH,
                                         target,
                                         &result);
@@ -249,9 +252,9 @@ CTEST2(btree, test_invalid_branch_point_lookup)
       rc                 = btree_lookup_and_merge(NULL,
                                   &data->dbtree_cfg,
                                   invalid_branch_refs[i].addr,
-                                  invalid_branch_refs[i].format_version,
+                                  invalid_branch_refs[i].format,
                                   PAGE_TYPE_BRANCH,
-                                  target,
+                                  &target,
                                   &result,
                                   &local_found);
       ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
@@ -275,7 +278,7 @@ CTEST2(btree, test_invalid_branch_async_point_lookup)
                                     NULL,
                                     &data->dbtree_cfg,
                                     invalid_branch_refs[i].addr,
-                                    invalid_branch_refs[i].format_version,
+                                    invalid_branch_refs[i].format,
                                     PAGE_TYPE_BRANCH,
                                     target,
                                     &result,
@@ -285,17 +288,16 @@ CTEST2(btree, test_invalid_branch_async_point_lookup)
       ASSERT_TRUE(STATUS_IS_EQ(async_result(&state), STATUS_INVALID_STATE));
       ASSERT_FALSE(lookup_result_found(&result));
 
-      btree_lookup_and_merge_async_state_init(
-         &state,
-         NULL,
-         &data->dbtree_cfg,
-         invalid_branch_refs[i].addr,
-         invalid_branch_refs[i].format_version,
-         PAGE_TYPE_BRANCH,
-         target,
-         &result,
-         NULL,
-         NULL);
+      btree_lookup_and_merge_async_state_init(&state,
+                                              NULL,
+                                              &data->dbtree_cfg,
+                                              invalid_branch_refs[i].addr,
+                                              invalid_branch_refs[i].format,
+                                              PAGE_TYPE_BRANCH,
+                                              target,
+                                              &result,
+                                              NULL,
+                                              NULL);
       ASSERT_EQUAL(ASYNC_STATUS_DONE, btree_lookup_and_merge_async(&state));
       ASSERT_TRUE(STATUS_IS_EQ(async_result(&state), STATUS_INVALID_STATE));
       ASSERT_FALSE(lookup_result_found(&result));
@@ -314,7 +316,7 @@ CTEST2(btree, test_invalid_branch_iterator)
             &data->dbtree_cfg,
             &itor,
             invalid_branch_refs[i].addr,
-            invalid_branch_refs[i].format_version,
+            invalid_branch_refs[i].format,
             PAGE_TYPE_BRANCH,
             &(const btree_iterator_init_options){.copy_nodes = copy_nodes,
                                                  .prefetch_lookahead = 1});
@@ -328,7 +330,7 @@ CTEST2(btree, test_invalid_branch_iterator)
                                          &data->dbtree_cfg,
                                          &itor,
                                          invalid_branch_refs[i].addr,
-                                         invalid_branch_refs[i].format_version,
+                                         invalid_branch_refs[i].format,
                                          PAGE_TYPE_BRANCH,
                                          greater_than_or_equal,
                                          NEGATIVE_INFINITY_KEY,
@@ -353,20 +355,19 @@ CTEST2(btree, test_invalid_branch_metadata_queries)
 {
    for (uint64 i = 0; i < ARRAY_SIZE(invalid_branch_refs); i++) {
       uint32          height;
-      platform_status rc =
-         btree_get_root_height(NULL,
-                               &data->dbtree_cfg,
-                               invalid_branch_refs[i].addr,
-                               invalid_branch_refs[i].format_version,
-                               PAGE_TYPE_BRANCH,
-                               &height);
+      platform_status rc = btree_get_root_height(NULL,
+                                                 &data->dbtree_cfg,
+                                                 invalid_branch_refs[i].addr,
+                                                 invalid_branch_refs[i].format,
+                                                 PAGE_TYPE_BRANCH,
+                                                 &height);
       ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
 
       btree_pivot_stats stats;
       rc = btree_count_in_range(NULL,
                                 &data->dbtree_cfg,
                                 invalid_branch_refs[i].addr,
-                                invalid_branch_refs[i].format_version,
+                                invalid_branch_refs[i].format,
                                 NEGATIVE_INFINITY_KEY,
                                 POSITIVE_INFINITY_KEY,
                                 &stats);
@@ -375,7 +376,7 @@ CTEST2(btree, test_invalid_branch_metadata_queries)
       rc = btree_recover_allocations(NULL,
                                      &data->dbtree_cfg,
                                      invalid_branch_refs[i].addr,
-                                     invalid_branch_refs[i].format_version,
+                                     invalid_branch_refs[i].format,
                                      PAGE_TYPE_BRANCH);
       ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
    }
@@ -530,7 +531,10 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    char *index_buffer =
       TYPED_MANUAL_MALLOC(hid, index_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
-   int        nkvs = 100;
+   int        nkvs = (btree_page_size(cfg) - sizeof(*hdr))
+              / (2
+                 * (sizeof(index_entry) + sizeof(btree_pivot_stats32)
+                    + sizeof(uint64) + sizeof(table_entry)));
 
    bool32 rv     = FALSE;
    int    cmp_rv = 0;
@@ -592,8 +596,12 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
    char *leaf_buffer =
       TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
-   btree_hdr        *hdr  = (btree_hdr *)leaf_buffer;
-   int               nkvs = 256;
+   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
+   int        nkvs = 2
+              * MIN(128,
+                    (btree_page_size(cfg) - sizeof(*hdr))
+                       / (sizeof(index_entry) + sizeof(btree_pivot_stats32) + 1
+                          + sizeof(table_entry)));
    btree_pivot_stats stats;
    memset(&stats, 0, sizeof(stats));
 
@@ -751,15 +759,9 @@ defragmented_leaf_bytes_tests(btree_config    *cfg,
       leaf_incorporate_spec spec;
       message               msg = message_create_internal(
          MESSAGE_TYPE_INSERT, NULL, slice_create(9, msgbuf));
-      platform_status rc =
-         btree_create_leaf_incorporate_spec(cfg,
-                                            NULL,
-                                            NULL,
-                                            hid,
-                                            copy,
-                                            key_create(FALSE, 1, &new_keys[k]),
-                                            msg,
-                                            &spec);
+      key             tuple_key = key_create(FALSE, 1, &new_keys[k]);
+      platform_status rc        = btree_create_leaf_incorporate_spec(
+         cfg, NULL, NULL, hid, copy, &tuple_key, &msg, &spec);
       ASSERT_TRUE(SUCCESS(rc));
       ASSERT_EQUAL(k == 0 ? ENTRY_DID_NOT_EXIST : ENTRY_STILL_EXISTS,
                    spec.old_entry_state);
@@ -798,7 +800,8 @@ defragmented_index_bytes_tests(btree_config    *cfg,
       ASSERT_TRUE(btree_set_index_entry(
          cfg, hdr, i, key_create(FALSE, i % 5 + 1, keybuf), i, stats));
    }
-   // Lengthening every third pivot leaves its old copy behind as garbage.
+   // Lengthening and widening every third pivot leaves garbage behind.
+   stats.message_bytes = UINT64_C(1) << 40;
    for (uint32 i = 0; i < nkvs; i += 3) {
       ASSERT_TRUE(btree_set_index_entry(
          cfg, hdr, i, key_create(FALSE, i % 5 + 8, keybuf), i, stats));
@@ -814,6 +817,109 @@ defragmented_index_bytes_tests(btree_config    *cfg,
    btree_defragment_index(cfg, scratch, hdr);
    ASSERT_EQUAL(node_used_bytes(cfg, hdr), predicted);
 
+   for (uint32 i = 0; i < nkvs; i++) {
+      index_entry      *entry  = btree_get_index_entry(cfg, hdr, i);
+      btree_pivot_stats actual = index_entry_stats(entry);
+      ASSERT_EQUAL(i % 3 == 0 ? stats.message_bytes : 0, actual.message_bytes);
+      ASSERT_EQUAL(i, index_entry_child_addr(entry));
+      ASSERT_EQUAL(i % 5 + (i % 3 == 0 ? 8 : 1),
+                   key_length(index_entry_key(entry)));
+   }
+
+   // Narrowing an existing wide entry must clear its flag and retain its key.
+   stats.message_bytes = 1;
+   for (uint32 i = 0; i < nkvs; i += 3) {
+      ASSERT_TRUE(btree_set_index_entry(
+         cfg, hdr, i, key_create(FALSE, i % 5 + 8, keybuf), i, stats));
+      index_entry *entry = btree_get_index_entry(cfg, hdr, i);
+      ASSERT_FALSE(entry->pivot.flags & BTREE_INDEX_WIDE_STATS);
+      ASSERT_EQUAL(1, index_entry_stats(entry).message_bytes);
+   }
+   predicted = btree_defragmented_index_bytes(cfg, hdr);
+   btree_defragment_index(cfg, scratch, hdr);
+   ASSERT_EQUAL(node_used_bytes(cfg, hdr), predicted);
+
    platform_free(hid, index_buffer);
    return 0;
+}
+
+CTEST2(btree, test_native_statistics_layout)
+{
+   ASSERT_EQUAL(3 * sizeof(uint32), sizeof(btree_pivot_stats32));
+   ASSERT_EQUAL(3 * sizeof(uint64), sizeof(btree_pivot_stats));
+   ASSERT_EQUAL(sizeof(uint64), offsetof(index_entry, pivot));
+   const struct {
+      btree_pivot_stats stats;
+      bool32            wide;
+   } cases[] = {
+      {{0, 1, 2}, FALSE},
+      {{UINT64_C(0x7fffffff), UINT32_MAX - 1, UINT64_MAX}, FALSE},
+      {{UINT64_MAX, UINT64_MAX, UINT64_MAX}, FALSE},
+      {{UINT32_MAX, 0, 0}, TRUE},
+      {{0, UINT32_MAX, 0}, TRUE},
+      {{0, 0, UINT32_MAX}, TRUE},
+      {{(UINT64_C(1) << 40) + 7, (UINT64_C(1) << 53) + 9, UINT64_MAX}, TRUE},
+      {{UINT64_MAX - 1, UINT64_MAX, 0}, TRUE},
+   };
+   // Three key bytes deliberately leave both counter representations unaligned.
+   char storage[sizeof(index_entry) + 3 + sizeof(btree_pivot_stats) + 1];
+   for (uint64 i = 0; i < ARRAY_SIZE(cases); i++) {
+      for (uint8 blob_flag = 0; blob_flag <= ONDISK_KEY_IS_BLOB;
+           blob_flag += ONDISK_KEY_IS_BLOB)
+      {
+         memset(storage, 0xa5, sizeof(storage));
+         index_entry *entry  = (index_entry *)storage;
+         entry->pivot.length = 3;
+         // Start with the opposite width to exercise both flag transitions.
+         entry->pivot.flags =
+            blob_flag | (cases[i].wide ? 0 : BTREE_INDEX_WIDE_STATS);
+         memcpy(entry->pivot.bytes, "key", 3);
+         index_entry_set_stats(entry, cases[i].stats);
+         btree_pivot_stats actual = index_entry_stats(entry);
+         ASSERT_EQUAL(cases[i].stats.num_kvs, actual.num_kvs);
+         ASSERT_EQUAL(cases[i].stats.key_bytes, actual.key_bytes);
+         ASSERT_EQUAL(cases[i].stats.message_bytes, actual.message_bytes);
+         ASSERT_EQUAL(blob_flag | (cases[i].wide ? BTREE_INDEX_WIDE_STATS : 0),
+                      entry->pivot.flags);
+         ASSERT_EQUAL(0, memcmp(entry->pivot.bytes, "key", 3));
+         uint64 size = cases[i].wide ? 24 : 12;
+         ASSERT_EQUAL(sizeof(index_entry) + 3 + size,
+                      sizeof_index_entry(entry));
+         ASSERT_EQUAL(0xa5, (uint8)storage[sizeof_index_entry(entry)]);
+         if (cases[i].wide) {
+            uint64 raw[3];
+            memcpy(raw, entry->pivot.bytes + 3, sizeof(raw));
+            ASSERT_EQUAL(cases[i].stats.num_kvs, raw[0]);
+            ASSERT_EQUAL(cases[i].stats.key_bytes, raw[1]);
+            ASSERT_EQUAL(cases[i].stats.message_bytes, raw[2]);
+         } else {
+            uint32 raw[3];
+            memcpy(raw, entry->pivot.bytes + 3, sizeof(raw));
+            ASSERT_EQUAL((uint32)cases[i].stats.num_kvs, raw[0]);
+            ASSERT_EQUAL((uint32)cases[i].stats.key_bytes, raw[1]);
+            ASSERT_EQUAL((uint32)cases[i].stats.message_bytes, raw[2]);
+         }
+      }
+   }
+}
+
+CTEST2(btree, test_blob_key_configuration)
+{
+   btree_config cfg                      = data->dbtree_cfg;
+   data_config  dc                       = *cfg.data_cfg;
+   dc.key_compare_is_lexical             = TRUE;
+   cfg.data_cfg                          = &dc;
+   cfg.blob_key_prefix_size              = 256;
+   cfg.blob_cfg.blob_max_descriptor_size = 256;
+   ASSERT_TRUE(SUCCESS(btree_config_validate(&cfg)));
+   cfg.blob_key_prefix_size = 257;
+   ASSERT_TRUE(STATUS_IS_EQ(btree_config_validate(&cfg), STATUS_BAD_PARAM));
+   cfg.blob_key_prefix_size              = 0;
+   cfg.blob_cfg.blob_max_descriptor_size = 512;
+   ASSERT_TRUE(SUCCESS(btree_config_validate(&cfg)));
+   cfg.blob_key_prefix_size = UINT64_C(65536);
+   ASSERT_TRUE(STATUS_IS_EQ(btree_config_validate(&cfg), STATUS_BAD_PARAM));
+   dc.key_compare_is_lexical = FALSE;
+   ASSERT_TRUE(SUCCESS(btree_config_validate(&cfg)));
+   ASSERT_EQUAL(0, btree_config_format(&cfg).key_prefix_size);
 }

@@ -28,11 +28,13 @@ typedef struct {
 
 typedef struct {
    batch_claimlock write_lock[PLATFORM_CACHELINE_SIZE / 2];
-   volatile uint8  read_counter[MAX_THREADS][PLATFORM_CACHELINE_SIZE / 2];
+   // Each thread writes its own cache line. Half-line rows make adjacent
+   // threads invalidate one another even when all callers only hold reads.
+   volatile uint8 read_counter[MAX_THREADS][PLATFORM_CACHELINE_SIZE];
 } PLATFORM_CACHELINE_ALIGNED batch_rwlock;
 
 _Static_assert(sizeof(batch_rwlock)
-                  == PLATFORM_CACHELINE_SIZE * (MAX_THREADS / 2 + 1),
+                  == PLATFORM_CACHELINE_SIZE * (MAX_THREADS + 1),
                "Missized batch_rwlock\n");
 
 

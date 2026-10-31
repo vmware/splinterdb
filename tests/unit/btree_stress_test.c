@@ -310,7 +310,7 @@ CTEST2(btree_stress, insert_callback_failure_abandons_insert)
    rc = btree_lookup((cache *)&data->cc,
                      &data->dbtree_cfg,
                      root_addr,
-                     0,
+                     (btree_format){0},
                      PAGE_TYPE_MEMTABLE,
                      tuple_key,
                      &lookup);
@@ -353,7 +353,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
    ASSERT_TRUE(SUCCESS(btree_get_root_height((cache *)&data->cc,
                                              &data->dbtree_cfg,
                                              root_addr,
-                                             0,
+                                             (btree_format){0},
                                              PAGE_TYPE_MEMTABLE,
                                              &height)));
    ASSERT_EQUAL_U(0, height);
@@ -386,7 +386,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
    ASSERT_TRUE(SUCCESS(btree_get_root_height((cache *)&data->cc,
                                              &data->dbtree_cfg,
                                              root_addr,
-                                             0,
+                                             (btree_format){0},
                                              PAGE_TYPE_MEMTABLE,
                                              &height)));
    ASSERT_TRUE(height > 0);
@@ -399,7 +399,7 @@ CTEST2(btree_stress, insert_callback_failure_after_root_growth)
    rc = btree_lookup((cache *)&data->cc,
                      &data->dbtree_cfg,
                      root_addr,
-                     0,
+                     (btree_format){0},
                      PAGE_TYPE_MEMTABLE,
                      rejected_key,
                      &lookup);
@@ -548,8 +548,13 @@ CTEST2(btree_stress, insert_rebuild_failure_releases_parent_claim)
 
    lookup_result lookup;
    lookup_result_init(&lookup, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
-   ASSERT_TRUE(SUCCESS(btree_lookup(
-      cc, cfg, root_addr, 0, PAGE_TYPE_MEMTABLE, target, &lookup)));
+   ASSERT_TRUE(SUCCESS(btree_lookup(cc,
+                                    cfg,
+                                    root_addr,
+                                    (btree_format){0},
+                                    PAGE_TYPE_MEMTABLE,
+                                    target,
+                                    &lookup)));
    ASSERT_EQUAL(0,
                 slice_lex_cmp(merge_accumulator_to_value(
                                  lookup_result_accumulator(&lookup)),
@@ -800,7 +805,7 @@ CTEST2(btree_stress, overwrite_returns_old_value_after_tree_growth)
       rc = btree_lookup((cache *)&data->cc,
                         &data->dbtree_cfg,
                         root_addr,
-                        0,
+                        (btree_format){0},
                         PAGE_TYPE_MEMTABLE,
                         gen_key(&data->dbtree_cfg, i, keybuf, bt_page_size),
                         &verify_result);
@@ -939,7 +944,7 @@ query_tests(cache           *cc,
       btree_lookup(cc,
                    cfg,
                    root_addr,
-                   BTREE_BRANCH_FORMAT_VERSION,
+                   BTREE_DEFAULT_FORMAT,
                    type,
                    gen_key(cfg, i, keybuf, bt_page_size),
                    &result);
@@ -1039,7 +1044,7 @@ iterator_tests(cache           *cc,
       cfg,
       &dbiter,
       root_addr,
-      BTREE_BRANCH_FORMAT_VERSION,
+      BTREE_DEFAULT_FORMAT,
       type,
       &(const btree_iterator_init_options){
          .start_position = key_start_at_or_after(start_key)});
@@ -1087,7 +1092,7 @@ iterator_seek_tests(cache           *cc,
       cfg,
       &dbiter,
       root_addr,
-      0,
+      (btree_format){0},
       PAGE_TYPE_MEMTABLE,
       &(const btree_iterator_init_options){
          .start_position = key_start_at_or_after(start_key)});
@@ -1130,7 +1135,7 @@ pack_tests(cache           *cc,
                           cfg,
                           &dbiter,
                           root_addr,
-                          0,
+                          (btree_format){0},
                           PAGE_TYPE_MEMTABLE,
                           &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
@@ -1225,7 +1230,7 @@ bounds_init_with_copy(cache          *cc,
          cfg,
          itor,
          root,
-         BTREE_BRANCH_FORMAT_VERSION,
+         BTREE_DEFAULT_FORMAT,
          type,
          &(const btree_iterator_init_options){
             .lower_limit        = make_key_lower_limit(lo_cmp, lo),
@@ -1241,7 +1246,7 @@ bounds_init_with_copy(cache          *cc,
                                    cfg,
                                    itor,
                                    root,
-                                   BTREE_BRANCH_FORMAT_VERSION,
+                                   BTREE_DEFAULT_FORMAT,
                                    type,
                                    lo_cmp,
                                    lo,
@@ -1368,7 +1373,7 @@ iterator_endpoint_fault_init(cache          *cc,
                                  cfg,
                                  itor,
                                  root,
-                                 BTREE_BRANCH_FORMAT_VERSION,
+                                 BTREE_DEFAULT_FORMAT,
                                  PAGE_TYPE_BRANCH,
                                  &(const btree_iterator_init_options){
                                     .upper_limit = key_less_than(upper)});
@@ -1381,7 +1386,7 @@ iterator_endpoint_fault_init(cache          *cc,
                                    cfg,
                                    itor,
                                    root,
-                                   BTREE_BRANCH_FORMAT_VERSION,
+                                   BTREE_DEFAULT_FORMAT,
                                    PAGE_TYPE_BRANCH,
                                    greater_than_or_equal,
                                    NEGATIVE_INFINITY_KEY,
@@ -1402,6 +1407,170 @@ iterator_endpoint_fault_init(cache          *cc,
    return btree_iterator_init_async_result(&state);
 }
 
+/* Unbounded immutable scans defer endpoint traversal until the last page.
+ * Observe root acquisitions to catch an eager walk, then exercise the endpoint
+ * while crossing leaves in both directions and seeking away from the end. */
+CTEST2(btree_stress, unbounded_branch_iterator)
+{
+   cache         *cc  = (cache *)&data->cc;
+   btree_config  *cfg = &data->dbtree_cfg;
+   mini_allocator mini;
+   const uint64   count = 2048;
+   uint64 source_root   = test_btree_create(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+   for (uint64 n = 0; n < count; n++) {
+      bounds_insert(
+         cc, cfg, data->hid, data->test_scratch, &mini, source_root, n);
+   }
+   btree_iterator source;
+   ASSERT_TRUE(
+      SUCCESS(btree_iterator_init(cc,
+                                  cfg,
+                                  &source,
+                                  source_root,
+                                  (btree_format){0},
+                                  PAGE_TYPE_MEMTABLE,
+                                  &(const btree_iterator_init_options){0})));
+   btree_pack_req req;
+   ASSERT_TRUE(SUCCESS(
+      btree_pack_req_init(&req, cc, cfg, &source.super, count, data->hid)));
+   ASSERT_TRUE(SUCCESS(btree_pack(&req)));
+   uint64 packed_root = req.root_addr;
+   btree_pack_req_deinit(&req, data->hid);
+   btree_iterator_deinit(&source);
+
+   for (unsigned async = 0; async < 2; async++) {
+      for (unsigned copy = 0; copy < 2; copy++) {
+         for (unsigned reverse = 0; reverse < 2; reverse++) {
+            iterator_endpoint_fault observer = {
+               .cc       = cc,
+               .original = cc->ops,
+               .ops      = *cc->ops,
+               .root     = packed_root,
+            };
+            observer.ops.page_get = iterator_endpoint_fault_get;
+            observer.ops.page_get_async_result =
+               iterator_endpoint_fault_async_result;
+            active_iterator_endpoint_fault = &observer;
+            cc->ops                        = &observer.ops;
+
+            uint64          lower_buf;
+            const int64     first = 13;
+            btree_iterator  itor;
+            platform_status rc =
+               bounds_init_with_copy(cc,
+                                     cfg,
+                                     &itor,
+                                     packed_root,
+                                     bounds_key(first, &lower_buf),
+                                     greater_than_or_equal,
+                                     POSITIVE_INFINITY_KEY,
+                                     less_than,
+                                     reverse,
+                                     async,
+                                     PAGE_TYPE_BRANCH,
+                                     0,
+                                     copy);
+
+            cc->ops                        = observer.original;
+            active_iterator_endpoint_fault = NULL;
+            ASSERT_TRUE(SUCCESS(rc));
+            ASSERT_NOT_EQUAL(packed_root, itor.curr.addr);
+            ASSERT_EQUAL(reverse && !copy ? 2 : 1, observer.root_gets);
+            bool32 backwards = reverse;
+            for (unsigned direction = 0; direction < 2; direction++) {
+               int64 expected = backwards ? count - 1 : first;
+               for (uint64 n = first; n < count; n++) {
+                  ASSERT_TRUE(iterator_can_curr(&itor.super));
+                  key     k;
+                  message msg;
+                  iterator_curr(&itor.super, &k, &msg);
+                  ASSERT_EQUAL(expected, bounds_key_number(k));
+                  expected += backwards ? -1 : 1;
+                  rc = backwards ? iterator_prev(&itor.super)
+                                 : iterator_next(&itor.super);
+                  ASSERT_TRUE(SUCCESS(rc));
+               }
+               ASSERT_FALSE(iterator_can_curr(&itor.super));
+               rc = backwards ? iterator_next(&itor.super)
+                              : iterator_prev(&itor.super);
+               ASSERT_TRUE(SUCCESS(rc));
+               backwards = !backwards;
+            }
+
+            /* Seeking back from the last leaf must discard its cached bound. */
+            uint64 seek_buf;
+            ASSERT_TRUE(
+               SUCCESS(iterator_seek(&itor.super,
+                                     greater_than_or_equal,
+                                     bounds_key(count - 1, &seek_buf))));
+            ASSERT_TRUE(SUCCESS(iterator_next(&itor.super)));
+            ASSERT_FALSE(iterator_can_curr(&itor.super));
+            ASSERT_TRUE(SUCCESS(iterator_seek(&itor.super,
+                                              greater_than_or_equal,
+                                              bounds_key(first, &seek_buf))));
+            for (uint64 n = first; n < count; n++) {
+               ASSERT_TRUE(iterator_can_curr(&itor.super));
+               key     k;
+               message msg;
+               iterator_curr(&itor.super, &k, &msg);
+               ASSERT_EQUAL(n, bounds_key_number(k));
+               ASSERT_TRUE(SUCCESS(iterator_next(&itor.super)));
+            }
+            ASSERT_FALSE(iterator_can_curr(&itor.super));
+            btree_iterator_deinit(&itor);
+         }
+      }
+   }
+   /* A forged early last-page marker must still fail instead of producing a
+    * successful truncated scan. Endpoint lookup is deferred, not removed. */
+   btree_iterator probe;
+   ASSERT_TRUE(SUCCESS(iterator_endpoint_fault_init(
+      cc, cfg, &probe, packed_root, POSITIVE_INFINITY_KEY, FALSE)));
+   uint64 first_leaf = probe.curr.addr;
+   btree_iterator_deinit(&probe);
+   page_handle page;
+   ASSERT_TRUE(
+      SUCCESS(cache_get(cc, first_leaf, TRUE, PAGE_TYPE_BRANCH, &page)));
+   ASSERT_TRUE(cache_try_claim(cc, &page));
+   cache_lock(cc, &page);
+   btree_hdr *hdr   = (btree_hdr *)page_handle_data(&page);
+   uint8      flags = hdr->flags;
+   hdr->flags |= BTREE_HDR_LAST_IN_LEVEL;
+   cache_unlock(cc, &page);
+   cache_unclaim(cc, &page);
+   cache_unget(cc, &page);
+
+   for (unsigned async = 0; async < 2; async++) {
+      platform_status rc = iterator_endpoint_fault_init(
+         cc, cfg, &probe, packed_root, POSITIVE_INFINITY_KEY, async);
+      uint64 seen = 0;
+      while (iterator_can_curr(&probe.super)) {
+         seen++;
+         rc = iterator_next(&probe.super);
+         if (!SUCCESS(rc)) {
+            break;
+         }
+      }
+      btree_iterator_deinit(&probe);
+      ASSERT_FALSE(SUCCESS(rc));
+      ASSERT_TRUE(seen < count);
+   }
+
+   ASSERT_TRUE(
+      SUCCESS(cache_get(cc, first_leaf, TRUE, PAGE_TYPE_BRANCH, &page)));
+   ASSERT_TRUE(cache_try_claim(cc, &page));
+   cache_lock(cc, &page);
+   hdr        = (btree_hdr *)page_handle_data(&page);
+   hdr->flags = flags;
+   cache_unlock(cc, &page);
+   cache_unclaim(cc, &page);
+   cache_unget(cc, &page);
+
+   btree_dec_ref(cc, cfg, packed_root, PAGE_TYPE_BRANCH);
+   mini_release(&mini);
+   btree_dec_ref(cc, cfg, source_root, PAGE_TYPE_MEMTABLE);
+}
+
 CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
 {
    cache         *cc  = (cache *)&data->cc;
@@ -1420,7 +1589,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
                           cfg,
                           &source,
                           source_root,
-                          0,
+                          (btree_format){0},
                           PAGE_TYPE_MEMTABLE,
                           &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
@@ -1438,7 +1607,7 @@ CTEST2(btree_stress, iterator_endpoint_error_is_returned_by_init)
                             cfg,
                             &probe,
                             packed_root,
-                            BTREE_BRANCH_FORMAT_VERSION,
+                            BTREE_DEFAULT_FORMAT,
                             PAGE_TYPE_BRANCH,
                             &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
@@ -1512,7 +1681,7 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
                           cfg,
                           &source,
                           source_root,
-                          0,
+                          (btree_format){0},
                           PAGE_TYPE_MEMTABLE,
                           &(const btree_iterator_init_options){0});
    ASSERT_TRUE(SUCCESS(rc));
@@ -1542,13 +1711,8 @@ CTEST2(btree_stress, count_in_range_returns_lookup_error)
 
       btree_pivot_stats stats = {
          .num_kvs = 1, .key_bytes = 1, .message_bytes = 1};
-      rc = btree_count_in_range(cc,
-                                cfg,
-                                packed_root,
-                                BTREE_BRANCH_FORMAT_VERSION,
-                                min_key,
-                                max_key,
-                                &stats);
+      rc = btree_count_in_range(
+         cc, cfg, packed_root, BTREE_DEFAULT_FORMAT, min_key, max_key, &stats);
 
       cc->ops                        = fault.original;
       active_iterator_endpoint_fault = NULL;
@@ -1822,7 +1986,7 @@ CTEST2(btree_stress, copied_iterator_split_on_release)
                              cfg,
                              &probe,
                              root,
-                             0,
+                             (btree_format){0},
                              PAGE_TYPE_MEMTABLE,
                              &(const btree_iterator_init_options){0});
       ASSERT_TRUE(SUCCESS(rc));
@@ -2011,4 +2175,641 @@ CTEST2(btree_stress, copied_iterator_prefetch)
          }
       }
    }
+}
+
+/* Native keys deliberately differ after P, forcing blob reads for comparisons.
+ * Inline keys surround blobs so packing must both start a new leaf when C > P
+ * and restore unrestricted prefix compression after leaving the blob leaves. */
+#define NATIVE_KEY_COUNT    180
+#define NATIVE_INLINE_COUNT 40
+
+static key
+native_test_key(uint64 n, char *buf)
+{
+   bool32 inline_key =
+      n < NATIVE_INLINE_COUNT || n >= NATIVE_KEY_COUNT - NATIVE_INLINE_COUNT;
+   uint64 length = inline_key                 ? (n % 5 ? 400 : 512)
+                   : n == NATIVE_INLINE_COUNT ? 513
+                                              : (n % 11 ? 1024 : 12000);
+   memset(buf, 'a', length);
+   uint64 order = htobe64(n);
+   memcpy(buf + 300, &order, sizeof(order));
+   return key_create(FALSE, length, buf);
+}
+
+
+static int
+native_merge(const data_config *cfg,
+             slice              logical_key,
+             message            older,
+             merge_accumulator *newer)
+{
+   platform_assert(slice_length(logical_key) >= 400);
+   uint64 a, b;
+   memcpy(&a, message_data(older), sizeof(a));
+   memcpy(&b, merge_accumulator_data(newer), sizeof(b));
+   b += a;
+   memcpy(merge_accumulator_data(newer), &b, sizeof(b));
+   merge_accumulator_set_class(newer, message_class(older));
+   return 0;
+}
+static int
+native_reverse_compare(const data_config *cfg, user_key a, user_key b)
+{
+   /* A descriptor or truncated key must never reach the user comparator. */
+   platform_assert(slice_length(a.key) >= 400 && slice_length(b.key) >= 400);
+   return -slice_lex_cmp(a.key, b.key);
+}
+
+static void
+native_check_tree(cache        *cc,
+                  btree_config *cfg,
+                  uint64        root,
+                  btree_format  format,
+                  page_type     type,
+                  bool32        reverse)
+{
+   char          keybuf[12000];
+   lookup_result result;
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   for (uint64 i = 0; i < NATIVE_KEY_COUNT; i++) {
+      key             target = native_test_key(i, keybuf);
+      platform_status rc =
+         btree_lookup(cc, cfg, root, format, type, target, &result);
+      ASSERT_TRUE(SUCCESS(rc), "lookup %lu: %d", i, rc.r);
+      ASSERT_TRUE(lookup_result_found(&result));
+      uint64 value;
+      memcpy(&value, merge_accumulator_data(&result.value), sizeof(value));
+      ASSERT_EQUAL(i + (i >= 5 && (i - 5) % 31 == 0), value);
+      if (i % 17 == 0) {
+         btree_lookup_async_state state;
+         bool32                   ready = FALSE;
+         btree_lookup_async_state_init(&state,
+                                       cc,
+                                       cfg,
+                                       root,
+                                       format,
+                                       type,
+                                       target,
+                                       &result,
+                                       bounds_ready,
+                                       &ready);
+         while (btree_lookup_async(&state) != ASYNC_STATUS_DONE) {
+            while (!__atomic_exchange_n(&ready, FALSE, __ATOMIC_ACQUIRE)) {
+               cache_cleanup(cc);
+            }
+         }
+         ASSERT_TRUE(SUCCESS(async_result(&state)));
+         ASSERT_TRUE(lookup_result_found(&result));
+      }
+   }
+   lookup_result_deinit(&result);
+   for (bool32 copy = FALSE; copy <= TRUE; copy++) {
+      btree_iterator  itor;
+      platform_status rc;
+      if (!copy) {
+         rc = btree_iterator_init(
+            cc,
+            cfg,
+            &itor,
+            root,
+            format,
+            type,
+            &(btree_iterator_init_options){.copy_nodes = copy});
+      } else {
+         btree_iterator_async_state state;
+         bool32                     ready = FALSE;
+         btree_iterator_async_state_init(&state,
+                                         cc,
+                                         cfg,
+                                         &itor,
+                                         root,
+                                         format,
+                                         type,
+                                         greater_than_or_equal,
+                                         NEGATIVE_INFINITY_KEY,
+                                         less_than,
+                                         POSITIVE_INFINITY_KEY,
+                                         greater_than_or_equal,
+                                         NEGATIVE_INFINITY_KEY,
+                                         copy,
+                                         0,
+                                         0,
+                                         bounds_ready,
+                                         &ready);
+         while (btree_iterator_init_async(&state) != ASYNC_STATUS_DONE) {
+            while (!__atomic_exchange_n(&ready, FALSE, __ATOMIC_ACQUIRE)) {
+               cache_cleanup(cc);
+            }
+         }
+         rc = btree_iterator_init_async_result(&state);
+      }
+      ASSERT_TRUE(SUCCESS(rc));
+      for (uint64 i = 0; i < NATIVE_KEY_COUNT; i++) {
+         ASSERT_TRUE(iterator_can_curr(&itor.super));
+         key actual,
+            expected =
+               native_test_key(reverse ? NATIVE_KEY_COUNT - 1 - i : i, keybuf);
+         message msg;
+         iterator_curr(&itor.super, &actual, &msg);
+         ASSERT_FALSE(actual.is_blob);
+         ASSERT_TRUE(
+            (slice_lex_cmp(key_slice(expected), key_slice(actual)) == 0),
+            "scan i=%lu actual_length=%lu expected_length=%lu type=%u copy=%u",
+            i,
+            key_length(actual),
+            key_length(expected),
+            type,
+            copy);
+         rc = iterator_next(&itor.super);
+         ASSERT_TRUE(SUCCESS(rc));
+      }
+      ASSERT_FALSE(iterator_can_curr(&itor.super));
+      for (uint64 i = NATIVE_KEY_COUNT; i > 0; i--) {
+         rc = iterator_prev(&itor.super);
+         ASSERT_TRUE(SUCCESS(rc));
+         ASSERT_TRUE(iterator_can_curr(&itor.super));
+         key actual,
+            expected =
+               native_test_key(reverse ? NATIVE_KEY_COUNT - i : i - 1, keybuf);
+         message msg;
+         iterator_curr(&itor.super, &actual, &msg);
+         ASSERT_TRUE(
+            (slice_lex_cmp(key_slice(expected), key_slice(actual)) == 0),
+            "scan i=%lu actual_length=%lu expected_length=%lu type=%u copy=%u",
+            i,
+            key_length(actual),
+            key_length(expected),
+            type,
+            copy);
+      }
+      key seek = native_test_key(71, keybuf);
+      rc       = iterator_seek(&itor.super, greater_than_or_equal, seek);
+      ASSERT_TRUE(SUCCESS(rc));
+      key     actual;
+      message msg;
+      iterator_curr(&itor.super, &actual, &msg);
+      ASSERT_TRUE((slice_lex_cmp(key_slice(seek), key_slice(actual)) == 0));
+      btree_iterator_deinit(&itor);
+   }
+}
+
+
+static const cache_ops *native_saved_ops;
+static uint64           native_failed_reads;
+
+static platform_status
+native_fail_blob_read(cache       *cc,
+                      uint64       addr,
+                      bool32       blocking,
+                      page_type    type,
+                      page_handle *page)
+{
+   if (type == PAGE_TYPE_BLOB) {
+      native_failed_reads++;
+      *page = (page_handle){0};
+      return STATUS_TIMEDOUT;
+   }
+   return native_saved_ops->page_get(cc, addr, blocking, type, page);
+}
+
+static void
+native_check_read_failure(cache        *cc,
+                          btree_config *cfg,
+                          uint64        root,
+                          btree_format  format,
+                          page_type     type)
+{
+   cache_ops fault_ops = *cc->ops;
+   native_saved_ops    = cc->ops;
+   fault_ops.page_get  = native_fail_blob_read;
+   native_failed_reads = 0;
+   lookup_result result;
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   char buf[12000];
+   key  target = native_test_key(71, buf);
+   cc->ops     = &fault_ops;
+   platform_status rc =
+      btree_lookup(cc, cfg, root, format, type, target, &result);
+   cc->ops = native_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+   ASSERT_TRUE(native_failed_reads > 0);
+   lookup_result_deinit(&result);
+
+   cc->ops = &fault_ops;
+   btree_iterator itor;
+   rc =
+      btree_iterator_init(cc,
+                          cfg,
+                          &itor,
+                          root,
+                          format,
+                          type,
+                          &(btree_iterator_init_options){
+                             .start_position = key_start_at_or_after(target)});
+   cc->ops = native_saved_ops;
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+   btree_iterator_deinit(&itor);
+
+   /* Prefix-only rejection must not fetch blob pages for lexical order. */
+   if (cfg->data_cfg->key_compare_is_lexical
+       && (type == PAGE_TYPE_BRANCH ? format.key_prefix_size
+                                    : cfg->blob_key_prefix_size)
+             > 0)
+   {
+      buf[0] = 'z';
+      lookup_result_init(
+         &result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      native_failed_reads = 0;
+      cc->ops             = &fault_ops;
+      rc      = btree_lookup(cc, cfg, root, format, type, target, &result);
+      cc->ops = native_saved_ops;
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_FALSE(lookup_result_found(&result));
+      ASSERT_EQUAL(0, native_failed_reads);
+      lookup_result_deinit(&result);
+   }
+}
+
+static void
+native_check_corrupt_leaf(cache        *cc,
+                          btree_config *cfg,
+                          uint64        root,
+                          btree_format  format)
+{
+   char           buf[12000];
+   key            target = native_test_key(71, buf);
+   btree_iterator holder;
+   ASSERT_TRUE(SUCCESS(btree_iterator_init(
+      cc,
+      cfg,
+      &holder,
+      root,
+      format,
+      PAGE_TYPE_BRANCH,
+      &(btree_iterator_init_options){.start_position =
+                                        key_start_at_or_after(target)})));
+   uint64 leaf_addr = holder.curr.addr;
+   uint64 idx       = holder.idx;
+   btree_iterator_deinit(&holder);
+   lookup_result result;
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   for (uint64 fault = 0; fault < 2; fault++) {
+      page_handle page;
+      ASSERT_TRUE(
+         SUCCESS(cache_get(cc, leaf_addr, TRUE, PAGE_TYPE_BRANCH, &page)));
+      ASSERT_TRUE(cache_try_claim(cc, &page));
+      cache_lock(cc, &page);
+      btree_hdr  *hdr            = (btree_hdr *)page_handle_data(&page);
+      leaf_entry *entry          = btree_get_leaf_entry(cfg, hdr, idx);
+      uint8       flags          = entry->key_flags;
+      uint16      common         = hdr->prefix_length;
+      uint64      p              = format.key_prefix_size - common;
+      blob       *descriptor     = (blob *)(entry->key_and_message + p);
+      uint64      logical_length = descriptor->length;
+      if (fault == 0) {
+         entry->key_flags |= BTREE_INDEX_WIDE_STATS; /* Invalid on leaves. */
+      } else {
+         descriptor->length = 1; /* Inline-sized keys may not be blobbed. */
+      }
+      cache_unlock(cc, &page);
+      cache_unclaim(cc, &page);
+      cache_unget(cc, &page);
+
+      platform_status rc =
+         btree_lookup(cc, cfg, root, format, PAGE_TYPE_BRANCH, target, &result);
+      ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE),
+                  "corruption %lu: %d",
+                  fault,
+                  rc.r);
+
+      ASSERT_TRUE(
+         SUCCESS(cache_get(cc, leaf_addr, TRUE, PAGE_TYPE_BRANCH, &page)));
+      ASSERT_TRUE(cache_try_claim(cc, &page));
+      cache_lock(cc, &page);
+      hdr                = (btree_hdr *)page_handle_data(&page);
+      hdr->prefix_length = common;
+      entry              = btree_get_leaf_entry(cfg, hdr, idx);
+      entry->key_flags   = flags;
+      descriptor         = (blob *)(entry->key_and_message + p);
+      descriptor->length = logical_length;
+      cache_unlock(cc, &page);
+      cache_unclaim(cc, &page);
+      cache_unget(cc, &page);
+   }
+   lookup_result_deinit(&result);
+   /* A copied leaf containing blobs must reject C > P on the next entry,
+    * without relying on a search that might reject at the common prefix. */
+   ASSERT_TRUE(SUCCESS(btree_iterator_init(
+      cc,
+      cfg,
+      &holder,
+      root,
+      format,
+      PAGE_TYPE_BRANCH,
+      &(btree_iterator_init_options){.copy_nodes = TRUE,
+                                     .start_position =
+                                        key_start_at_or_after(target)})));
+   holder.curr.hdr->prefix_length = format.key_prefix_size + 1;
+   platform_status rc             = iterator_next(&holder.super);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+   ASSERT_FALSE(iterator_can_curr(&holder.super));
+   btree_iterator_deinit(&holder);
+}
+static void
+native_check_corrupt_index(cache        *cc,
+                           btree_config *cfg,
+                           uint64        root,
+                           btree_format  format,
+                           key           target)
+{
+   lookup_result result;
+   lookup_result_init(&result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+   for (uint64 fault = 0; fault < 3; fault++) {
+      page_handle page;
+      ASSERT_TRUE(SUCCESS(cache_get(cc, root, TRUE, PAGE_TYPE_BRANCH, &page)));
+      ASSERT_TRUE(cache_try_claim(cc, &page));
+      cache_lock(cc, &page);
+      btree_hdr *hdr = (btree_hdr *)page_handle_data(&page);
+      ASSERT_TRUE(hdr->height > 0);
+      index_entry *entry      = btree_get_index_entry(cfg, hdr, 0);
+      uint8        flags      = entry->pivot.flags;
+      uint16       key_length = entry->pivot.length;
+      ASSERT_EQUAL(0, flags);
+      ASSERT_FALSE(flags & BTREE_INDEX_WIDE_STATS);
+      ASSERT_EQUAL(cfg->page_size, hdr->offsets[0] + sizeof_index_entry(entry));
+      if (fault < 2) {
+         // Widening this entry makes its counters extend beyond the page.
+         entry->pivot.flags |= fault == 0 ? BTREE_INDEX_WIDE_STATS : 0x80;
+      } else {
+         /* A longer key pushes its narrow counters past the page. The custom
+          * ordering's 400-byte first key still takes the ordinary-entry fast
+          * path; the lexical 512-byte key exercises the maximum-key check. */
+         entry->pivot.length++;
+      }
+      cache_unlock(cc, &page);
+      cache_unclaim(cc, &page);
+      cache_unget(cc, &page);
+
+      for (uint64 async = 0; async < 2; async++) {
+         platform_status rc =
+            async
+               ? async_call_sync_callback(cache_cleanup(cc),
+                                          btree_lookup_async,
+                                          cc,
+                                          cfg,
+                                          root,
+                                          format,
+                                          PAGE_TYPE_BRANCH,
+                                          target,
+                                          &result)
+               : btree_lookup(
+                    cc, cfg, root, format, PAGE_TYPE_BRANCH, target, &result);
+         ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_INVALID_STATE));
+      }
+
+      ASSERT_TRUE(SUCCESS(cache_get(cc, root, TRUE, PAGE_TYPE_BRANCH, &page)));
+      ASSERT_TRUE(cache_try_claim(cc, &page));
+      cache_lock(cc, &page);
+      hdr                 = (btree_hdr *)page_handle_data(&page);
+      entry               = pointer_byte_offset(hdr, hdr->offsets[0]);
+      entry->pivot.flags  = flags;
+      entry->pivot.length = key_length;
+      cache_unlock(cc, &page);
+      cache_unclaim(cc, &page);
+      cache_unget(cc, &page);
+   }
+   lookup_result_deinit(&result);
+}
+
+/* Mutation searches may trust memtable entries, but key-blob reads can still
+ * fail. Exercise both a root leaf and a tree with internal pivots; subsequent
+ * inserts and the full-tree verification also check that locks were released.
+ */
+static void
+native_check_insert_read_failure(struct ctest_btree_stress_data *data,
+                                 btree_config                   *cfg,
+                                 mini_allocator                 *mini,
+                                 uint64                          root)
+{
+   cache    *cc        = (cache *)&data->cc;
+   cache_ops fault_ops = *cc->ops;
+   native_saved_ops    = cc->ops;
+   fault_ops.page_get  = native_fail_blob_read;
+   native_failed_reads = 0;
+   char buf[12000];
+   key  target = native_test_key(71, buf);
+   /* Keep the incoming key inline so any blob read comes from comparison,
+    * rather than constructing a new key blob. Its ordinal sorts among blobs. */
+   target                     = key_create(FALSE, 512, key_data(target));
+   uint64               value = 0;
+   btree_insert_results results;
+   btree_insert_results_init(&results, NULL);
+   cc->ops            = &fault_ops;
+   platform_status rc = btree_insert(
+      cc,
+      cfg,
+      data->hid,
+      data->test_scratch,
+      root,
+      mini,
+      target,
+      message_create_internal(
+         MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(value), &value)),
+      &results);
+   cc->ops = native_saved_ops;
+   btree_insert_results_deinit(&results);
+   ASSERT_TRUE(STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+   ASSERT_TRUE(native_failed_reads > 0);
+}
+
+static void
+native_blob_keys_test(struct ctest_btree_stress_data *data,
+                      bool32                          reverse,
+                      uint64                          prefix)
+{
+   cache       *cc           = (cache *)&data->cc;
+   btree_config cfg          = data->dbtree_cfg;
+   data_config  dc           = *cfg.data_cfg;
+   dc.key_compare_is_lexical = !reverse;
+   if (reverse) {
+      dc.key_compare = native_reverse_compare;
+   }
+   cfg.data_cfg             = &dc;
+   cfg.blob_key_prefix_size = prefix;
+   dc.merge_tuples          = native_merge;
+   mini_allocator mini;
+   uint64         root = test_btree_create(cc, &cfg, &mini, PAGE_TYPE_MEMTABLE);
+   char           keybuf[12000];
+   uint64         total_bytes = 0;
+   for (uint64 i = 0; i < NATIVE_KEY_COUNT; i++) {
+      /* Permute insertion order to exercise both sides of splits. */
+      uint64 n = (i * 73) % NATIVE_KEY_COUNT;
+      key    k = native_test_key(n, keybuf);
+      total_bytes += key_length(k);
+      uint64               value = n;
+      btree_insert_results results;
+      btree_insert_results_init(&results, NULL);
+      platform_status rc = btree_insert(
+         cc,
+         &cfg,
+         data->hid,
+         data->test_scratch,
+         root,
+         &mini,
+         k,
+         message_create_internal(
+            MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(value), &value)),
+         &results);
+      btree_insert_results_deinit(&results);
+      ASSERT_TRUE(SUCCESS(rc), "insert %lu: %d", n, rc.r);
+      if (i == 1) {
+         native_check_insert_read_failure(data, &cfg, &mini, root);
+      }
+   }
+   native_check_insert_read_failure(data, &cfg, &mini, root);
+   /* Update callbacks receive materialized keys; old-result ownership survives
+    * the operation-local B-tree configuration. */
+   for (uint64 n = 5; n < NATIVE_KEY_COUNT; n += 31) {
+      lookup_result old;
+      lookup_result_init(&old, &dc, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+      btree_insert_results results;
+      btree_insert_results_init(&results, &old);
+      uint64 increment = 1;
+      ASSERT_TRUE(SUCCESS(btree_insert(
+         cc,
+         &cfg,
+         data->hid,
+         data->test_scratch,
+         root,
+         &mini,
+         native_test_key(n, keybuf),
+         message_create_internal(
+            MESSAGE_TYPE_UPDATE, NULL, slice_create(8, &increment)),
+         &results)));
+      uint64 old_value;
+      memcpy(&old_value, merge_accumulator_data(&old.value), sizeof(old_value));
+      ASSERT_EQUAL(n, old_value);
+      btree_insert_results_deinit(&results);
+      lookup_result_deinit(&old);
+   }
+   native_check_read_failure(
+      cc, &cfg, root, (btree_format){0}, PAGE_TYPE_MEMTABLE);
+   native_check_tree(
+      cc, &cfg, root, (btree_format){0}, PAGE_TYPE_MEMTABLE, reverse);
+   btree_iterator source;
+   ASSERT_TRUE(SUCCESS(btree_iterator_init(cc,
+                                           &cfg,
+                                           &source,
+                                           root,
+                                           (btree_format){0},
+                                           PAGE_TYPE_MEMTABLE,
+                                           &(btree_iterator_init_options){0})));
+   btree_pack_req req;
+   ASSERT_TRUE(SUCCESS(btree_pack_req_init(
+      &req, cc, &cfg, &source.super, NATIVE_KEY_COUNT, data->hid)));
+   ASSERT_TRUE(SUCCESS(btree_pack(&req)));
+   uint64       packed_root = req.root_addr;
+   btree_format format      = req.format;
+   ASSERT_EQUAL(reverse ? 0 : prefix, format.key_prefix_size);
+   ASSERT_EQUAL(total_bytes, req.key_bytes);
+   btree_pack_req_deinit(&req, data->hid);
+   btree_iterator_deinit(&source);
+   mini_release(&mini);
+   btree_dec_ref(cc, &cfg, root, PAGE_TYPE_MEMTABLE);
+   ASSERT_TRUE(btree_verify_tree(cc, &cfg, packed_root, PAGE_TYPE_BRANCH));
+
+   /* Read with a different construction policy; the branch's persisted P wins.
+    */
+   cfg.blob_key_prefix_size = 64;
+   native_check_corrupt_index(
+      cc,
+      &cfg,
+      packed_root,
+      format,
+      native_test_key(reverse ? NATIVE_KEY_COUNT - 1 : 0, keybuf));
+   native_check_corrupt_leaf(cc, &cfg, packed_root, format);
+   native_check_read_failure(cc, &cfg, packed_root, format, PAGE_TYPE_BRANCH);
+   native_check_tree(cc, &cfg, packed_root, format, PAGE_TYPE_BRANCH, reverse);
+   btree_pivot_stats stats;
+   ASSERT_TRUE(SUCCESS(btree_count_in_range(cc,
+                                            &cfg,
+                                            packed_root,
+                                            format,
+                                            NEGATIVE_INFINITY_KEY,
+                                            POSITIVE_INFINITY_KEY,
+                                            &stats)));
+   ASSERT_EQUAL(NATIVE_KEY_COUNT, stats.num_kvs);
+   ASSERT_EQUAL(total_bytes, stats.key_bytes);
+   ASSERT_EQUAL(NATIVE_KEY_COUNT * sizeof(uint64), stats.message_bytes);
+   ASSERT_TRUE(SUCCESS(btree_iterator_init(cc,
+                                           &cfg,
+                                           &source,
+                                           packed_root,
+                                           format,
+                                           PAGE_TYPE_BRANCH,
+                                           &(btree_iterator_init_options){0})));
+   bool32 saw_wide_prefix = FALSE, saw_blob_prefix = FALSE;
+   bool32 saw_blob = FALSE, saw_wide_prefix_after_blob = FALSE;
+   for (uint64 i = 0; i < NATIVE_KEY_COUNT; i++) {
+      const leaf_entry *entry =
+         btree_get_leaf_entry(source.cfg, source.curr.hdr, source.idx);
+      key     logical;
+      message msg;
+      iterator_curr(&source.super, &logical, &msg);
+      bool32 blobbed = key_length(logical) > MAX_INLINE_KEY_SIZE(cfg.page_size);
+      ASSERT_EQUAL(blobbed ? ONDISK_KEY_IS_BLOB : 0, entry->key_flags);
+      if (blobbed) {
+         saw_blob = TRUE;
+         ASSERT_TRUE(source.curr.hdr->prefix_length <= format.key_prefix_size);
+         uint64 suffix =
+            format.key_prefix_size - source.curr.hdr->prefix_length;
+         slice descriptor = slice_create(entry->key_length - suffix,
+                                         entry->key_and_message + suffix);
+         ASSERT_EQUAL(key_length(logical), blob_length(descriptor));
+         ASSERT_TRUE(slice_length(descriptor) <= 256);
+         saw_blob_prefix |=
+            source.curr.hdr->prefix_length == format.key_prefix_size;
+      } else {
+         saw_wide_prefix |=
+            source.curr.hdr->prefix_length > format.key_prefix_size;
+         saw_wide_prefix_after_blob |=
+            saw_blob && source.curr.hdr->prefix_length > format.key_prefix_size;
+      }
+      ASSERT_TRUE(SUCCESS(iterator_next(&source.super)));
+   }
+   if (!reverse) {
+      ASSERT_TRUE(saw_wide_prefix);
+      ASSERT_TRUE(saw_blob_prefix);
+      ASSERT_TRUE(saw_wide_prefix_after_blob);
+   }
+   ASSERT_TRUE(SUCCESS(iterator_seek(
+      &source.super, greater_than_or_equal, NEGATIVE_INFINITY_KEY)));
+   ASSERT_TRUE(SUCCESS(btree_pack_req_init(
+      &req, cc, &cfg, &source.super, NATIVE_KEY_COUNT, data->hid)));
+   ASSERT_TRUE(SUCCESS(btree_pack(&req)));
+   uint64       repacked_root   = req.root_addr;
+   btree_format repacked_format = req.format;
+   ASSERT_EQUAL(reverse ? 0 : 64, repacked_format.key_prefix_size);
+   btree_pack_req_deinit(&req, data->hid);
+   btree_iterator_deinit(&source);
+   btree_dec_ref(cc, &cfg, packed_root, PAGE_TYPE_BRANCH);
+   native_check_tree(
+      cc, &cfg, repacked_root, repacked_format, PAGE_TYPE_BRANCH, reverse);
+   btree_dec_ref(cc, &cfg, repacked_root, PAGE_TYPE_BRANCH);
+}
+
+CTEST2(btree_stress, native_blob_keys_lexical)
+{
+   native_blob_keys_test(data, FALSE, 256);
+}
+
+CTEST2(btree_stress, native_blob_keys_custom_order)
+{
+   native_blob_keys_test(data, TRUE, 256);
+}
+
+CTEST2(btree_stress, native_blob_keys_without_prefix)
+{
+   native_blob_keys_test(data, FALSE, 0);
 }

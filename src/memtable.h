@@ -410,6 +410,10 @@ memtable_ok_to_lookup_compacted(memtable *mt)
 bool32
 memtable_is_empty(memtable_context *mt_ctxt);
 
+/* Fullness counts allocated and attached extents, including shared storage. */
+bool32
+memtable_is_full(const memtable_config *cfg, memtable *mt);
+
 static inline bool32
 memtable_verify(cache *cc, memtable *mt)
 {

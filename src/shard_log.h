@@ -15,7 +15,7 @@
 #include "cache.h"
 #include "iterator.h"
 #include "splinterdb/data.h"
-#include "blob_build.h"
+#include "mini_blob.h"
 #include "mini_allocator.h"
 #include "platform_mutex.h"
 #include "writeback_set.h"
@@ -30,11 +30,11 @@ shard_log_validate_format_version(uint16 format_version);
  * Configuration structure to set up the sharded log sub-system.
  */
 typedef struct shard_log_config {
-   cache_config     *cache_cfg;
-   data_config      *data_cfg;
-   uint64            seed;
-   uint64            group_size_pages; // UINT64_MAX disables automatic cuts
-   blob_build_config blob_cfg;
+   cache_config    *cache_cfg;
+   data_config     *data_cfg;
+   uint64           seed;
+   uint64           group_size_pages; // UINT64_MAX disables automatic cuts
+   mini_blob_config blob_cfg;
 } shard_log_config;
 
 typedef enum shard_log_close_mode {
@@ -254,6 +254,8 @@ typedef struct shard_log_iterator {
    log_entry       **entries;
    uint64            num_entries;
    uint64            pos;
+   // Logical bytes for the current blob key; curr() itself cannot fail.
+   writable_buffer key_buffer;
    // Whether the replayable records run all the way to an end-of-stream marker.
    bool32 stream_complete;
 } shard_log_iterator;

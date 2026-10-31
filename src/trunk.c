@@ -42,8 +42,14 @@ struct trunk_pivot {
    trunk_pivot_stats stats;
    uint64            child_addr;
    // Index of the oldest bundle that is live for this pivot
-   uint64     inflight_bundle_start;
-   ondisk_key key;
+   uint64 inflight_bundle_start;
+   key    key;
+   /* The serialized blob key is borrowed under the same source-root lifetime
+    * as child/branch references. Serialization clones it before publication.
+    * Its bytes follow the materialized logical key in bytes[]. */
+   uint16 blob_key_length;
+   uint16 blob_key_prefix_size;
+   uint8  bytes[];
 };
 
 typedef VECTOR(trunk_ondisk_node_ref *) trunk_ondisk_node_ref_vector;
@@ -60,7 +66,9 @@ typedef struct ONDISK trunk_ondisk_node {
    uint16 num_pivots;
    // On disk, inflight bundles are ordered from newest to oldest.
    uint16 num_inflight_bundles;
+   uint16 blob_key_prefix_size;
    uint32 inflight_bundles_offset;
+   uint32 tail_offset;
    uint32 pivot_offsets[];
 } trunk_ondisk_node;
 
@@ -214,11 +222,10 @@ struct pending_gc {
  ***************************************************/
 
 static branch_ref
-create_branch_ref(uint64 addr)
+create_branch_ref(uint64 addr, btree_format format)
 {
-   return (branch_ref){.addr = addr,
-                       .format_version =
-                          addr == 0 ? 0 : BTREE_BRANCH_FORMAT_VERSION};
+   return (branch_ref){.addr   = addr,
+                       .format = addr == 0 ? (btree_format){0} : format};
 }
 
 static uint64
@@ -442,21 +449,36 @@ trunk_pivot_stats_add(trunk_pivot_stats  a,
    ((trunk_pivot_stats){.num_kv_bytes = 0, .num_tuples = 0})
 
 static trunk_pivot *
-trunk_pivot_create(platform_heap_id  hid,
-                   key               k,
-                   uint64            child_addr,
-                   uint64            inflight_bundle_start,
-                   trunk_pivot_stats prereceive_stats,
-                   trunk_pivot_stats stats)
+trunk_pivot_create_with_blob(platform_heap_id  hid,
+                             key               k,
+                             uint64            child_addr,
+                             uint64            inflight_bundle_start,
+                             trunk_pivot_stats prereceive_stats,
+                             trunk_pivot_stats stats,
+                             key               stored,
+                             uint16            prefix_size)
 {
+   uint64 stored_size = stored.is_blob ? key_length(stored) : 0;
+   if (key_length(k) > UINT64_MAX - stored_size) {
+      return NULL;
+   }
    trunk_pivot *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, result, key.bytes, ondisk_key_required_data_capacity(k));
+      hid, result, bytes, key_length(k) + stored_size);
    if (result == NULL) {
       platform_error_log(
          "%s():%d: TYPED_FLEXIBLE_STRUCT_ZALLOC() failed", __func__, __LINE__);
       return NULL;
    }
-   copy_key_to_ondisk_key(&result->key, k);
+   result->key = k;
+   if (key_is_user_key(k)) {
+      memcpy(result->bytes, key_data(k), key_length(k));
+      result->key.user_slice = slice_create(key_length(k), result->bytes);
+   }
+   result->blob_key_length      = stored_size;
+   result->blob_key_prefix_size = prefix_size;
+   if (stored_size) {
+      memcpy(result->bytes + key_length(k), key_data(stored), stored_size);
+   }
    result->child_addr            = child_addr;
    result->inflight_bundle_start = inflight_bundle_start;
    platform_assert(trunk_pivot_stats_are_nonnegative(prereceive_stats));
@@ -466,15 +488,47 @@ trunk_pivot_create(platform_heap_id  hid,
    return result;
 }
 
+static key
+trunk_pivot_blob_key(const trunk_pivot *pivot)
+{
+   if (pivot->blob_key_length == 0) {
+      return NULL_KEY;
+   }
+   key stored = key_create(
+      FALSE, pivot->blob_key_length, pivot->bytes + key_length(pivot->key));
+   stored.is_blob = TRUE;
+   return stored;
+}
+
+static trunk_pivot *
+trunk_pivot_create(platform_heap_id  hid,
+                   key               k,
+                   uint64            child_addr,
+                   uint64            inflight_bundle_start,
+                   trunk_pivot_stats prereceive_stats,
+                   trunk_pivot_stats stats)
+{
+   return trunk_pivot_create_with_blob(hid,
+                                       k,
+                                       child_addr,
+                                       inflight_bundle_start,
+                                       prereceive_stats,
+                                       stats,
+                                       NULL_KEY,
+                                       0);
+}
+
 static trunk_pivot *
 trunk_pivot_copy(const trunk_pivot *src, platform_heap_id hid)
 {
-   return trunk_pivot_create(hid,
-                             ondisk_key_to_key(&src->key),
-                             src->child_addr,
-                             src->inflight_bundle_start,
-                             src->prereceive_stats,
-                             src->stats);
+   return trunk_pivot_create_with_blob(hid,
+                                       src->key,
+                                       src->child_addr,
+                                       src->inflight_bundle_start,
+                                       src->prereceive_stats,
+                                       src->stats,
+                                       trunk_pivot_blob_key(src),
+                                       src->blob_key_prefix_size);
 }
 
 static void
@@ -486,7 +540,7 @@ trunk_pivot_destroy(trunk_pivot *pvt, platform_heap_id hid)
 static key
 trunk_pivot_key(const trunk_pivot *pvt)
 {
-   return ondisk_key_to_key(&pvt->key);
+   return pvt->key;
 }
 
 static uint64
@@ -1023,6 +1077,27 @@ trunk_ondisk_pivot_key(trunk_ondisk_pivot *odp)
  * them.
  ********************************************************/
 
+static btree_config
+trunk_blob_key_config(const trunk_context            *context,
+                      const trunk_ondisk_node_handle *handle)
+{
+   btree_config cfg = *context->cfg->btree_cfg;
+   cfg.cc           = handle->cc;
+   cfg.page_size    = handle->page_size;
+   const trunk_ondisk_node *header =
+      (const trunk_ondisk_node *)page_handle_data(&handle->header_page);
+   cfg.blob_key_prefix_size = header->blob_key_prefix_size;
+   return cfg;
+}
+
+static uint64
+trunk_ondisk_node_metadata_size(const trunk_ondisk_node_handle *handle)
+{
+   const trunk_ondisk_node *header =
+      (const trunk_ondisk_node *)page_handle_data(&handle->header_page);
+   return header->tail_offset;
+}
+
 static platform_status
 trunk_ondisk_node_read_header(trunk_ondisk_node_handle *handle)
 {
@@ -1040,6 +1115,10 @@ trunk_ondisk_node_read_header(trunk_ondisk_node_handle *handle)
       (page_size - sizeof(*header)) / sizeof(header->pivot_offsets[0]);
    if (header->height >= TRUNK_MAX_HEIGHT || header->num_pivots < 2
        || max_pivots < header->num_pivots
+       || (header->height == 0 && header->num_pivots != 2)
+       || header->tail_offset < page_size || header->tail_offset > extent_size
+       || header->tail_offset % page_size != 0
+       || header->blob_key_prefix_size > MAX_INLINE_KEY_SIZE(page_size)
        || extent_size / sizeof(trunk_ondisk_bundle)
              < header->num_inflight_bundles)
    {
@@ -1226,7 +1305,7 @@ trunk_ondisk_node_handle_setup_content_page(trunk_ondisk_node_handle *handle,
                                             page_handle              *page)
 {
    uint64 page_size = handle->page_size;
-   if (handle->extent_size <= offset) {
+   if (trunk_ondisk_node_metadata_size(handle) <= offset) {
       return STATUS_INVALID_STATE;
    }
 
@@ -1274,7 +1353,9 @@ trunk_ondisk_node_handle_setup_content_page_async(
 
    uint64 page_size = state->handlep->page_size;
 
-   if (state->handlep->extent_size <= state->work.node.offset) {
+   if (trunk_ondisk_node_metadata_size(state->handlep)
+       <= state->work.node.offset)
+   {
       state->rc = STATUS_INVALID_STATE;
       async_return(state);
    }
@@ -1352,12 +1433,78 @@ trunk_ondisk_node_read_pivot_offset(trunk_ondisk_node_handle *handle,
       + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
    uint64 offset    = header->pivot_offsets[pivot_num];
    uint64 page_size = handle->page_size;
-   if (offset < table_end || handle->extent_size <= offset
+   if (offset < table_end || trunk_ondisk_node_metadata_size(handle) <= offset
        || page_size - (offset % page_size) < sizeof(trunk_ondisk_pivot))
    {
       return STATUS_INVALID_STATE;
    }
    *offset_out = offset;
+   return STATUS_OK;
+}
+
+static bool32
+trunk_ondisk_key_readable(const trunk_ondisk_node_handle *handle,
+                          const ondisk_key               *key)
+{
+   if ((key->flags & ~ONDISK_KEY_IS_BLOB) != 0
+       || sizeof_ondisk_key_data(key) > MAX_INLINE_KEY_SIZE(handle->page_size))
+   {
+      return FALSE;
+   }
+   if (key->flags & ONDISK_KEY_IS_BLOB) {
+      if (key->length == ONDISK_KEY_NEGATIVE_INFINITY
+          || key->length == ONDISK_KEY_POSITIVE_INFINITY)
+      {
+         return FALSE;
+      }
+      const trunk_ondisk_node *header =
+         (const trunk_ondisk_node *)page_handle_data(&handle->header_page);
+      return key->length >= header->blob_key_prefix_size + sizeof(blob);
+   }
+   return TRUE;
+}
+
+/* A node extent mixes metadata and tail pages, but no physical page has
+ * both types. Reject references across that boundary before entering cache. */
+static platform_status
+trunk_validate_blob_pivot(const trunk_ondisk_node_handle *handle,
+                          const ondisk_key               *stored)
+{
+   if (!(stored->flags & ONDISK_KEY_IS_BLOB)) {
+      return STATUS_OK;
+   }
+   const trunk_ondisk_node *header =
+      (const trunk_ondisk_node *)page_handle_data(&handle->header_page);
+   uint64          prefix = header->blob_key_prefix_size;
+   btree_config    cfg    = {.cc                   = handle->cc,
+                             .page_size            = handle->page_size,
+                             .blob_key_prefix_size = prefix};
+   platform_status rc     = btree_key_validate(&cfg, ondisk_key_to_key(stored));
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   parsed_blob parsed;
+   rc = blob_parse_descriptor(
+      handle->cc,
+      slice_create(stored->length - prefix, stored->bytes + prefix),
+      &parsed);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   uint64 node_addr = page_handle_addr(&handle->header_page);
+   for (uint64 i = 0; i < parsed.num_extents; i++) {
+      if (blob_get_ref(handle->cc, &parsed, i).addr == node_addr) {
+         return STATUS_INVALID_STATE;
+      }
+   }
+   for (uint64 i = 0; i < ARRAY_SIZE(parsed.leftovers); i++) {
+      uint64 addr = parsed.leftovers[i].addr;
+      if (parsed.leftovers[i].length != 0 && addr >= node_addr
+          && addr - node_addr < header->tail_offset)
+      {
+         return STATUS_INVALID_STATE;
+      }
+   }
    return STATUS_OK;
 }
 
@@ -1392,11 +1539,15 @@ trunk_ondisk_node_read_pivot_key(trunk_ondisk_node_handle *handle,
    trunk_ondisk_pivot *pivot =
       (trunk_ondisk_pivot *)(page_handle_data(&handle->pivot_page)
                              + page_offset);
-   if (pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
+   if (!trunk_ondisk_key_readable(handle, &pivot->key)
        || sizeof_ondisk_key_data(&pivot->key)
              > page_size - page_offset - sizeof(*pivot))
    {
       return STATUS_INVALID_STATE;
+   }
+   rc = trunk_validate_blob_pivot(handle, &pivot->key);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
    *out = pivot;
    return STATUS_OK;
@@ -1415,7 +1566,7 @@ trunk_ondisk_node_read_pivot_fields(trunk_ondisk_node_handle *handle,
       return STATUS_INVALID_STATE;
    }
    if (pivot_num + 1 < header->num_pivots) {
-      if (header->height == 0 && pivot->child_addr != 0) {
+      if ((header->height == 0) != (pivot->child_addr == 0)) {
          return STATUS_INVALID_STATE;
       }
    }
@@ -1483,7 +1634,7 @@ trunk_ondisk_node_read_pivot_key_async(trunk_merge_lookup_async_state *state,
       - content_page_offset(state->handlep, &state->handlep->pivot_page);
    uint64 page_size = state->handlep->page_size;
    if (page_size - page_offset < sizeof(*state->pivot)
-       || state->pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS
+       || !trunk_ondisk_key_readable(state->handlep, &state->pivot->key)
        || sizeof_ondisk_key_data(&state->pivot->key)
              > page_size - page_offset - sizeof(*state->pivot))
    {
@@ -1491,14 +1642,33 @@ trunk_ondisk_node_read_pivot_key_async(trunk_merge_lookup_async_state *state,
       state->rc    = STATUS_INVALID_STATE;
       async_return(state);
    }
-   state->rc = STATUS_OK;
+   state->rc = trunk_validate_blob_pivot(state->handlep, &state->pivot->key);
+   if (!SUCCESS(state->rc)) {
+      state->pivot = NULL;
+   }
    async_return(state);
 }
 
 static platform_status
-trunk_ondisk_node_get_pivot_key(trunk_ondisk_node_handle *handle,
+trunk_compare_stored_key(const trunk_context            *context,
+                         const trunk_ondisk_node_handle *handle,
+                         key                             query,
+                         key                             stored,
+                         int                            *cmp)
+{
+   if (!stored.is_blob) {
+      *cmp = data_key_compare(context->cfg->data_cfg, query, stored);
+      return STATUS_OK;
+   }
+   btree_config cfg = trunk_blob_key_config(context, handle);
+   return btree_key_compare_checked(&cfg, query, stored, cmp);
+}
+
+static platform_status
+trunk_ondisk_node_get_pivot_key(const trunk_context      *context,
+                                trunk_ondisk_node_handle *handle,
                                 uint64                    pivot_num,
-                                key                      *k)
+                                key_buffer               *k)
 {
    trunk_ondisk_pivot *odp;
    platform_status     rc =
@@ -1508,8 +1678,12 @@ trunk_ondisk_node_get_pivot_key(trunk_ondisk_node_handle *handle,
          "%s():%d: ondisk_node_get_pivot() failed", __func__, __LINE__);
       return rc;
    }
-   *k = ondisk_key_to_key(&odp->key);
-   return STATUS_OK;
+   key stored = ondisk_key_to_key(&odp->key);
+   if (!stored.is_blob) {
+      return key_buffer_copy_key(k, stored);
+   }
+   btree_config cfg = trunk_blob_key_config(context, handle);
+   return btree_key_materialize(&cfg, stored, k);
 }
 
 static bool32
@@ -1577,7 +1751,7 @@ trunk_ondisk_node_read_pivot_bundle(trunk_ondisk_node_handle *handle,
    uintptr_t pivot_addr = (uintptr_t)pivot;
    if (pivot_addr < page_start || pivot_addr - page_start > page_size
        || page_size - (pivot_addr - page_start) < sizeof(*pivot)
-       || pivot->key.flags != ONDISK_KEY_DEFAULT_FLAGS)
+       || !trunk_ondisk_key_readable(handle, &pivot->key))
    {
       return NULL;
    }
@@ -1603,7 +1777,7 @@ trunk_ondisk_node_bundle_at_offset(trunk_ondisk_node_handle *handle,
 {
    *out               = NULL;
    uint64 page_size   = handle->page_size;
-   uint64 extent_size = handle->extent_size;
+   uint64 extent_size = trunk_ondisk_node_metadata_size(handle);
    if (extent_size <= offset) {
       return STATUS_INVALID_STATE;
    }
@@ -1689,7 +1863,7 @@ trunk_ondisk_node_bundle_at_offset_async(trunk_merge_lookup_async_state *state,
                                          uint64                          depth)
 {
    uint64 page_size   = state->handlep->page_size;
-   uint64 extent_size = state->handlep->extent_size;
+   uint64 extent_size = trunk_ondisk_node_metadata_size(state->handlep);
 
    async_begin(state, depth);
 
@@ -1801,7 +1975,7 @@ trunk_ondisk_node_get_first_inflight_bundle(trunk_ondisk_node_handle *handle,
    uint64 table_end =
       sizeof(*header)
       + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
-   if (offset < table_end || handle->extent_size <= offset
+   if (offset < table_end || trunk_ondisk_node_metadata_size(handle) <= offset
        || offset <= header->pivot_offsets[header->num_pivots - 1])
    {
       *bndl = NULL;
@@ -1843,7 +2017,8 @@ trunk_ondisk_node_get_first_inflight_bundle_async(
       sizeof(*header)
       + (uint64)header->num_pivots * sizeof(header->pivot_offsets[0]);
    if (state->work.node.offset < table_end
-       || state->handlep->extent_size <= state->work.node.offset
+       || trunk_ondisk_node_metadata_size(state->handlep)
+             <= state->work.node.offset
        || state->work.node.offset
              <= header->pivot_offsets[header->num_pivots - 1])
    {
@@ -1900,7 +2075,9 @@ trunk_ondisk_node_get_next_inflight_bundle_async(
 }
 
 static platform_status
-trunk_pivot_deserialize(platform_heap_id          hid,
+trunk_pivot_deserialize(const trunk_context      *context,
+                        bool32                    materialize,
+                        platform_heap_id          hid,
                         trunk_ondisk_node_handle *handle,
                         uint64                    i,
                         trunk_pivot             **pivot)
@@ -1922,12 +2099,28 @@ trunk_pivot_deserialize(platform_heap_id          hid,
    } else {
       inflight_bundle_start = 0;
    }
-   *pivot = trunk_pivot_create(hid,
-                               trunk_ondisk_pivot_key(odp),
-                               odp->child_addr,
-                               inflight_bundle_start,
-                               odp->stats,
-                               odp->stats);
+   key stored = trunk_ondisk_pivot_key(odp);
+   DECLARE_AUTO_KEY_BUFFER(logical, hid);
+   key k = stored;
+   if (stored.is_blob) {
+      btree_config cfg = trunk_blob_key_config(context, handle);
+      rc               = btree_key_validate(&cfg, stored);
+      if (SUCCESS(rc) && materialize) {
+         rc = btree_key_materialize(&cfg, stored, &logical);
+         k  = key_buffer_key(&logical);
+      }
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   *pivot = trunk_pivot_create_with_blob(hid,
+                                         k,
+                                         odp->child_addr,
+                                         inflight_bundle_start,
+                                         odp->stats,
+                                         odp->stats,
+                                         stored,
+                                         header->blob_key_prefix_size);
    return *pivot == NULL ? STATUS_NO_MEMORY : STATUS_OK;
 }
 
@@ -1950,7 +2143,7 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, trunk_ondisk_bundle *odb)
 
    for (uint64 i = 0; i < odb->num_branches; i++) {
       rc = btree_validate_root(odb->branches[i].addr,
-                               odb->branches[i].format_version,
+                               odb->branches[i].format,
                                trunk_ondisk_bundle_branch_type(odb));
       if (!SUCCESS(rc)) {
          bundle_deinit(bndl);
@@ -1964,9 +2157,10 @@ bundle_deserialize(bundle *bndl, platform_heap_id hid, trunk_ondisk_bundle *odb)
 }
 
 static platform_status
-trunk_node_deserialize(const trunk_context *context,
-                       uint64               addr,
-                       trunk_node          *result)
+trunk_node_deserialize_internal(const trunk_context *context,
+                                uint64               addr,
+                                trunk_node          *result,
+                                bool32               materialize)
 {
    platform_status          rc;
    trunk_ondisk_node_handle handle;
@@ -2016,7 +2210,8 @@ trunk_node_deserialize(const trunk_context *context,
 
    for (uint64 i = 0; i < header->num_pivots; i++) {
       trunk_pivot *imp;
-      rc = trunk_pivot_deserialize(PROCESS_PRIVATE_HEAP_ID, &handle, i, &imp);
+      rc = trunk_pivot_deserialize(
+         context, materialize, PROCESS_PRIVATE_HEAP_ID, &handle, i, &imp);
       if (!SUCCESS(rc)) {
          platform_error_log(
             "%s():%d: pivot_deserialize() failed", __func__, __LINE__);
@@ -2097,10 +2292,17 @@ trunk_node_deserialize(const trunk_context *context,
    trunk_node_init(
       result, height, pivots, pivot_bundles, num_old_bundles, inflight_bundles);
 
+   bool32 encoded = FALSE;
+   if (!materialize) {
+      for (uint64 i = 0; i < vector_length(&result->pivots); i++) {
+         encoded |= trunk_pivot_key(vector_get(&result->pivots, i)).is_blob;
+      }
+   }
    bool32 well_formed =
-      trunk_node_is_leaf(result)
-         ? trunk_node_is_well_formed_leaf(context->cfg->data_cfg, result)
-         : trunk_node_is_well_formed_index(context->cfg->data_cfg, result);
+      encoded
+      || (trunk_node_is_leaf(result)
+             ? trunk_node_is_well_formed_leaf(context->cfg->data_cfg, result)
+             : trunk_node_is_well_formed_index(context->cfg->data_cfg, result));
    if (!well_formed) {
       trunk_node_deinit(result, context);
       return STATUS_INVALID_STATE;
@@ -2117,6 +2319,14 @@ cleanup:
    vector_deinit(&inflight_bundles);
    trunk_ondisk_node_handle_deinit(&handle);
    return rc;
+}
+
+static platform_status
+trunk_node_deserialize(const trunk_context *context,
+                       uint64               addr,
+                       trunk_node          *result)
+{
+   return trunk_node_deserialize_internal(context, addr, result, TRUE);
 }
 
 __attribute__((warn_unused_result)) static platform_status
@@ -2194,6 +2404,144 @@ bundle_dec_all_refs(trunk_context *context, bundle *bndl)
 //    cache_unget(context->cc, page);
 // }
 
+/* Each serialized node owns its blob roots and its tail extents. Tails in the
+ * node's own extent need no additional reference; overflow extents are owned
+ * once per node, even when several pivots use them. */
+typedef VECTOR(uint64) trunk_tail_extent_vector;
+
+static platform_status
+trunk_node_blob_references(const trunk_context *context,
+                           trunk_node          *node,
+                           uint64               node_addr,
+                           bool32               recover)
+{
+   trunk_tail_extent_vector tails;
+   vector_init(&tails, PROCESS_PRIVATE_HEAP_ID);
+   platform_status rc          = STATUS_OK;
+   uint64          extent_size = cache_extent_size(context->cc);
+   for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+      trunk_pivot *pvt    = vector_get(&node->pivots, i);
+      key          stored = trunk_pivot_blob_key(pvt);
+      if (!stored.is_blob) {
+         continue;
+      }
+      uint64      prefix     = pvt->blob_key_prefix_size;
+      slice       descriptor = slice_create(key_length(stored) - prefix,
+                                      (const char *)key_data(stored) + prefix);
+      parsed_blob parsed;
+      rc = blob_parse_descriptor(context->cc, descriptor, &parsed);
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
+      for (uint64 j = 0; j < ARRAY_SIZE(parsed.leftovers); j++) {
+         if (parsed.leftovers[j].length == 0) {
+            continue;
+         }
+         uint64 addr = parsed.leftovers[j].addr / extent_size * extent_size;
+         if (addr == node_addr) {
+            continue;
+         }
+         bool32 seen = FALSE;
+         for (uint64 k = 0; k < vector_length(&tails); k++) {
+            seen |= addr == vector_get(&tails, k);
+         }
+         if (!seen) {
+            rc = vector_append(&tails, addr);
+            if (!SUCCESS(rc)) {
+               goto out;
+            }
+         }
+      }
+   }
+   for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+      trunk_pivot *pvt    = vector_get(&node->pivots, i);
+      key          stored = trunk_pivot_blob_key(pvt);
+      if (!stored.is_blob) {
+         continue;
+      }
+      uint64          prefix     = pvt->blob_key_prefix_size;
+      slice           descriptor = slice_create(key_length(stored) - prefix,
+                                      (const char *)key_data(stored) + prefix);
+      parsed_blob     parsed;
+      platform_status parse_rc =
+         blob_parse_descriptor(context->cc, descriptor, &parsed);
+      platform_assert_status_ok(parse_rc);
+      for (uint64 j = 0; j < parsed.num_extents; j++) {
+         blob_ref        ref    = blob_get_ref(context->cc, &parsed, j);
+         platform_status ref_rc = recover ? blob_ref_recover(context->cc, ref)
+                                          : blob_ref_release(context->cc, ref);
+         if (SUCCESS(rc)) {
+            rc = ref_rc;
+         }
+         if (recover && !SUCCESS(rc)) {
+            goto out;
+         }
+      }
+   }
+   for (uint64 i = 0; i < vector_length(&tails); i++) {
+      uint64          addr    = vector_get(&tails, i);
+      platform_status tail_rc = STATUS_OK;
+      if (recover) {
+         tail_rc = allocator_recovery_record_reference(
+            context->al, addr, PAGE_TYPE_BLOB);
+      } else {
+         refcount ref = allocator_dec_ref(context->al, addr, PAGE_TYPE_BLOB);
+         if (ref == AL_NO_REFS) {
+            cache_extent_discard(context->cc, addr, PAGE_TYPE_BLOB);
+            ref = allocator_dec_ref(context->al, addr, PAGE_TYPE_BLOB);
+            platform_assert(ref == AL_FREE);
+         }
+      }
+      if (SUCCESS(rc)) {
+         rc = tail_rc;
+      }
+      if (recover && !SUCCESS(rc)) {
+         goto out;
+      }
+   }
+out:
+   vector_deinit(&tails);
+   return rc;
+}
+
+static platform_status
+trunk_node_materialize_keys(const trunk_context *context, trunk_node *node)
+{
+   for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+      trunk_pivot *pvt = vector_get(&node->pivots, i);
+      if (!pvt->key.is_blob) {
+         continue;
+      }
+      btree_config cfg         = *context->cfg->btree_cfg;
+      cfg.cc                   = context->cc;
+      cfg.blob_key_prefix_size = pvt->blob_key_prefix_size;
+      DECLARE_AUTO_KEY_BUFFER(logical, PROCESS_PRIVATE_HEAP_ID);
+      platform_status rc = btree_key_materialize(&cfg, pvt->key, &logical);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      trunk_pivot *replacement =
+         trunk_pivot_create_with_blob(PROCESS_PRIVATE_HEAP_ID,
+                                      key_buffer_key(&logical),
+                                      pvt->child_addr,
+                                      pvt->inflight_bundle_start,
+                                      pvt->prereceive_stats,
+                                      pvt->stats,
+                                      trunk_pivot_blob_key(pvt),
+                                      pvt->blob_key_prefix_size);
+      if (replacement == NULL) {
+         return STATUS_NO_MEMORY;
+      }
+      *vector_get_ptr(&node->pivots, i) = replacement;
+      trunk_pivot_destroy(pvt, PROCESS_PRIVATE_HEAP_ID);
+   }
+   bool32 valid =
+      trunk_node_is_leaf(node)
+         ? trunk_node_is_well_formed_leaf(context->cfg->data_cfg, node)
+         : trunk_node_is_well_formed_index(context->cfg->data_cfg, node);
+   return valid ? STATUS_OK : STATUS_INVALID_STATE;
+}
+
 static platform_status
 trunk_ondisk_node_dec_ref(trunk_context *context, uint64 addr);
 
@@ -2209,7 +2557,8 @@ trunk_ondisk_node_gc(trunk_context *context,
                      uint64         expected_height)
 {
    trunk_node      node;
-   platform_status rc = trunk_node_deserialize(context, addr, &node);
+   platform_status rc =
+      trunk_node_deserialize_internal(context, addr, &node, FALSE);
    if (SUCCESS(rc)) {
       rc = trunk_node_validate_expected_height(&node, expected_height);
       bool32 topology_valid = SUCCESS(rc);
@@ -2255,6 +2604,13 @@ trunk_ondisk_node_gc(trunk_context *context,
          for (uint64 i = 0; i < vector_length(&node.inflight_bundles); i++) {
             bundle *bndl = vector_get_ptr(&node.inflight_bundles, i);
             bundle_dec_all_refs(context, bndl);
+         }
+      }
+      if (topology_valid) {
+         platform_status blob_rc =
+            trunk_node_blob_references(context, &node, addr, FALSE);
+         if (SUCCESS(rc)) {
+            rc = blob_rc;
          }
       }
       trunk_node_deinit(&node, context);
@@ -2446,7 +2802,7 @@ trunk_recover_bundle_refs(const trunk_context *context, bundle *bndl)
       platform_status rc   = btree_recover_allocations(context->cc,
                                                      context->cfg->btree_cfg,
                                                      branch_ref_addr(bref),
-                                                     bref.format_version,
+                                                     bref.format,
                                                      type);
       if (!SUCCESS(rc)) {
          return rc;
@@ -2471,7 +2827,8 @@ trunk_recover_node_refs(const trunk_context *context,
                         uint64               expected_height)
 {
    trunk_node      node;
-   platform_status rc = trunk_node_deserialize(context, addr, &node);
+   platform_status rc =
+      trunk_node_deserialize_internal(context, addr, &node, FALSE);
    if (!SUCCESS(rc)) {
       platform_error_log("trunk_recover_node_refs: cannot read node %lu: %s\n",
                          addr,
@@ -2479,6 +2836,15 @@ trunk_recover_node_refs(const trunk_context *context,
       return rc;
    }
    rc = trunk_node_validate_expected_height(&node, expected_height);
+   if (!SUCCESS(rc)) {
+      trunk_node_deinit(&node, context);
+      return rc;
+   }
+
+   rc = trunk_node_blob_references(context, &node, addr, TRUE);
+   if (SUCCESS(rc)) {
+      rc = trunk_node_materialize_keys(context, &node);
+   }
    if (!SUCCESS(rc)) {
       trunk_node_deinit(&node, context);
       return rc;
@@ -2606,10 +2972,10 @@ trunk_ondisk_node_ref_create(trunk_context          *context,
                              bool32                  adopt,
                              trunk_ondisk_node_ref **out)
 {
-   *out                          = NULL;
-   platform_heap_id       hid    = context->hid;
-   trunk_ondisk_node_ref *result = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, result, key.bytes, ondisk_key_required_data_capacity(k));
+   *out                       = NULL;
+   platform_heap_id       hid = context->hid;
+   trunk_ondisk_node_ref *result =
+      TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, result, bytes, key_length(k));
    if (result == NULL) {
       platform_error_log(
          "%s():%d: TYPED_FLEXIBLE_STRUCT_ZALLOC() failed", __func__, __LINE__);
@@ -2637,7 +3003,11 @@ trunk_ondisk_node_ref_create(trunk_context          *context,
          return rc;
       }
    }
-   copy_key_to_ondisk_key(&result->key, k);
+   result->key = k;
+   if (key_is_user_key(k)) {
+      memcpy(result->bytes, key_data(k), key_length(k));
+      result->key.user_slice = slice_create(key_length(k), result->bytes);
+   }
    *out = result;
    return STATUS_OK;
 }
@@ -2657,17 +3027,11 @@ trunk_pivot_create_from_ondisk_node_ref(trunk_ondisk_node_ref *odnref,
                                         platform_heap_id       hid)
 {
    return trunk_pivot_create(hid,
-                             ondisk_key_to_key(&odnref->key),
+                             odnref->key,
                              odnref->ref.addr,
                              0,
                              TRUNK_STATS_ZERO,
                              TRUNK_STATS_ZERO);
-}
-
-static uint64
-trunk_pivot_ondisk_size(trunk_pivot *pvt)
-{
-   return trunk_ondisk_pivot_size(trunk_pivot_key(pvt));
 }
 
 static uint64
@@ -2680,6 +3044,7 @@ static void
 pivot_serialize(trunk_context      *context,
                 trunk_node         *node,
                 uint64              pivot_num,
+                key                 stored,
                 trunk_ondisk_pivot *dest)
 {
    trunk_pivot *pvt = vector_get(&node->pivots, pivot_num);
@@ -2692,7 +3057,7 @@ pivot_serialize(trunk_context      *context,
    } else {
       dest->num_live_inflight_bundles = 0;
    }
-   copy_key_to_ondisk_key(&dest->key, trunk_pivot_key(pvt));
+   copy_key_to_ondisk_key(&dest->key, stored);
 }
 
 static void
@@ -2810,6 +3175,211 @@ trunk_node_record_and_report_maxes(trunk_context *context, trunk_node *node)
    }
 }
 
+typedef struct trunk_blob_tails {
+   trunk_context           *context;
+   uint64                   next_addr;
+   uint64                   limit;
+   trunk_tail_extent_vector overflow;
+} trunk_blob_tails;
+
+static platform_status
+trunk_blob_allocate_tail(void  *arg,
+                         uint64 bytes,
+                         uint64 alignment,
+                         uint64 boundary,
+                         uint64 addrs[2])
+{
+   trunk_blob_tails *tails       = arg;
+   cache            *cc          = tails->context->cc;
+   uint64            extent_size = cache_extent_size(cc);
+   uint64            page_size   = cache_page_size(cc);
+   platform_assert(bytes <= extent_size);
+   addrs[0] = addrs[1] = 0;
+   alignment           = MAX(alignment, 1);
+   uint64 addr         = ROUNDUP(tails->next_addr, alignment);
+   if (boundary && addr % boundary + bytes > boundary) {
+      addr = tails->limit;
+   }
+   uint64 remaining = bytes;
+   for (uint64 fragment = 0; remaining != 0; fragment++) {
+      platform_assert(fragment < 2);
+      if (addr >= tails->limit) {
+         platform_status rc = vector_ensure_capacity(
+            &tails->overflow, vector_length(&tails->overflow) + 1);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         rc = allocator_alloc(tails->context->al, &addr, PAGE_TYPE_BLOB);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         rc = vector_append(&tails->overflow, addr);
+         platform_assert_status_ok(rc);
+         tails->limit = addr + extent_size;
+      }
+      uint64 count    = MIN(remaining, tails->limit - addr);
+      addrs[fragment] = addr;
+      for (uint64 page_addr = ROUNDUP(addr, page_size);
+           page_addr < addr + count;
+           page_addr += page_size)
+      {
+         page_handle  storage;
+         page_handle *page =
+            cache_alloc(cc, page_addr, PAGE_TYPE_BLOB, &storage);
+         if (page == NULL) {
+            return STATUS_NO_MEMORY;
+         }
+         memset(page_handle_data(page), 0, page_size);
+         cache_unlock(cc, page);
+         cache_unclaim(cc, page);
+         cache_unget(cc, page);
+      }
+      addr += count;
+      remaining -= count;
+   }
+   tails->next_addr = addr;
+   return STATUS_OK;
+}
+
+static blob_build_config
+trunk_blob_build_config(const trunk_context *context)
+{
+   return (blob_build_config){
+      .alignment = context->cfg->btree_cfg->blob_cfg.alignment,
+      .blob_max_descriptor_size =
+         context->cfg->btree_cfg->blob_cfg.blob_max_descriptor_size,
+   };
+}
+
+static platform_status
+trunk_pivot_storage_capacity(const trunk_context *context,
+                             trunk_pivot         *pivot,
+                             uint64              *size)
+{
+   *size = key_length(pivot->key);
+   if (*size <= MAX_INLINE_KEY_SIZE(cache_page_size(context->cc))) {
+      return STATUS_OK;
+   }
+   blob_build_config cfg = trunk_blob_build_config(context);
+   platform_status   rc  = blob_descriptor_size_bound(
+      &cfg, cache_extent_size(context->cc), *size, size);
+   if (SUCCESS(rc)) {
+      *size += btree_config_format(context->cfg->btree_cfg).key_prefix_size;
+      if (*size > MAX_INLINE_KEY_SIZE(cache_page_size(context->cc))) {
+         rc = STATUS_LIMIT_EXCEEDED;
+      }
+   }
+   return rc;
+}
+
+static platform_status
+trunk_layout_add(uint64  page_size,
+                 uint64  extent_size,
+                 uint64  bytes,
+                 uint64 *offset)
+{
+   if (bytes > page_size) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   if (*offset % page_size + bytes > page_size) {
+      *offset = ROUNDUP(*offset, page_size);
+   }
+   if (*offset > extent_size || bytes > extent_size - *offset) {
+      return STATUS_LIMIT_EXCEEDED;
+   }
+   *offset += bytes;
+   return STATUS_OK;
+}
+
+/* Reserve a bound on each descriptor's size: splitting a tail across an
+ * extent boundary can add an address. Any slack stays in the node body. */
+static platform_status
+trunk_node_layout(const trunk_context *context,
+                  trunk_node          *node,
+                  uint64              *size,
+                  bool32              *has_blobs)
+{
+   uint64 page_size   = cache_page_size(context->cc);
+   uint64 extent_size = cache_extent_size(context->cc);
+   *size =
+      sizeof(trunk_ondisk_node) + vector_length(&node->pivots) * sizeof(uint32);
+   *has_blobs = FALSE;
+   for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+      trunk_pivot *pivot = vector_get(&node->pivots, i);
+      *has_blobs |= key_length(pivot->key) > MAX_INLINE_KEY_SIZE(page_size);
+      uint64          capacity;
+      platform_status rc =
+         trunk_pivot_storage_capacity(context, pivot, &capacity);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      uint64 bytes = sizeof(trunk_ondisk_pivot) + capacity;
+      if (i + 1 < vector_length(&node->pivots)) {
+         bytes += bundle_ondisk_size(vector_get_ptr(&node->pivot_bundles, i));
+      }
+      rc = trunk_layout_add(page_size, extent_size, bytes, size);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   int64 first = trunk_node_first_live_inflight_bundle(node);
+   for (int64 i = vector_length(&node->inflight_bundles) - 1; i >= first; i--) {
+      uint64 bytes =
+         bundle_ondisk_size(vector_get_ptr(&node->inflight_bundles, i));
+      platform_status rc =
+         trunk_layout_add(page_size, extent_size, bytes, size);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   return STATUS_OK;
+}
+
+static platform_status
+trunk_encode_blob_pivot(trunk_context    *context,
+                        trunk_blob_tails *tails,
+                        trunk_pivot      *pivot,
+                        key_buffer       *result)
+{
+   blob_build_config    cfg            = trunk_blob_build_config(context);
+   blob_tail_allocator  tail_allocator = {trunk_blob_allocate_tail, tails};
+   auto_writable_buffer descriptor;
+   writable_buffer_init(&descriptor, context->hid);
+   key             source = trunk_pivot_blob_key(pivot);
+   platform_status rc;
+   if (source.is_blob) {
+      uint64 p                 = pivot->blob_key_prefix_size;
+      slice  source_descriptor = slice_create(
+         key_length(source) - p, (const char *)key_data(source) + p);
+      rc = blob_clone(
+         &cfg, context->cc, &tail_allocator, source_descriptor, &descriptor);
+   } else {
+      rc = blob_build(&cfg,
+                      context->cc,
+                      &tail_allocator,
+                      key_slice(pivot->key),
+                      &descriptor);
+   }
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   uint64 prefix = btree_config_format(context->cfg->btree_cfg).key_prefix_size;
+   uint64 size   = prefix + writable_buffer_length(&descriptor);
+   rc            = key_buffer_resize(result, size);
+   if (!SUCCESS(rc)) {
+      platform_status release_rc =
+         blob_release_refs(context->cc, writable_buffer_to_slice(&descriptor));
+      trunk_record_allocator_cleanup_error(context, release_rc);
+      return rc;
+   }
+   memcpy(key_buffer_data(result), key_data(pivot->key), prefix);
+   memcpy((char *)key_buffer_data(result) + prefix,
+          writable_buffer_data(&descriptor),
+          writable_buffer_length(&descriptor));
+   result->is_blob = TRUE;
+   return STATUS_OK;
+}
+
 __attribute__((warn_unused_result)) static platform_status
 trunk_node_serialize(trunk_context          *context,
                      trunk_node             *node,
@@ -2823,6 +3393,11 @@ trunk_node_serialize(trunk_context          *context,
    page_handle           *current_page = NULL;
    trunk_ondisk_node_ref *result       = NULL;
    threadid               tid          = platform_get_tid();
+   key_buffer            *blob_keys    = NULL;
+   uint64                 node_bytes;
+   bool32                 has_blobs;
+   trunk_blob_tails       tails = {.context = context};
+   vector_init(&tails.overflow, context->hid);
 
    if (trunk_node_num_children(node)
        > trunk_max_fanout(cache_page_size(context->cc)))
@@ -2864,6 +3439,21 @@ trunk_node_serialize(trunk_context          *context,
          trunk_node_is_well_formed_index(context->cfg->data_cfg, node));
    }
 
+   rc = trunk_node_layout(context, node, &node_bytes, &has_blobs);
+   if (!SUCCESS(rc)) {
+      goto cleanup;
+   }
+   if (has_blobs) {
+      blob_keys = TYPED_ARRAY_ZALLOC(
+         context->hid, blob_keys, vector_length(&node->pivots));
+      if (blob_keys == NULL) {
+         rc = STATUS_NO_MEMORY;
+         goto cleanup;
+      }
+      for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+         key_buffer_init(&blob_keys[i], context->hid);
+      }
+   }
    rc = allocator_alloc(context->al, &header_addr, PAGE_TYPE_TRUNK);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: allocator_alloc() failed: %s",
@@ -2873,6 +3463,22 @@ trunk_node_serialize(trunk_context          *context,
       goto cleanup;
    }
 
+   tails.next_addr =
+      header_addr + ROUNDUP(node_bytes, cache_page_size(context->cc));
+   tails.limit = header_addr + cache_extent_size(context->cc);
+   if (has_blobs) {
+      for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+         trunk_pivot *pivot = vector_get(&node->pivots, i);
+         if (key_length(pivot->key)
+             > MAX_INLINE_KEY_SIZE(cache_page_size(context->cc)))
+         {
+            rc = trunk_encode_blob_pivot(context, &tails, pivot, &blob_keys[i]);
+            if (!SUCCESS(rc)) {
+               goto cleanup;
+            }
+         }
+      }
+   }
    header_page =
       cache_alloc(context->cc, header_addr, PAGE_TYPE_TRUNK, &header_storage);
    if (header_page == NULL) {
@@ -2886,8 +3492,11 @@ trunk_node_serialize(trunk_context          *context,
 
    trunk_ondisk_node *odnode =
       (trunk_ondisk_node *)page_handle_data(header_page);
-   odnode->height     = node->height;
-   odnode->num_pivots = vector_length(&node->pivots);
+   odnode->blob_key_prefix_size =
+      btree_config_format(context->cfg->btree_cfg).key_prefix_size;
+   odnode->tail_offset = ROUNDUP(node_bytes, cache_page_size(context->cc));
+   odnode->height      = node->height;
+   odnode->num_pivots  = vector_length(&node->pivots);
    odnode->num_inflight_bundles =
       vector_length(&node->inflight_bundles) - min_inflight_bundle_start;
 
@@ -2896,8 +3505,16 @@ trunk_node_serialize(trunk_context          *context,
       sizeof(*odnode) + sizeof(odnode->pivot_offsets[0]) * odnode->num_pivots;
 
    for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
-      uint64 pivot_size = trunk_pivot_ondisk_size(vector_get(&node->pivots, i));
-      uint64 required_space = pivot_size;
+      trunk_pivot *pivot  = vector_get(&node->pivots, i);
+      key          stored = blob_keys != NULL && blob_keys[i].is_blob
+                               ? key_buffer_key(&blob_keys[i])
+                               : pivot->key;
+      uint64       capacity;
+      rc = trunk_pivot_storage_capacity(context, pivot, &capacity);
+      platform_assert_status_ok(rc);
+      uint64 pivot_size     = trunk_ondisk_pivot_size(stored);
+      uint64 required_space = sizeof(trunk_ondisk_pivot) + capacity;
+      uint64 padding        = required_space - pivot_size;
 
       bundle *pivot_bundle;
       uint64  bundle_size;
@@ -2937,6 +3554,7 @@ trunk_node_serialize(trunk_context          *context,
          context,
          node,
          i,
+         stored,
          (trunk_ondisk_pivot *)(page_handle_data(current_page) + page_offset));
       page_offset += pivot_size;
       if (i < vector_length(&node->pivots) - 1) {
@@ -2945,6 +3563,8 @@ trunk_node_serialize(trunk_context          *context,
                                                   + page_offset));
          page_offset += bundle_size;
       }
+      memset(page_handle_data(current_page) + page_offset, 0, padding);
+      page_offset += padding;
    }
 
    odnode->inflight_bundles_offset = 0;
@@ -2989,9 +3609,9 @@ trunk_node_serialize(trunk_context          *context,
       goto cleanup;
    }
 
-   // Acquire every outgoing reference before publishing the new node. This
-   // helper unwinds its acquired prefix on failure; the serialized bytes still
-   // describe borrowed objects until the entire acquisition succeeds.
+   // Blob clones already own their references. Acquire the child and branch
+   // references before publication; this helper unwinds its acquired prefix
+   // on failure, and cleanup below releases the blobs and tail storage.
    rc = trunk_node_inc_all_refs(context, node);
    if (!SUCCESS(rc)) {
       goto cleanup;
@@ -3020,6 +3640,13 @@ trunk_node_serialize(trunk_context          *context,
    cache_unget(context->cc, header_page);
 
    *out = result;
+   if (blob_keys != NULL) {
+      for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+         key_buffer_deinit(&blob_keys[i]);
+      }
+      platform_free(context->hid, blob_keys);
+   }
+   vector_deinit(&tails.overflow);
    return STATUS_OK;
 
 cleanup:
@@ -3038,6 +3665,31 @@ cleanup:
       cache_unclaim(context->cc, header_page);
       cache_unget(context->cc, header_page);
    }
+   if (blob_keys != NULL) {
+      for (uint64 i = 0; i < vector_length(&node->pivots); i++) {
+         if (blob_keys[i].is_blob) {
+            uint64 prefix =
+               btree_config_format(context->cfg->btree_cfg).key_prefix_size;
+            slice descriptor =
+               slice_create(key_buffer_length(&blob_keys[i]) - prefix,
+                            (char *)key_buffer_data(&blob_keys[i]) + prefix);
+            platform_status release_rc =
+               blob_release_refs(context->cc, descriptor);
+            trunk_record_allocator_cleanup_error(context, release_rc);
+         }
+         key_buffer_deinit(&blob_keys[i]);
+      }
+      platform_free(context->hid, blob_keys);
+   }
+   for (uint64 i = 0; i < vector_length(&tails.overflow); i++) {
+      uint64   addr = vector_get(&tails.overflow, i);
+      refcount ref  = allocator_dec_ref(context->al, addr, PAGE_TYPE_BLOB);
+      platform_assert(ref == AL_NO_REFS);
+      cache_extent_discard(context->cc, addr, PAGE_TYPE_BLOB);
+      ref = allocator_dec_ref(context->al, addr, PAGE_TYPE_BLOB);
+      platform_assert(ref == AL_FREE);
+   }
+   vector_deinit(&tails.overflow);
    if (header_addr != 0) {
       // The unpublished extent may be only partially serialized. Discard it
       // directly, without traversing references we have not acquired.
@@ -3119,14 +3771,14 @@ trunk_branch_merger_init(trunk_branch_merger *merger,
 static platform_status
 trunk_branch_merger_add_branch(trunk_branch_merger *merger,
                                uint64               addr,
-                               uint16               format_version,
+                               btree_format         format,
                                page_type            type)
 {
    platform_assert(merger != NULL);
    platform_assert(addr != 0);
    platform_assert(PAGE_TYPE_FIRST <= type && type < NUM_PAGE_TYPES);
 
-   trunk_branch_info branch = {addr, type, format_version};
+   trunk_branch_info branch = {addr, type, format};
    platform_status   rc     = vector_append(&merger->branches, branch);
    if (!SUCCESS(rc)) {
       platform_error_log("%s():%d: vector_append() failed: %s",
@@ -3157,10 +3809,8 @@ trunk_branch_merger_add_branches(trunk_branch_merger     *merger,
    }
 
    for (uint64 i = 0; i < num_branches; i++) {
-      rc = trunk_branch_merger_add_branch(merger,
-                                          branches[i].addr,
-                                          branches[i].format_version,
-                                          branches[i].type);
+      rc = trunk_branch_merger_add_branch(
+         merger, branches[i].addr, branches[i].format, branches[i].type);
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
                             __func__,
@@ -3194,7 +3844,7 @@ trunk_branch_merger_add_bundle(trunk_branch_merger *merger,
       branch_ref bref = vector_get(&routed->branches, i);
       rc              = trunk_branch_merger_add_branch(merger,
                                           branch_ref_addr(bref),
-                                          bref.format_version,
+                                          bref.format,
                                           bundle_branch_type(routed));
       if (!SUCCESS(rc)) {
          platform_error_log("%s():%d: btree_merger_add_branch() failed: %s",
@@ -3249,7 +3899,7 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
          rc = btree_get_root_height(cc,
                                     merger->cfg->btree_cfg,
                                     branch.addr,
-                                    branch.format_version,
+                                    branch.format,
                                     branch.type,
                                     &root_height);
          if (!SUCCESS(rc)) {
@@ -3278,7 +3928,7 @@ trunk_branch_merger_build_merge_itor(trunk_branch_merger *merger,
          merger->cfg->btree_cfg,
          itor,
          branch.addr,
-         branch.format_version,
+         branch.format,
          branch.type,
          &(const btree_iterator_init_options){
             .lower_limit        = key_greater_than_or_equal(merger->min_key),
@@ -4160,7 +4810,7 @@ bundle_compaction_create(trunk_context      *context,
             return rc;
          }
          page_type         type = bundle_branch_type(bndl);
-         trunk_branch_info bi   = {bref.addr, type, bref.format_version};
+         trunk_branch_info bi   = {bref.addr, type, bref.format};
          rc                     = vector_append(&result->input.branches, bi);
          platform_assert_status_ok(rc);
          __sync_fetch_and_add(&bc_incs, 1);
@@ -4943,7 +5593,7 @@ compute_input_stats(trunk_context            *context,
       platform_status   rc = btree_count_in_range(context->cc,
                                                 context->cfg->btree_cfg,
                                                 bi.addr,
-                                                bi.format_version,
+                                                bi.format,
                                                 lb,
                                                 ub,
                                                 &btree_stats);
@@ -5069,7 +5719,7 @@ bundle_compaction_task(task *arg)
          platform_timestamp_elapsed(pack_start);
    }
 
-   bc->output.branch = create_branch_ref(pack_req.root_addr);
+   bc->output.branch = create_branch_ref(pack_req.root_addr, pack_req.format);
    bc->output.stats  = (trunk_pivot_stats){
        .num_tuples   = pack_req.num_tuples,
        .num_kv_bytes = pack_req.key_bytes + pack_req.message_bytes};
@@ -5278,7 +5928,7 @@ accumulate_branch_tuple_counts_in_range(branch_ref         bref,
    platform_status   rc = btree_count_in_range(context->cc,
                                              context->cfg->btree_cfg,
                                              branch_ref_addr(bref),
-                                             bref.format_version,
+                                             bref.format,
                                              minkey,
                                              maxkey,
                                              &stats);
@@ -5483,7 +6133,7 @@ leaf_estimate_unique_keys(trunk_context *context,
          rc = btree_count_in_range(context->cc,
                                    context->cfg->btree_cfg,
                                    bundle_branch(bndl, 0).addr,
-                                   bundle_branch(bndl, 0).format_version,
+                                   bundle_branch(bndl, 0).format,
                                    trunk_node_pivot_min_key(leaf),
                                    trunk_node_pivot_max_key(leaf),
                                    &stats);
@@ -5505,14 +6155,13 @@ leaf_estimate_unique_keys(trunk_context *context,
       platform_assert(bundle_num_branches(&pivot_bundle) <= 1);
       if (bundle_num_branches(&pivot_bundle) == 1) {
          btree_pivot_stats stats;
-         rc =
-            btree_count_in_range(context->cc,
-                                 context->cfg->btree_cfg,
-                                 bundle_branch(&pivot_bundle, 0).addr,
-                                 bundle_branch(&pivot_bundle, 0).format_version,
-                                 trunk_node_pivot_min_key(leaf),
-                                 trunk_node_pivot_max_key(leaf),
-                                 &stats);
+         rc = btree_count_in_range(context->cc,
+                                   context->cfg->btree_cfg,
+                                   bundle_branch(&pivot_bundle, 0).addr,
+                                   bundle_branch(&pivot_bundle, 0).format,
+                                   trunk_node_pivot_min_key(leaf),
+                                   trunk_node_pivot_max_key(leaf),
+                                   &stats);
          if (!SUCCESS(rc)) {
             goto cleanup;
          }
@@ -5678,8 +6327,8 @@ leaf_split_select_pivots(trunk_context     *context,
    platform_status rc;
    trunk_pivot    *first   = vector_get(&leaf->pivots, 0);
    trunk_pivot    *last    = vector_get(&leaf->pivots, 1);
-   key             min_key = ondisk_key_to_key(&first->key);
-   key             max_key = ondisk_key_to_key(&last->key);
+   key             min_key = first->key;
+   key             max_key = last->key;
 
    trunk_branch_merger merger;
    trunk_branch_merger_init(&merger,
@@ -6793,7 +7442,8 @@ trunk_flush_prepare(trunk_context            *context,
    vector_init(&new_node_refs, PROCESS_PRIVATE_HEAP_ID);
 
    if (branch_addr != 0) {
-      branch_ref branch = create_branch_ref(branch_addr);
+      branch_ref branch = create_branch_ref(
+         branch_addr, btree_config_format(context->cfg->btree_cfg));
 
       // Construct a vector of inflight bundles with one singleton bundle for
       // the new branch.
@@ -7051,7 +7701,11 @@ trunk_ondisk_node_find_pivot(const trunk_context      *context,
          return rc;
       }
       key mid_key = trunk_ondisk_pivot_key(mid_pivot);
-      int cmp     = data_key_compare(context->cfg->data_cfg, tgt, mid_key);
+      int cmp;
+      rc = trunk_compare_stored_key(context, handle, tgt, mid_key, &cmp);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       if (cmp < 0) {
          max = mid;
       } else {
@@ -7139,8 +7793,14 @@ trunk_ondisk_node_find_pivot_async(trunk_merge_lookup_async_state *state,
          async_return(state);
       }
       key mid_key = trunk_ondisk_pivot_key(state->pivot);
-      int cmp =
-         data_key_compare(state->context->cfg->data_cfg, state->tgt, mid_key);
+      int cmp;
+      /* As in the B-tree, the uncommon blob comparison currently performs
+       * synchronous reads. All failures propagate through the async result. */
+      state->rc = trunk_compare_stored_key(
+         state->context, state->handlep, state->tgt, mid_key, &cmp);
+      if (!SUCCESS(state->rc)) {
+         async_return(state);
+      }
       if (cmp < 0) {
          state->work.node.max = state->work.node.pivot_num;
       } else {
@@ -7247,9 +7907,9 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
       rc = btree_lookup_and_merge(context->cc,
                                   context->cfg->btree_cfg,
                                   branch_ref_addr(bndl->branches[idx]),
-                                  bndl->branches[idx].format_version,
+                                  bndl->branches[idx].format,
                                   trunk_ondisk_bundle_branch_type(bndl),
-                                  tgt,
+                                  &tgt,
                                   result,
                                   &branch_found);
       if (!SUCCESS(rc)) {
@@ -7280,9 +7940,9 @@ trunk_ondisk_bundle_merge_lookup(trunk_context       *context,
          rc = btree_lookup_and_merge(context->cc,
                                      context->cfg->btree_cfg,
                                      branch_ref_addr(bndl->branches[idx]),
-                                     bndl->branches[idx].format_version,
+                                     bndl->branches[idx].format,
                                      trunk_ondisk_bundle_branch_type(bndl),
-                                     tgt,
+                                     &tgt,
                                      &temp_result,
                                      &branch_found);
          if (!SUCCESS(rc)) {
@@ -7388,7 +8048,7 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
          state->context->cc,
          state->context->cfg->btree_cfg,
          branch_ref_addr(state->bndl->branches[state->work.bundle.idx]),
-         state->bndl->branches[state->work.bundle.idx].format_version,
+         state->bndl->branches[state->work.bundle.idx].format,
          trunk_ondisk_bundle_branch_type(state->bndl),
          state->tgt,
          state->result,
@@ -7425,9 +8085,9 @@ trunk_ondisk_bundle_merge_lookup_async(trunk_merge_lookup_async_state *state,
             state->context->cc,
             state->context->cfg->btree_cfg,
             branch_ref_addr(state->bndl->branches[state->work.bundle.idx]),
-            state->bndl->branches[state->work.bundle.idx].format_version,
+            state->bndl->branches[state->work.bundle.idx].format,
             trunk_ondisk_bundle_branch_type(state->bndl),
-            state->tgt,
+            &state->tgt,
             &temp_result,
             NULL);
          if (!SUCCESS(rc)) {
@@ -7503,10 +8163,12 @@ trunk_merge_lookup(trunk_context            *context,
       }
 
       if (log) {
-         platform_log(
-            log,
-            "pivot: %s\n",
-            key_string(context->cfg->data_cfg, trunk_ondisk_pivot_key(pivot)));
+         platform_log(log,
+                      "pivot: %s\n",
+                      (pivot->key.flags & ONDISK_KEY_IS_BLOB)
+                         ? "<blob pivot>"
+                         : key_string(context->cfg->data_cfg,
+                                      trunk_ondisk_pivot_key(pivot)));
       }
 
       // Search the inflight bundles
@@ -7639,8 +8301,10 @@ trunk_merge_lookup_async(trunk_merge_lookup_async_state *state)
          platform_log(state->log,
                       "pivot_num: %lu pivot: %s\n",
                       state->work.node.min,
-                      key_string(state->context->cfg->data_cfg,
-                                 trunk_ondisk_pivot_key(state->pivot)));
+                      (state->pivot->key.flags & ONDISK_KEY_IS_BLOB)
+                         ? "<blob pivot>"
+                         : key_string(state->context->cfg->data_cfg,
+                                      trunk_ondisk_pivot_key(state->pivot)));
       }
 
       // Search the inflight bundles
@@ -7775,7 +8439,7 @@ trunk_collect_bundle_branches(const trunk_context  *context,
       }
       platform_status rc =
          btree_validate_root(bndl->branches[i].addr,
-                             bndl->branches[i].format_version,
+                             bndl->branches[i].format,
                              trunk_ondisk_bundle_branch_type(bndl));
       if (!SUCCESS(rc)) {
          /* References are acquired only after all selected roots validate. */
@@ -7785,9 +8449,9 @@ trunk_collect_bundle_branches(const trunk_context  *context,
          *num_branches = bundle_start;
          return rc;
       }
-      branches[*num_branches].addr = branch_ref_addr(bndl->branches[i]);
-      branches[*num_branches].format_version = bndl->branches[i].format_version;
-      branches[*num_branches].type = trunk_ondisk_bundle_branch_type(bndl);
+      branches[*num_branches].addr   = branch_ref_addr(bndl->branches[i]);
+      branches[*num_branches].format = bndl->branches[i].format;
+      branches[*num_branches].type   = trunk_ondisk_bundle_branch_type(bndl);
       (*num_branches)++;
    }
    for (uint64 i = bundle_start; i < *num_branches; i++) {
@@ -7926,34 +8590,18 @@ trunk_collect_branches(const trunk_context            *context,
          trunk_ondisk_node_handle_deinit(&handle);
          handle = child_handle;
       } else {
-         key leaf_min_key;
-         key leaf_max_key;
          debug_assert(trunk_ondisk_node_num_pivots(&handle) == 2);
-         rc = trunk_ondisk_node_get_pivot_key(&handle, 0, &leaf_min_key);
+         rc = trunk_ondisk_node_get_pivot_key(context, &handle, 0, min_key);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_collect_branches: "
                                "ondisk_node_get_pivot_key failed: %d\n",
                                rc.r);
             goto cleanup;
          }
-         rc = trunk_ondisk_node_get_pivot_key(&handle, 1, &leaf_max_key);
+         rc = trunk_ondisk_node_get_pivot_key(context, &handle, 1, max_key);
          if (!SUCCESS(rc)) {
             platform_error_log("trunk_collect_branches: "
                                "ondisk_node_get_pivot_key failed: %d\n",
-                               rc.r);
-            goto cleanup;
-         }
-         rc = key_buffer_copy_key(min_key, leaf_min_key);
-         if (!SUCCESS(rc)) {
-            platform_error_log("trunk_collect_branches: "
-                               "key_buffer_copy_key failed: %d\n",
-                               rc.r);
-            goto cleanup;
-         }
-         rc = key_buffer_copy_key(max_key, leaf_max_key);
-         if (!SUCCESS(rc)) {
-            platform_error_log("trunk_collect_branches: "
-                               "key_buffer_copy_key failed: %d\n",
                                rc.r);
             goto cleanup;
          }

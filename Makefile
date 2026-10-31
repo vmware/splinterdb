@@ -457,8 +457,10 @@ CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	    \
                  $(PLATFORM_IO_SYS)
 
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
+            $(OBJDIR)/$(SRCDIR)/btree_key.o       \
             $(OBJDIR)/$(SRCDIR)/blob.o            \
             $(OBJDIR)/$(SRCDIR)/blob_build.o      \
+            $(OBJDIR)/$(SRCDIR)/mini_blob.o       \
             $(OBJDIR)/$(SRCDIR)/data_blob_build.o \
             $(OBJDIR)/$(SRCDIR)/data_internal.o   \
             $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \

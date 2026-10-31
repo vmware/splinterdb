@@ -15,7 +15,7 @@
 
 #include "splinterdb/splinterdb.h"
 #include "clockcache.h"
-#include "blob_build.h"
+#include "mini_blob.h"
 #include "data_internal.h"
 #include "rc_allocator.h"
 #include "superblock.h"
@@ -209,6 +209,9 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
 
    if (!cfg->blob_max_descriptor_size) {
       cfg->blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE;
+   }
+   if (!cfg->blob_key_prefix_size) {
+      cfg->blob_key_prefix_size = BTREE_DEFAULT_KEY_PREFIX_SIZE;
    }
    if (!cfg->btree_rough_count_height) {
       cfg->btree_rough_count_height = 1;
@@ -466,6 +469,13 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    btree_config_init(&kvs->btree_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
    kvs->btree_cfg.blob_cfg.blob_max_descriptor_size =
       cfg.blob_max_descriptor_size;
+
+   kvs->btree_cfg.blob_key_prefix_size =
+      cfg.blob_key_prefix_size == UINT64_MAX ? 0 : cfg.blob_key_prefix_size;
+   rc = btree_config_validate(&kvs->btree_cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    trunk_config_init(&kvs->trunk_node_cfg,
                      kvs->data_cfg,
@@ -798,7 +808,7 @@ splinterdb_get_cost_stats(splinterdb *kvs, splinterdb_cost_stats *stats)
       status = btree_get_root_height(mt_ctxt->cc,
                                      mt_ctxt->cfg.btree_cfg,
                                      memtable_root_addr(&mt_ctxt->mt[mt_no]),
-                                     0,
+                                     (btree_format){0},
                                      PAGE_TYPE_MEMTABLE,
                                      &height);
       if (!SUCCESS(status)) {
@@ -1118,10 +1128,10 @@ splinterdb_blob_create(splinterdb *kvs, slice value, message *out)
    if (slice_length(value) > allocator_get_config(al)->capacity) {
       return ENOSPC;
    }
-   blob_build_config cfg = kvs->btree_cfg.blob_cfg;
-   cfg.extent_batch = cfg.page_batch = cfg.subpage_batch = 0;
+   mini_blob_config cfg = kvs->btree_cfg.blob_cfg;
+   cfg.page_batch = cfg.subpage_batch = 0;
    uint64          descriptor_capacity;
-   platform_status status = blob_descriptor_size_bound(
+   platform_status status = mini_blob_descriptor_size_bound(
       &cfg, cache_extent_size(cc), slice_length(value), &descriptor_capacity);
    if (!SUCCESS(status)) {
       return platform_status_to_int(status);
@@ -1155,7 +1165,7 @@ splinterdb_blob_create(splinterdb *kvs, slice value, message *out)
 
    // A private mini allocator isolates the caller's lifetime from memtable
    // rotations and log reclamation. One batch suffices for this one blob.
-   status = blob_build(&cfg, cc, &mini, value, &descriptor);
+   status = mini_blob_build(&cfg, cc, &mini, value, &descriptor);
    mini_release(&mini);
    if (!SUCCESS(status)) {
       mini_dec_ref(cc, handle->meta_head, PAGE_TYPE_BLOB);

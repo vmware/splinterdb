@@ -487,7 +487,7 @@ shard_log_validate_page_records(cache            *cc,
       message_type  message_class = ondisk_tuple_message_class(tuple);
       if (le->memtable_generation == INVALID_LOG_GENERATION
           || le->leaf_generation == INVALID_LOG_GENERATION
-          || tuple->key_flags != ONDISK_KEY_DEFAULT_FLAGS
+          || (tuple->key_flags & ~ONDISK_KEY_IS_BLOB) != 0
           || tuple->key_length == ONDISK_KEY_NEGATIVE_INFINITY
           || tuple->key_length == ONDISK_KEY_POSITIVE_INFINITY
           || (tuple->flags
@@ -504,6 +504,14 @@ shard_log_validate_page_records(cache            *cc,
          return STATUS_INVALID_STATE;
       }
 
+      if (tuple->key_flags & ONDISK_KEY_IS_BLOB) {
+         parsed_blob descriptor;
+         rc = blob_parse_descriptor(
+            cc, key_slice(log_entry_key(le)), &descriptor);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+      }
       if (ondisk_tuple_message_is_blob(tuple)) {
          parsed_blob blob_descriptor;
          rc = blob_parse_descriptor(
@@ -550,7 +558,15 @@ shard_log_measure_page_records(cache            *cc,
       if (le->memtable_generation < first_needed_generation) {
          le = (log_entry *)((char *)le + sizeof_log_entry(le));
          continue;
-      } else if (log_entry_message_is_blob(le)) {
+      }
+      key stored_key = log_entry_key(le);
+      if (stored_key.is_blob) {
+         rc = blob_validate(cc, key_slice(stored_key));
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+      }
+      if (log_entry_message_is_blob(le)) {
          message msg = log_entry_message(cc, le);
          rc          = message_validate(msg);
          if (!SUCCESS(rc)) {
@@ -1132,46 +1148,52 @@ shard_log_graduate_final_buffer(shard_log *log, shard_log_group *group)
       log, group, shard_log_get_thread_data(group, 0), TRUE);
 }
 
+/*
+ * Bound the encoded record before allocating either blob. Log keys carry only
+ * a descriptor: generation order, not key order, determines replay order.
+ */
 static platform_status
 shard_log_validate_reservation_entry(shard_log *log,
                                      key        tuple_key,
                                      message    msg,
-                                     uint64    *entry_size_out)
+                                     bool32     force_blob,
+                                     bool32    *blob_key,
+                                     bool32    *blob_message)
 {
+   if (tuple_key.is_blob || !key_is_user_key(tuple_key)) {
+      return STATUS_BAD_PARAM;
+   }
    uint64 key_size     = key_length(tuple_key);
    uint64 message_size = message_length(msg);
-   uint64 max_entry_size =
-      shard_log_page_size(log->cfg) - sizeof(shard_log_hdr);
-
-   if (key_size > UINT16_MAX || key_size > max_entry_size - sizeof(log_entry)) {
+   uint64 capacity =
+      shard_log_page_size(log->cfg) - sizeof(shard_log_hdr) - sizeof(log_entry);
+   *blob_key = key_size > MAX_INLINE_KEY_SIZE(shard_log_page_size(log->cfg));
+   if (*blob_key) {
+      platform_status rc = mini_blob_descriptor_size_bound(
+         &log->cfg->blob_cfg, cache_extent_size(log->cc), key_size, &key_size);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+   if (key_size >= ONDISK_KEY_POSITIVE_INFINITY || key_size > capacity) {
       return STATUS_LIMIT_EXCEEDED;
    }
-
-   uint64 entry_size = log_entry_required_capacity(tuple_key, msg);
-   if (message_size <= UINT16_MAX && entry_size <= max_entry_size) {
-      *entry_size_out = entry_size;
-      return STATUS_OK;
+   *blob_message = message_is_blob(msg) || force_blob
+                   || message_size > UINT16_MAX
+                   || message_size > capacity - key_size;
+   if (*blob_message && !message_is_blob(msg)) {
+      platform_status rc =
+         mini_blob_descriptor_size_bound(&log->cfg->blob_cfg,
+                                         cache_extent_size(log->cc),
+                                         message_size,
+                                         &message_size);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
    }
-
-   if (message_is_blob(msg)) {
+   if (message_size > UINT16_MAX || message_size > capacity - key_size) {
       return STATUS_LIMIT_EXCEEDED;
    }
-
-   uint64          descriptor_size;
-   platform_status rc = blob_descriptor_size_bound(&log->cfg->blob_cfg,
-                                                   cache_extent_size(log->cc),
-                                                   message_size,
-                                                   &descriptor_size);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   if (descriptor_size > UINT16_MAX
-       || descriptor_size > max_entry_size - sizeof(log_entry) - key_size)
-   {
-      return STATUS_LIMIT_EXCEEDED;
-   }
-
-   *entry_size_out = entry_size;
    return STATUS_OK;
 }
 
@@ -1179,6 +1201,7 @@ typedef struct shard_log_prepared_write {
    key               tuple_key;
    message           msg;
    merge_accumulator log_blob;
+   writable_buffer  *key_blob; // Allocated only for large keys.
    uint64            entry_size;
    uint64            blob_pages;
    threadid          owner_tid;
@@ -1212,6 +1235,11 @@ shard_log_prepared_state_deinit(log_write_prepared *prepared)
    if (state->log_blob_inited) {
       merge_accumulator_deinit(&state->log_blob);
    }
+   if (state->key_blob != NULL) {
+      platform_heap_id hid = state->key_blob->heap_id;
+      writable_buffer_deinit(state->key_blob);
+      platform_free(hid, state->key_blob);
+   }
    ZERO_CONTENTS(state);
    prepared->log = NULL;
 }
@@ -1227,21 +1255,38 @@ shard_log_write_prepare(log_handle         *logh,
    threadid                  tid   = platform_get_tid();
    shard_log_prepared_write *state = shard_log_prepared_state(prepared);
 
-   uint64          entry_size;
-   platform_status rc =
-      shard_log_validate_reservation_entry(log, tuple_key, msg, &entry_size);
+   bool32          blob_key, blob_message;
+   platform_status rc = shard_log_validate_reservation_entry(
+      log, tuple_key, msg, force_blob, &blob_key, &blob_message);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   uint64 page_size      = shard_log_page_size(log->cfg);
-   uint64 max_entry_size = page_size - sizeof(shard_log_hdr);
-   bool32 input_is_blob  = message_is_blob(msg);
+   uint64 page_size = shard_log_page_size(log->cfg);
+   if (blob_key) {
+      state->key_blob = TYPED_MALLOC(platform_get_heap_id(), state->key_blob);
+      if (state->key_blob == NULL) {
+         rc = STATUS_NO_MEMORY;
+         goto fail;
+      }
+      writable_buffer_init(state->key_blob, platform_get_heap_id());
+      rc = mini_blob_build(&log->cfg->blob_cfg,
+                           log->cc,
+                           &log->mini,
+                           key_slice(tuple_key),
+                           state->key_blob);
+      if (!SUCCESS(rc)) {
+         goto fail;
+      }
+      tuple_key = key_create_from_slice(
+         FALSE, writable_buffer_to_slice(state->key_blob));
+      tuple_key.is_blob = TRUE;
+   }
 
-   if (input_is_blob || force_blob || max_entry_size < entry_size) {
+   if (blob_message) {
       merge_accumulator_init(&state->log_blob, platform_get_heap_id());
       state->log_blob_inited = TRUE;
-      if (input_is_blob) {
+      if (message_is_blob(msg)) {
          rc = message_clone(
             &log->cfg->blob_cfg, log->cc, &log->mini, msg, &state->log_blob);
       } else {
@@ -1252,12 +1297,9 @@ shard_log_write_prepare(log_handle         *logh,
          goto fail;
       }
       msg = merge_accumulator_to_message(&state->log_blob);
-      rc =
-         shard_log_validate_reservation_entry(log, tuple_key, msg, &entry_size);
-      if (!SUCCESS(rc)) {
-         goto fail;
-      }
    }
+   uint64 entry_size = log_entry_required_capacity(tuple_key, msg);
+   platform_assert(entry_size <= page_size - sizeof(shard_log_hdr));
 
    /*
     * Pin the current group while enrolling prepared blob writes and making
@@ -1274,7 +1316,10 @@ shard_log_write_prepare(log_handle         *logh,
    }
 
    shard_log_thread_data *thread_data = shard_log_get_thread_data(group, tid);
-   if (state->log_blob_inited) {
+   if (state->key_blob != NULL) {
+      rc = blob_writeback(log->cc, key_slice(tuple_key), &thread_data->wbset);
+   }
+   if (SUCCESS(rc) && state->log_blob_inited) {
       rc = blob_writeback(log->cc, message_slice(msg), &thread_data->wbset);
    }
 
@@ -1301,6 +1346,13 @@ shard_log_write_prepare(log_handle         *logh,
    if (message_is_blob(msg)) {
       uint64 bytes      = blob_length(message_slice(msg));
       state->blob_pages = bytes / page_size + (bytes % page_size != 0);
+   }
+   if (tuple_key.is_blob) {
+      uint64 bytes      = blob_length(key_slice(tuple_key));
+      uint64 pages      = bytes / page_size + (bytes % page_size != 0);
+      state->blob_pages = pages > UINT64_MAX - state->blob_pages
+                             ? UINT64_MAX
+                             : state->blob_pages + pages;
    }
    state->tuple_key  = tuple_key;
    state->msg        = msg;
@@ -2217,18 +2269,26 @@ shard_log_recover_page_blob_allocations(cache            *cc,
    log_entry      *le  = first_log_entry(page_handle_data(page));
    platform_status rc  = STATUS_OK;
    for (uint64 i = 0; i < hdr->num_entries; i++) {
-      if (le->memtable_generation >= first_needed_generation
-          && log_entry_message_is_blob(le))
-      {
-         message msg = log_entry_message(cc, le);
-         rc          = blob_recover_allocations(cc, message_slice(msg));
-         if (STATUS_IS_EQ(rc, STATUS_INVALID_STATE)
-             || STATUS_IS_EQ(rc, STATUS_IO_ERROR))
-         {
-            *first_invalid_group = MIN(*first_invalid_group, hdr->group_id);
-            rc                   = STATUS_OK;
-         } else if (!SUCCESS(rc)) {
-            return rc;
+      if (le->memtable_generation >= first_needed_generation) {
+         key    stored_key = log_entry_key(le);
+         slice  descriptors[2];
+         uint64 count = 0;
+         if (stored_key.is_blob) {
+            descriptors[count++] = key_slice(stored_key);
+         }
+         if (log_entry_message_is_blob(le)) {
+            descriptors[count++] = message_slice(log_entry_message(cc, le));
+         }
+         for (uint64 j = 0; j < count; j++) {
+            rc = blob_recover_allocations(cc, descriptors[j]);
+            if (STATUS_IS_EQ(rc, STATUS_INVALID_STATE)
+                || STATUS_IS_EQ(rc, STATUS_IO_ERROR))
+            {
+               *first_invalid_group = MIN(*first_invalid_group, hdr->group_id);
+               rc                   = STATUS_OK;
+            } else if (!SUCCESS(rc)) {
+               return rc;
+            }
          }
       }
       le = (log_entry *)((char *)le + sizeof_log_entry(le));
@@ -2579,6 +2639,10 @@ shard_log_iterator_curr(iterator *itorh, key *curr_key, message *msg)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *curr_key                = log_entry_key(itor->entries[itor->pos]);
+   if (curr_key->is_blob) {
+      *curr_key = key_create_from_slice(
+         FALSE, writable_buffer_to_slice(&itor->key_buffer));
+   }
    *msg = log_entry_message(itor->cc, itor->entries[itor->pos]);
 }
 
@@ -2608,11 +2672,24 @@ shard_log_iterator_can_next(iterator *itorh)
 }
 
 static platform_status
+shard_log_iterator_load_key(shard_log_iterator *itor)
+{
+   if (itor->pos < itor->num_entries) {
+      key stored_key = log_entry_key(itor->entries[itor->pos]);
+      if (stored_key.is_blob) {
+         return blob_materialize_full(
+            itor->cc, key_slice(stored_key), &itor->key_buffer);
+      }
+   }
+   return STATUS_OK;
+}
+
+static platform_status
 shard_log_iterator_next(iterator *itorh)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    itor->pos++;
-   return STATUS_OK;
+   return shard_log_iterator_load_key(itor);
 }
 
 /*
@@ -2632,10 +2709,9 @@ shard_log_config_init(shard_log_config *log_cfg,
    log_cfg->data_cfg         = data_cfg;
    log_cfg->seed             = HASH_SEED;
    log_cfg->group_size_pages = SHARD_LOG_DEFAULT_GROUP_SIZE_PAGES;
-   log_cfg->blob_cfg         = (blob_build_config){
-              .extent_batch             = 1,
-              .page_batch               = 2,
-              .subpage_batch            = 3,
+   log_cfg->blob_cfg         = (mini_blob_config){
+              .page_batch               = 1,
+              .subpage_batch            = 2,
               .alignment                = cache_config_page_size(cache_cfg),
               .blob_max_descriptor_size = BLOB_DEFAULT_MAX_DESCRIPTOR_SIZE,
    };
@@ -2686,7 +2762,9 @@ shard_log_print(shard_log *log)
             for (uint64 entry_no = 0; entry_no < hdr->num_entries; entry_no++) {
                platform_default_log(
                   "%s -- %s%s : memtable=%lu leaf=%lu\n",
-                  key_string(dcfg, log_entry_key(le)),
+                  log_entry_key(le).is_blob
+                     ? "(blob key)"
+                     : key_string(dcfg, log_entry_key(le)),
                   log_entry_message_is_blob(le) ? "(blob) " : "",
                   message_string(dcfg, log_entry_message(cc, le)),
                   le->memtable_generation,
@@ -2711,6 +2789,7 @@ shard_log_iterator_deinit(log_iterator *itorh)
    if (itor->entries != NULL) {
       platform_free(hid, itor->entries);
    }
+   writable_buffer_deinit(&itor->key_buffer);
    platform_free(hid, itor); // the handle, from shard_log_iterator_create()
 }
 
@@ -2793,6 +2872,7 @@ shard_log_iterator_init(cache              *cc,
    bool32          readable_pages[MAX_PAGES_PER_EXTENT];
 
    memset(itor, 0, sizeof(shard_log_iterator));
+   writable_buffer_init(&itor->key_buffer, hid);
    itor->super.super.ops = &shard_log_iterator_ops;     // generic iterator
    itor->super.ops       = &shard_log_log_iterator_ops; // log_iterator
    itor->heap_id         = hid;
@@ -3122,7 +3202,13 @@ shard_log_iterator_init(cache              *cc,
                          &tmp);
    }
 
-   return STATUS_OK;
+   rc = shard_log_iterator_load_key(itor);
+   if (!SUCCESS(rc)) {
+      writable_buffer_deinit(&itor->key_buffer);
+      platform_free(hid, itor->entries);
+      platform_free(hid, itor->contents);
+   }
+   return rc;
 }
 
 platform_status

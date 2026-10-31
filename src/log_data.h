@@ -9,7 +9,7 @@
 
 #include "splinterdb/public_platform.h"
 
-#define SHARD_LOG_FORMAT_VERSION (1)
+#define SHARD_LOG_FORMAT_VERSION (4)
 
 typedef struct log_nonce {
    uint64 high;

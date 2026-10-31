@@ -19,7 +19,7 @@
 #include "data_internal.h"
 #include "batch_rwlock.h"
 
-#define TRUNK_FORMAT_VERSION (1)
+#define TRUNK_FORMAT_VERSION (5)
 
 /* The superblock persists this version; the trunk owns its supported readers.
  */
@@ -136,12 +136,13 @@ typedef struct trunk_pivot_state_map {
  */
 typedef struct trunk_ondisk_node_ref {
    ondisk_ref ref;
-   ondisk_key key;
+   key        key;
+   uint8      bytes[];
 } trunk_ondisk_node_ref;
 
 typedef struct ONDISK branch_ref {
-   uint64 addr;
-   uint16 format_version;
+   uint64       addr;
+   btree_format format;
 } branch_ref;
 
 typedef VECTOR(branch_ref) branch_ref_vector;
@@ -352,9 +353,9 @@ trunk_merge_lookup(trunk_context            *context,
                    platform_log_handle      *log);
 
 typedef struct trunk_branch_info {
-   uint64    addr;
-   page_type type;
-   uint16    format_version;
+   uint64       addr;
+   page_type    type;
+   btree_format format;
 } trunk_branch_info;
 
 // On failure, releases every reference acquired by this call and restores
