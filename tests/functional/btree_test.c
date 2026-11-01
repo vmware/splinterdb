@@ -60,55 +60,52 @@ typedef struct test_memtable_context {
    uint64             max_generation;
 } test_memtable_context;
 
-#define BTREE_HEIGHT_LIMIT_TEST_NUM_KEYS 3
-#define BTREE_HEIGHT_LIMIT_TEST_KEY_SIZE 2010
+#define BTREE_BLOB_KEY_TEST_NUM_KEYS 3
+#define BTREE_BLOB_KEY_TEST_KEY_SIZE 2010
 
-typedef struct btree_height_limit_iterator {
-   iterator super;
-   uint64   pos;
-   uint8    keys[BTREE_HEIGHT_LIMIT_TEST_NUM_KEYS]
-             [BTREE_HEIGHT_LIMIT_TEST_KEY_SIZE];
+typedef struct btree_blob_key_iterator {
+   iterator    super;
+   uint64      pos;
+   uint8       keys[BTREE_BLOB_KEY_TEST_NUM_KEYS][BTREE_BLOB_KEY_TEST_KEY_SIZE];
    data_handle data;
-} btree_height_limit_iterator;
+} btree_blob_key_iterator;
 
 static void
-btree_height_limit_iterator_curr(iterator *base, key *curr_key, message *msg)
+btree_blob_key_iterator_curr(iterator *base, key *curr_key, message *msg)
 {
-   btree_height_limit_iterator *itor = (btree_height_limit_iterator *)base;
-   platform_assert(itor->pos < BTREE_HEIGHT_LIMIT_TEST_NUM_KEYS);
-   *curr_key = key_create(
-      FALSE, BTREE_HEIGHT_LIMIT_TEST_KEY_SIZE, itor->keys[itor->pos]);
+   btree_blob_key_iterator *itor = (btree_blob_key_iterator *)base;
+   platform_assert(itor->pos < BTREE_BLOB_KEY_TEST_NUM_KEYS);
+   *curr_key =
+      key_create(FALSE, BTREE_BLOB_KEY_TEST_KEY_SIZE, itor->keys[itor->pos]);
    *msg = message_create_internal(
       MESSAGE_TYPE_INSERT, NULL, slice_create(sizeof(itor->data), &itor->data));
 }
 
 static bool32
-btree_height_limit_iterator_can_curr(iterator *base)
+btree_blob_key_iterator_can_curr(iterator *base)
 {
-   btree_height_limit_iterator *itor = (btree_height_limit_iterator *)base;
-   return itor->pos < BTREE_HEIGHT_LIMIT_TEST_NUM_KEYS;
+   btree_blob_key_iterator *itor = (btree_blob_key_iterator *)base;
+   return itor->pos < BTREE_BLOB_KEY_TEST_NUM_KEYS;
 }
 
 static platform_status
-btree_height_limit_iterator_next(iterator *base)
+btree_blob_key_iterator_next(iterator *base)
 {
-   btree_height_limit_iterator *itor = (btree_height_limit_iterator *)base;
-   platform_assert(itor->pos < BTREE_HEIGHT_LIMIT_TEST_NUM_KEYS);
+   btree_blob_key_iterator *itor = (btree_blob_key_iterator *)base;
+   platform_assert(itor->pos < BTREE_BLOB_KEY_TEST_NUM_KEYS);
    itor->pos++;
    return STATUS_OK;
 }
 
 static platform_status
-btree_height_limit_iterator_prev(iterator *base)
+btree_blob_key_iterator_prev(iterator *base)
 {
    (void)base;
    return STATUS_NOTSUP;
 }
 
 static platform_status
-btree_height_limit_iterator_seek(iterator  *base,
-                                 comparison seek_type,
-                                 key        seek_key)
+btree_blob_key_iterator_seek(iterator *base, comparison seek_type, key seek_key)
 {
    (void)base;
    (void)seek_type;
@@ -117,52 +114,109 @@ btree_height_limit_iterator_seek(iterator  *base,
 }
 
 static void
-btree_height_limit_iterator_print(iterator *base)
+btree_blob_key_iterator_print(iterator *base)
 {
    (void)base;
 }
 
-static const iterator_ops btree_height_limit_iterator_ops = {
-   .curr     = btree_height_limit_iterator_curr,
-   .can_prev = btree_height_limit_iterator_can_curr,
-   .can_next = btree_height_limit_iterator_can_curr,
-   .next     = btree_height_limit_iterator_next,
-   .prev     = btree_height_limit_iterator_prev,
-   .seek     = btree_height_limit_iterator_seek,
-   .print    = btree_height_limit_iterator_print,
+static const iterator_ops btree_blob_key_iterator_ops = {
+   .curr     = btree_blob_key_iterator_curr,
+   .can_prev = btree_blob_key_iterator_can_curr,
+   .can_next = btree_blob_key_iterator_can_curr,
+   .next     = btree_blob_key_iterator_next,
+   .prev     = btree_blob_key_iterator_prev,
+   .seek     = btree_blob_key_iterator_seek,
+   .print    = btree_blob_key_iterator_print,
 };
 
-/* These keys fit two at a time in a leaf but only one at a time in an index
- * page.  Three tuples therefore keep producing two nodes at every level and
- * exercise the fixed-height packer limit with a very small input. */
+/*
+ * Three keys above the inline limit should fit in one leaf using blob
+ * descriptors. Check that they round-trip and that aborting a partial pack
+ * releases its blob allocations.
+ */
 static platform_status
-test_btree_pack_height_limit(cache              *cc,
-                             const btree_config *cfg,
-                             platform_heap_id    hid)
+test_btree_pack_blob_keys(cache *cc, btree_config *cfg, platform_heap_id hid)
 {
    platform_assert(btree_page_size(cfg) == 4096);
 
-   btree_height_limit_iterator itor = {
-      .super = {.ops = &btree_height_limit_iterator_ops},
+   btree_blob_key_iterator itor = {
+      .super = {.ops = &btree_blob_key_iterator_ops},
       .data  = {.ref_count = 1},
    };
    for (uint64 i = 0; i < ARRAY_SIZE(itor.keys); i++) {
       memset(itor.keys[i], 'a' + i, sizeof(itor.keys[i]));
    }
 
-   btree_pack_req  req;
-   platform_status rc = btree_pack_req_init(&req, cc, cfg, &itor.super, 0, hid);
-   if (!SUCCESS(rc)) {
-      return rc;
+   const uint64 tuple_limits[] = {0, BTREE_BLOB_KEY_TEST_NUM_KEYS - 1};
+   for (uint64 limit_idx = 0; limit_idx < ARRAY_SIZE(tuple_limits); limit_idx++)
+   {
+      uint64 max_tuples       = tuple_limits[limit_idx];
+      uint64 allocated_before = allocator_in_use(cache_get_allocator(cc));
+      itor.pos                = 0;
+
+      btree_pack_req  req;
+      platform_status rc =
+         btree_pack_req_init(&req, cc, cfg, &itor.super, max_tuples, hid);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      rc = btree_pack(&req);
+      bool32 passed;
+      if (max_tuples != 0) {
+         passed = STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED) && req.root_addr == 0
+                  && req.num_tuples == max_tuples;
+      } else {
+         passed = SUCCESS(rc) && req.root_addr != 0
+                  && req.num_tuples == BTREE_BLOB_KEY_TEST_NUM_KEYS;
+         if (passed) {
+            uint32 height;
+            rc = btree_get_root_height(
+               cc, cfg, req.root_addr, req.format, PAGE_TYPE_BRANCH, &height);
+            passed = SUCCESS(rc) && height == 0;
+         }
+
+         lookup_result result;
+         lookup_result_init(
+            &result, cfg->data_cfg, SPLINTERDB_LOOKUP_VALUE, 0, NULL);
+         message expected = message_create_internal(
+            MESSAGE_TYPE_INSERT,
+            NULL,
+            slice_create(sizeof(itor.data), &itor.data));
+         for (uint64 i = 0; passed && i < ARRAY_SIZE(itor.keys); i++) {
+            key target = key_create(FALSE, sizeof(itor.keys[i]), itor.keys[i]);
+            rc         = btree_lookup(cc,
+                              cfg,
+                              req.root_addr,
+                              req.format,
+                              PAGE_TYPE_BRANCH,
+                              target,
+                              &result);
+            passed     = SUCCESS(rc) && lookup_result_found(&result)
+                     && message_lex_cmp(merge_accumulator_to_message(
+                                           lookup_result_accumulator(&result)),
+                                        expected)
+                           == 0;
+         }
+         lookup_result_deinit(&result);
+      }
+
+      if (req.root_addr != 0) {
+         btree_dec_ref(cc, cfg, req.root_addr, PAGE_TYPE_BRANCH);
+      }
+      btree_pack_req_deinit(&req, hid);
+      if (!passed
+          || allocator_in_use(cache_get_allocator(cc)) != allocated_before)
+      {
+         platform_error_log(
+            "btree blob-key pack test failed (max_tuples=%lu, status=%s)\n",
+            max_tuples,
+            platform_status_to_string(rc));
+         return STATUS_TEST_FAILED;
+      }
    }
-   rc = btree_pack(&req);
-   bool32 passed =
-      STATUS_IS_EQ(rc, STATUS_LIMIT_EXCEEDED) && req.root_addr == 0;
-   if (SUCCESS(rc) && req.root_addr != 0) {
-      btree_dec_ref(cc, cfg, req.root_addr, PAGE_TYPE_BRANCH);
-   }
-   btree_pack_req_deinit(&req, hid);
-   return passed ? STATUS_OK : STATUS_TEST_FAILED;
+
+   platform_default_log("btree blob-key pack and abort tests passed\n");
+   return STATUS_OK;
 }
 
 btree_config *
@@ -3057,7 +3111,7 @@ btree_test(int argc, char *argv[])
    rc = test_memtable_generation_init(ccp, &test_cfg, hid);
    platform_assert_status_ok(rc);
 
-   rc = test_btree_pack_height_limit(ccp, mt_cfg->btree_cfg, hid);
+   rc = test_btree_pack_blob_keys(ccp, mt_cfg->btree_cfg, hid);
    platform_assert_status_ok(rc);
 
    uint64 max_tuples_per_memtable =
