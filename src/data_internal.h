@@ -41,11 +41,18 @@ typedef enum {
    POSITIVE_INFINITY = 1,
 } key_type;
 
+// Shared inline-key policy for B-trees, trunk pivots, and the log.
+#define MAX_INLINE_KEY_SIZE(page_size) ((page_size) / 8) // Bytes
+
 typedef struct key {
    key_type kind;
-   bool32   is_query_key;
-   slice    user_slice;
+   uint16   is_query_key;
+   // Internal stored-key encoding; never passed to callbacks.
+   uint16 is_blob;
+   slice  user_slice;
 } key;
+_Static_assert(sizeof(key) == sizeof(slice) + 8,
+               "Blob flags must not enlarge the frequently copied key");
 
 #define NEGATIVE_INFINITY_KEY                                                  \
    ((key){.kind         = NEGATIVE_INFINITY,                                   \
@@ -110,7 +117,7 @@ key_create(bool32 is_query_key, uint64 length, const void *data)
 static inline bool32
 key_equals(key a, key b)
 {
-   return a.kind == b.kind
+   return a.kind == b.kind && a.is_blob == b.is_blob
           && IMPLIES(a.kind == USER_KEY,
                      slice_equals(a.user_slice, b.user_slice));
 }
@@ -154,6 +161,7 @@ key_copy_contents(void *dst, key k)
 typedef struct {
    key_type        kind;
    bool32          is_query_key;
+   bool32          is_blob;
    writable_buffer wb;
 } key_buffer;
 
@@ -169,8 +177,10 @@ key_buffer_key(const key_buffer *kb)
    } else if (kb->kind == POSITIVE_INFINITY) {
       return POSITIVE_INFINITY_KEY;
    } else {
-      return key_create_from_slice(kb->is_query_key,
-                                   writable_buffer_to_slice(&kb->wb));
+      key result     = key_create_from_slice(kb->is_query_key,
+                                         writable_buffer_to_slice(&kb->wb));
+      result.is_blob = kb->is_blob;
+      return result;
    }
 }
 
@@ -185,6 +195,7 @@ key_buffer_init(key_buffer *kb, platform_heap_id hid)
 {
    kb->kind         = USER_KEY;
    kb->is_query_key = FALSE;
+   kb->is_blob      = FALSE;
    writable_buffer_init(&kb->wb, hid);
    writable_buffer_resize(&kb->wb, 0);
 }
@@ -194,6 +205,7 @@ key_buffer_copy_slice(key_buffer *kb, bool32 is_query_key, slice src)
 {
    kb->kind         = USER_KEY;
    kb->is_query_key = is_query_key;
+   kb->is_blob      = FALSE;
    return writable_buffer_copy_slice(&kb->wb, src);
 }
 
@@ -205,7 +217,10 @@ key_buffer_copy_key(key_buffer *kb, key src)
    } else if (key_is_positive_infinity(src)) {
       kb->kind = POSITIVE_INFINITY;
    } else {
-      return key_buffer_copy_slice(kb, src.is_query_key, key_slice(src));
+      platform_status rc =
+         key_buffer_copy_slice(kb, src.is_query_key, key_slice(src));
+      kb->is_blob = src.is_blob;
+      return rc;
    }
    return STATUS_OK;
 }
@@ -227,7 +242,8 @@ key_buffer_length(key_buffer *kb)
 static inline platform_status
 key_buffer_resize(key_buffer *kb, uint64 length)
 {
-   kb->kind = USER_KEY;
+   kb->kind    = USER_KEY;
+   kb->is_blob = FALSE;
    return writable_buffer_resize(&kb->wb, length);
 }
 
@@ -274,6 +290,8 @@ typedef struct ONDISK ondisk_key {
    ((((ondisk_key_length)1) << ONDISK_KEY_LENGTH_BITS) - 2)
 
 #define ONDISK_KEY_DEFAULT_FLAGS (0)
+/* Bit 0 is reserved for B-tree index statistics; it is invalid in leaf keys. */
+#define ONDISK_KEY_IS_BLOB (1 << 1)
 
 /* How big is the flexible array field of the given ondisk_key */
 static inline uint64
@@ -306,14 +324,16 @@ ondisk_key_to_key(const ondisk_key *odk)
    } else if (odk->length == ONDISK_KEY_POSITIVE_INFINITY) {
       return POSITIVE_INFINITY_KEY;
    } else {
-      return key_create(FALSE, odk->length, odk->bytes);
+      return (key){.kind       = USER_KEY,
+                   .is_blob    = (odk->flags & ONDISK_KEY_IS_BLOB) != 0,
+                   .user_slice = slice_create(odk->length, odk->bytes)};
    }
 }
 
 static inline void
 copy_key_to_ondisk_key(ondisk_key *odk, key k)
 {
-   odk->flags = ONDISK_KEY_DEFAULT_FLAGS;
+   odk->flags = k.is_blob ? ONDISK_KEY_IS_BLOB : ONDISK_KEY_DEFAULT_FLAGS;
    if (key_is_user_key(k)) {
       odk->length = key_length(k);
       memcpy(odk->bytes, key_data(k), key_length(k));
@@ -490,7 +510,10 @@ ondisk_tuple_required_data_capacity(key k, message msg)
 static inline key
 ondisk_tuple_key(const ondisk_tuple *odt)
 {
-   return key_create(FALSE, odt->key_length, odt->key_and_message);
+   return (key){.kind    = USER_KEY,
+                .is_blob = (odt->key_flags & ONDISK_KEY_IS_BLOB) != 0,
+                .user_slice =
+                   slice_create(odt->key_length, odt->key_and_message)};
 }
 
 static inline message_type
@@ -531,7 +554,7 @@ copy_tuple_to_ondisk_tuple(ondisk_tuple *odt, key k, message msg)
 {
    debug_assert(key_is_user_key(k));
    odt->key_length = key_length(k);
-   odt->key_flags  = ONDISK_KEY_DEFAULT_FLAGS;
+   odt->key_flags  = k.is_blob ? ONDISK_KEY_IS_BLOB : ONDISK_KEY_DEFAULT_FLAGS;
    memcpy(odt->key_and_message, key_data(k), key_length(k));
    copy_message_to_ondisk_tuple(odt, msg);
 }

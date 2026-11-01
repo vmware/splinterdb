@@ -48,7 +48,8 @@
  * descriptors carry their format version and fingerprint size; v8 adds
  * independent structure versions and complete routing-filter/log read config.
  */
-#define SUPERBLOCK_FORMAT_VERSION (8)
+/* v9 requires hierarchical blob ownership and mini-allocator format 2. */
+#define SUPERBLOCK_FORMAT_VERSION (10)
 
 /* The two physical superblock copies live at pages 0 and 1. */
 #define SUPERBLOCK_NUM_SLOTS (2)

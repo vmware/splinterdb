@@ -74,83 +74,83 @@ struct ONDISK btree_hdr {
  * *************************************************************************
  */
 #define BTREE_INDEX_WIDE_STATS       (1 << 0)
-#define BTREE_LEGACY_UNKNOWN_COUNTER UINT32_C(0x7fffffff)
-#define BTREE_WIDE_STATS_BYTES       (3 * sizeof(uint32))
+#define BTREE_NARROW_UNKNOWN_COUNTER UINT32_MAX
 
+typedef struct ONDISK btree_pivot_stats32 {
+   uint32 num_kvs;
+   uint32 key_bytes;
+   uint32 message_bytes;
+} btree_pivot_stats32;
+
+_Static_assert(sizeof(btree_pivot_stats) == 3 * sizeof(uint64),
+               "wide on-disk counters must be contiguous");
+
+/* The key has the same offset in both encodings. Immediately after its bytes
+ * are three contiguous uint32 or uint64 counters, selected by the flags byte.
+ * Access counters with memcpy because the key need not end at an aligned
+ * address.
+ */
 typedef struct ONDISK index_entry {
-   struct ONDISK {
-      uint64 child_addr;
-      struct ONDISK {
-         uint32 num_kvs;
-         uint32 key_bytes;
-         uint32 message_bytes;
-      } stats;
-   } pivot_data;
+   uint64     child_addr;
    ondisk_key pivot;
-   /* With BTREE_INDEX_WIDE_STATS, three high uint32 words follow the key.
-    * All three counters then contain literal 64-bit values. Otherwise the
-    * layout and unknown sentinel are exactly the original on-disk format. */
 } index_entry;
 
 static inline bool32
 btree_stats_need_wide(btree_pivot_stats stats)
 {
-   return (stats.num_kvs >= BTREE_LEGACY_UNKNOWN_COUNTER
+   return (stats.num_kvs >= BTREE_NARROW_UNKNOWN_COUNTER
            && stats.num_kvs != UINT64_MAX)
-          || (stats.key_bytes >= BTREE_LEGACY_UNKNOWN_COUNTER
+          || (stats.key_bytes >= BTREE_NARROW_UNKNOWN_COUNTER
               && stats.key_bytes != UINT64_MAX)
-          || (stats.message_bytes >= BTREE_LEGACY_UNKNOWN_COUNTER
+          || (stats.message_bytes >= BTREE_NARROW_UNKNOWN_COUNTER
               && stats.message_bytes != UINT64_MAX);
+}
+
+static inline uint64
+btree_stats_size(btree_pivot_stats stats)
+{
+   return btree_stats_need_wide(stats) ? sizeof(btree_pivot_stats)
+                                       : sizeof(btree_pivot_stats32);
 }
 
 static inline btree_pivot_stats
 index_entry_stats(const index_entry *entry)
 {
-   uint64 values[3] = {entry->pivot_data.stats.num_kvs,
-                       entry->pivot_data.stats.key_bytes,
-                       entry->pivot_data.stats.message_bytes};
+   const void *data =
+      entry->pivot.bytes + sizeof_ondisk_key_data(&entry->pivot);
    if (entry->pivot.flags & BTREE_INDEX_WIDE_STATS) {
-      uint32 high[3];
-      memcpy(high,
-             entry->pivot.bytes + sizeof_ondisk_key_data(&entry->pivot),
-             sizeof(high));
-      for (uint64 i = 0; i < 3; i++) {
-         values[i] |= (uint64)high[i] << 32;
-      }
-   } else {
-      for (uint64 i = 0; i < 3; i++) {
-         if (values[i] == BTREE_LEGACY_UNKNOWN_COUNTER) {
-            values[i] = UINT64_MAX;
-         }
-      }
+      btree_pivot_stats stats;
+      memcpy(&stats, data, sizeof(stats));
+      return stats;
    }
-   return (btree_pivot_stats){values[0], values[1], values[2]};
+   btree_pivot_stats32 stats;
+   memcpy(&stats, data, sizeof(stats));
+   return (btree_pivot_stats){
+      .num_kvs   = stats.num_kvs == BTREE_NARROW_UNKNOWN_COUNTER ? UINT64_MAX
+                                                                 : stats.num_kvs,
+      .key_bytes = stats.key_bytes == BTREE_NARROW_UNKNOWN_COUNTER
+                      ? UINT64_MAX
+                      : stats.key_bytes,
+      .message_bytes = stats.message_bytes == BTREE_NARROW_UNKNOWN_COUNTER
+                          ? UINT64_MAX
+                          : stats.message_bytes,
+   };
 }
 
 static inline void
 index_entry_set_stats(index_entry *entry, btree_pivot_stats stats)
 {
-   uint64 values[3] = {stats.num_kvs, stats.key_bytes, stats.message_bytes};
+   void *data = entry->pivot.bytes + sizeof_ondisk_key_data(&entry->pivot);
    if (btree_stats_need_wide(stats)) {
-      uint32 high[3];
-      for (uint64 i = 0; i < 3; i++) {
-         high[i] = values[i] >> 32;
-      }
-      memcpy(entry->pivot.bytes + sizeof_ondisk_key_data(&entry->pivot),
-             high,
-             sizeof(high));
-      entry->pivot.flags = BTREE_INDEX_WIDE_STATS;
+      entry->pivot.flags |= BTREE_INDEX_WIDE_STATS;
+      memcpy(data, &stats, sizeof(stats));
    } else {
-      entry->pivot.flags = ONDISK_KEY_DEFAULT_FLAGS;
-      for (uint64 i = 0; i < 3; i++) {
-         if (values[i] == UINT64_MAX) {
-            values[i] = BTREE_LEGACY_UNKNOWN_COUNTER;
-         }
-      }
+      entry->pivot.flags &= ~BTREE_INDEX_WIDE_STATS;
+      /* Casting UINT64_MAX preserves the narrow unknown sentinel. */
+      btree_pivot_stats32 narrow = {
+         stats.num_kvs, stats.key_bytes, stats.message_bytes};
+      memcpy(data, &narrow, sizeof(narrow));
    }
-   entry->pivot_data.stats.num_kvs       = values[0];
-   entry->pivot_data.stats.key_bytes     = values[1];
-   entry->pivot_data.stats.message_bytes = values[2];
 }
 
 /*
@@ -177,14 +177,15 @@ typedef struct leaf_incorporate_spec {
    } msg;
 } leaf_incorporate_spec;
 
+/* Borrowed inputs must remain valid through this call and not alias spec. */
 platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    cache                 *cc,
                                    mini_allocator        *mini,
                                    platform_heap_id       heap_id,
                                    btree_hdr             *hdr,
-                                   key                    tuple_key,
-                                   message                message,
+                                   const key             *tuple_key,
+                                   const message         *message,
                                    leaf_incorporate_spec *spec);
 
 bool32
@@ -444,8 +445,8 @@ sizeof_index_entry(const index_entry *entry)
 {
    return sizeof(*entry) + sizeof_ondisk_key_data(&entry->pivot)
           + ((entry->pivot.flags & BTREE_INDEX_WIDE_STATS)
-                ? BTREE_WIDE_STATS_BYTES
-                : 0);
+                ? sizeof(btree_pivot_stats)
+                : sizeof(btree_pivot_stats32));
 }
 
 static inline uint64
@@ -463,7 +464,7 @@ index_entry_key(const index_entry *entry)
 static inline uint64
 index_entry_child_addr(const index_entry *entry)
 {
-   return entry->pivot_data.child_addr;
+   return entry->child_addr;
 }
 
 static inline key
@@ -560,7 +561,8 @@ btree_leaf_full_key(const btree_config *cfg,
    memcpy((char *)key_buffer_data(buffer) + hdr->prefix_length,
           entry->key_and_message,
           entry->key_length);
-   *result = key_buffer_key(buffer);
+   buffer->is_blob = (entry->key_flags & ONDISK_KEY_IS_BLOB) != 0;
+   *result         = key_buffer_key(buffer);
    return STATUS_OK;
 }
 

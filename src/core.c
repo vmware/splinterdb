@@ -1241,7 +1241,7 @@ core_memtable_iterator_init(core_handle    *spl,
                               spl->cfg.btree_cfg,
                               itor,
                               root_addr,
-                              0,
+                              (btree_format){0},
                               PAGE_TYPE_MEMTABLE,
                               &(const btree_iterator_init_options){0});
 }
@@ -1819,9 +1819,9 @@ core_memtable_lookup(core_handle   *spl,
    return btree_lookup_and_merge(cc,
                                  cfg,
                                  root_addr,
-                                 BTREE_BRANCH_FORMAT_VERSION,
+                                 btree_config_format(cfg),
                                  type,
-                                 target,
+                                 &target,
                                  result,
                                  NULL);
 }
@@ -1910,7 +1910,7 @@ core_start_btree_iterator_init_async(
    core_btree_iterator_init_async_context *ctxt,
    btree_iterator                         *itor,
    uint64                                  root_addr,
-   uint16                                  format_version,
+   btree_format                            format,
    page_type                               page_type,
    comparison                              min_key_comparison,
    key                                     min_key,
@@ -1926,7 +1926,7 @@ core_start_btree_iterator_init_async(
                                    spl->cfg.btree_cfg,
                                    itor,
                                    root_addr,
-                                   format_version,
+                                   format,
                                    page_type,
                                    min_key_comparison,
                                    min_key,
@@ -2277,8 +2277,8 @@ restart:
       }
 
       range_itor->branch[range_itor->num_branches].addr = root_addr;
-      range_itor->branch[range_itor->num_branches].format_version =
-         compacted ? BTREE_BRANCH_FORMAT_VERSION : 0;
+      range_itor->branch[range_itor->num_branches].format =
+         btree_config_format(spl->cfg.btree_cfg);
       range_itor->branch[range_itor->num_branches].type =
          compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
       range_itor->num_branches++;
@@ -2387,7 +2387,7 @@ restart:
          &init_ctxt[i],
          btree_itor,
          branch_addr,
-         range_itor->branch[branch_no].format_version,
+         range_itor->branch[branch_no].format,
          page_type,
          range_itor->local_min_key_comparison,
          key_buffer_key(&range_itor->local_min_key),
@@ -2809,9 +2809,9 @@ release_capture_locks:
       rc = btree_lookup_and_merge(spl->cc,
                                   spl->cfg.btree_cfg,
                                   refs[i].root_addr,
-                                  BTREE_BRANCH_FORMAT_VERSION,
+                                  btree_config_format(spl->cfg.btree_cfg),
                                   refs[i].type,
-                                  tuple_key,
+                                  &tuple_key,
                                   catch_up_result,
                                   NULL);
       if (!SUCCESS(rc)) {
@@ -5066,7 +5066,7 @@ core_print_lookup(core_handle *spl, key target, platform_log_handle *log_handle)
       rc = btree_lookup(spl->cc,
                         spl->cfg.btree_cfg,
                         root_addr,
-                        0,
+                        (btree_format){0},
                         PAGE_TYPE_MEMTABLE,
                         target,
                         &lookup);

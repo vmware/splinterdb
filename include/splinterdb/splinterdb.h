@@ -92,10 +92,15 @@ typedef struct splinterdb_config {
    uint64 num_normal_bg_threads;
 
    // Maximum encoded blob descriptor bytes, including its header. Zero selects
-   // 512. This is a runtime encoding policy; existing descriptors are decoded
+   // 256. This is a runtime encoding policy; existing descriptors are decoded
    // independently of this setting. Must be at least 114 and no greater than
-   // the B-tree inline message limit (35% of page_size).
+   // page_size / 8 minus the effective blob key prefix length.
    uint64 blob_max_descriptor_size;
+   // Fixed logical prefix retained with lexical blob keys in new B-trees.
+   // Zero selects 256; UINT64_MAX selects no prefix. Non-lexical keys have no
+   // prefix. Prefix + descriptor budget must not exceed page_size / 8.
+   // The effective prefix is persisted with each immutable branch pointer.
+   uint64 blob_key_prefix_size;
 
    // btree
    uint64 btree_rough_count_height;
@@ -451,6 +456,11 @@ splinterdb_lookup(splinterdb               *kvs,   // IN
 // incorporated before catch-up can increment its reference count. In that
 // case the update has not been applied.
 
+// Keys are ordinary byte slices, including keys larger than a page. The engine
+// stores large keys in blob storage automatically; callbacks and iterators
+// continue to receive their logical bytes. Small keys remain inline.
+// Large-key operations can require additional allocation and I/O.
+//
 // Insert a key and value. Overwrites any previous value associated with key.
 // The message may hold direct bytes or a blob from this open database instance.
 // Its type field is ignored: this operation always inserts/overwrites.

@@ -337,7 +337,8 @@ CTEST2(splinterdb_quick, test_get_config_returns_effective_config)
    ASSERT_EQUAL(IO_DEFAULT_PERMS, cfg->io_perms);
    ASSERT_EQUAL(IO_DEFAULT_ASYNC_QUEUE_DEPTH, cfg->io_async_queue_depth);
 
-   ASSERT_EQUAL(512, cfg->blob_max_descriptor_size);
+   ASSERT_EQUAL(256, cfg->blob_max_descriptor_size);
+   ASSERT_EQUAL(256, cfg->blob_key_prefix_size);
    ASSERT_EQUAL(1, cfg->btree_rough_count_height);
    ASSERT_EQUAL(27, cfg->filter_hash_size);
    ASSERT_EQUAL(9, cfg->filter_log_index_size);
@@ -1290,7 +1291,7 @@ CTEST2(splinterdb_quick, test_apis_for_large_key)
 }
 
 /*
- * Test case to verify core interfaces when key-size is too large.
+ * Keys just above the inline limit must use the same public operations.
  */
 CTEST2(splinterdb_quick, test_key_size_gt_max_inline_key_size)
 {
@@ -1301,14 +1302,21 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_inline_key_size)
 
    int rc = splinterdb_insert(
       data->kvsb, too_large_key, message_create(sizeof("foo"), "foo"), NULL);
-   ASSERT_EQUAL(EINVAL, rc);
+   ASSERT_EQUAL(0, rc);
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(data->kvsb, &result);
 
-   rc = splinterdb_delete(data->kvsb, too_large_key, NULL);
-   ASSERT_EQUAL(EINVAL, rc);
+   rc = splinterdb_lookup(data->kvsb, too_large_key, &result);
+   ASSERT_EQUAL(0, rc);
+   assert_lookup_result_matches_slice(&result,
+                                      slice_create(sizeof("foo"), "foo"));
 
+   rc = splinterdb_delete(data->kvsb, too_large_key, NULL);
+   ASSERT_EQUAL(0, rc);
+
+   ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, too_large_key, &result));
+   ASSERT_FALSE(splinterdb_lookup_found(&result));
    splinterdb_lookup_result_deinit(&result);
 }
 
@@ -1683,7 +1691,7 @@ CTEST2(splinterdb_quick, test_branch_prefix_pack_initializes_free_gap)
                                   core->cfg.btree_cfg,
                                   &scan,
                                   req.root_addr,
-                                  BTREE_BRANCH_FORMAT_VERSION,
+                                  BTREE_DEFAULT_FORMAT,
                                   PAGE_TYPE_BRANCH,
                                   &(const btree_iterator_init_options){0})));
    btree_hdr *hdr = scan.curr.hdr;
@@ -1767,7 +1775,7 @@ prefix_test_init_failure(core_handle       *core,
          core->cfg.btree_cfg,
          &itor,
          branch->addr,
-         branch->format_version,
+         branch->format,
          PAGE_TYPE_BRANCH,
          &(const btree_iterator_init_options){
             .start_position = key_start_at_or_after(start_key)});
@@ -1917,7 +1925,7 @@ prefix_variable_test_growth_failure(core_handle       *core,
       core->cfg.btree_cfg,
       &itor,
       branch->addr,
-      branch->format_version,
+      branch->format,
       PAGE_TYPE_BRANCH,
       &(const btree_iterator_init_options){
          .start_position = key_start_at_or_after(key_create_from_slice(
@@ -2095,7 +2103,7 @@ prefix_test_malformed_leaf_entries(core_handle *core, trunk_branch_info *branch)
                                      core->cfg.btree_cfg,
                                      &itor,
                                      branch->addr,
-                                     branch->format_version,
+                                     branch->format,
                                      PAGE_TYPE_BRANCH,
                                      &(const btree_iterator_init_options){0})));
       btree_hdr *hdr  = itor.curr.hdr;
@@ -2226,6 +2234,7 @@ CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
       ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
       data->default_data_cfg.super.key_compare_is_lexical = enabled;
       data->default_data_cfg.super.key_compare            = prefix_test_compare;
+      data->cfg.blob_key_prefix_size                      = 128;
       ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
       char keybuf[64];
       for (uint64 i = 0; i < count; i++) {
@@ -2342,8 +2351,18 @@ CTEST2(splinterdb_quick, test_branch_prefix_roundtrip)
       ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
       /* Creation policy must not change interpretation of existing leaves. */
       data->default_data_cfg.super.key_compare_is_lexical = !enabled;
+      data->cfg.blob_key_prefix_size                      = 64;
       ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
       core = (core_handle *)splinterdb_get_trunk_handle(data->kvsb);
+      ASSERT_TRUE(SUCCESS(core_range_iterator_init(
+         core, &probe, &(const core_range_iterator_init_options){0})));
+      for (uint64 i = 0; i < probe.num_branches; i++) {
+         if (probe.branch[i].type == PAGE_TYPE_BRANCH) {
+            ASSERT_EQUAL(enabled ? 128 : 0,
+                         probe.branch[i].format.key_prefix_size);
+         }
+      }
+      core_range_iterator_deinit(&probe);
       splinterdb_lookup_result result;
       splinterdb_lookup_result_init(data->kvsb, &result);
       for (uint64 i = 0; i < count; i++) {
@@ -3797,7 +3816,7 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
          ASSERT_TRUE(SUCCESS(btree_lookup(core->cc,
                                           core->cfg.btree_cfg,
                                           bt->root_addr,
-                                          probe.branch[branch].format_version,
+                                          probe.branch[branch].format,
                                           PAGE_TYPE_BRANCH,
                                           key_create_from_slice(TRUE, target),
                                           &result)));
@@ -3808,7 +3827,7 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
                                      core->cc,
                                      core->cfg.btree_cfg,
                                      bt->root_addr,
-                                     probe.branch[branch].format_version,
+                                     probe.branch[branch].format,
                                      PAGE_TYPE_BRANCH,
                                      key_create_from_slice(TRUE, target),
                                      &result)));
@@ -3818,7 +3837,7 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
          ASSERT_TRUE(SUCCESS(btree_lookup(core->cc,
                                           core->cfg.btree_cfg,
                                           bt->root_addr,
-                                          probe.branch[branch].format_version,
+                                          probe.branch[branch].format,
                                           PAGE_TYPE_BRANCH,
                                           key_create_from_slice(TRUE, target),
                                           &result)));
@@ -3829,7 +3848,7 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
                                      core->cc,
                                      core->cfg.btree_cfg,
                                      bt->root_addr,
-                                     probe.branch[branch].format_version,
+                                     probe.branch[branch].format,
                                      PAGE_TYPE_BRANCH,
                                      key_create_from_slice(TRUE, target),
                                      &result)));
@@ -3849,16 +3868,15 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
       memcpy(keybuf, entry->key_and_message, sizeof(keybuf));
       key query =
          key_create_from_slice(TRUE, slice_create(sizeof(keybuf), keybuf));
-      uint16 saved_length = entry->key_length;
-      entry->key_length   = UINT16_MAX;
-      platform_status sync_rc =
-         btree_lookup(core->cc,
-                      core->cfg.btree_cfg,
-                      bt->root_addr,
-                      probe.branch[branch].format_version,
-                      PAGE_TYPE_BRANCH,
-                      query,
-                      &result);
+      uint16 saved_length        = entry->key_length;
+      entry->key_length          = UINT16_MAX;
+      platform_status sync_rc    = btree_lookup(core->cc,
+                                             core->cfg.btree_cfg,
+                                             bt->root_addr,
+                                             probe.branch[branch].format,
+                                             PAGE_TYPE_BRANCH,
+                                             query,
+                                             &result);
       bool32          sync_found = lookup_result_found(&result);
       platform_status async_rc =
          async_call_sync_callback(cache_cleanup(core->cc),
@@ -3866,7 +3884,7 @@ CTEST2(splinterdb_quick, test_immutable_branch_custom_comparator)
                                   core->cc,
                                   core->cfg.btree_cfg,
                                   bt->root_addr,
-                                  probe.branch[branch].format_version,
+                                  probe.branch[branch].format,
                                   PAGE_TYPE_BRANCH,
                                   query,
                                   &result);
@@ -5589,5 +5607,323 @@ CTEST2(splinterdb_quick, test_blob_tree_crash_recovery)
       }
    }
    /* Keep the fixture's usual close path valid. */
+   ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+}
+
+/* Exercise logical keys across all layers, including keys whose lengths do not
+ * fit the on-disk tuple's uint16 fields. Differences follow a long common
+ * prefix. */
+static slice
+large_api_key(char *bytes, uint64 length, uint64 ordinal)
+{
+   memset(bytes, 'K', length);
+   for (uint64 i = 0; i < 8; i++) {
+      bytes[length - 8 + i] = ordinal >> (56 - 8 * i);
+   }
+   return slice_create(length, bytes);
+}
+
+static int
+large_api_reverse_compare(const data_config *cfg, user_key a, user_key b)
+{
+   platform_assert(slice_length(a.key) > 512);
+   platform_assert(slice_length(b.key) > 512);
+   return -slice_lex_cmp(a.key, b.key);
+}
+
+static int
+large_api_merge(const data_config *cfg,
+                slice              k,
+                message            old,
+                merge_accumulator *new)
+{
+   platform_assert(slice_length(k) > 512);
+   merge_accumulator_set_class(new, MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+static int
+large_api_merge_final(const data_config *cfg, slice k, merge_accumulator *new)
+{
+   platform_assert(slice_length(k) > 512);
+   merge_accumulator_set_class(new, MESSAGE_TYPE_INSERT);
+   return 0;
+}
+
+CTEST2(splinterdb_quick, test_large_keys_public_operations)
+{
+   const uint64 lengths[] = {513, 4097, 65553, 2 * IO_DEFAULT_EXTENT_SIZE + 17};
+   const uint64 count     = 32;
+   char        *bytes     = malloc(lengths[ARRAY_SIZE(lengths) - 1]);
+   char        *bound_bytes = malloc(lengths[ARRAY_SIZE(lengths) - 1]);
+   ASSERT_TRUE(bytes != NULL && bound_bytes != NULL);
+   for (uint64 custom = 0; custom < 2; custom++) {
+      for (uint64 logging = 0; logging < 2; logging++) {
+         for (uint64 n = 0; n < ARRAY_SIZE(lengths); n++) {
+            ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+            default_data_config_init(&data->default_data_cfg.super);
+            data_config *dcfg = &data->default_data_cfg.super;
+            if (custom) {
+               dcfg->key_compare            = large_api_reverse_compare;
+               dcfg->key_compare_is_lexical = FALSE;
+            }
+            dcfg->merge_tuples             = large_api_merge;
+            dcfg->merge_tuples_final       = large_api_merge_final;
+            data->cfg.use_log              = logging;
+            data->cfg.blob_key_prefix_size = 256;
+            data->cfg.disk_size            = 512 * Mega;
+            data->cfg.memtable_capacity    = 8 * Mega;
+            ASSERT_EQUAL(0, splinterdb_create(&data->cfg, &data->kvsb));
+            uint64                   length = lengths[n];
+            splinterdb_lookup_result result;
+            splinterdb_lookup_result_init(data->kvsb, &result);
+            for (uint64 i = 0; i < count; i++) {
+               slice k = large_api_key(bytes, length, i);
+               ASSERT_EQUAL(
+                  0,
+                  splinterdb_insert(
+                     data->kvsb, k, message_create(sizeof(i), &i), &result));
+               ASSERT_FALSE(splinterdb_lookup_found(&result));
+            }
+            /* Check memtable, branch, and reopened database views. */
+            for (uint64 stage = 0; stage < 3; stage++) {
+               if (stage == 1) {
+                  force_flush_current_memtable(data->kvsb);
+               } else if (stage == 2) {
+                  splinterdb_lookup_result_deinit(&result);
+                  ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+                  /* Old branches retain P=256 while the new instance uses
+                   * P=128. Lookups must take the configuration fallback. */
+                  data->cfg.blob_key_prefix_size = 128;
+                  ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+                  splinterdb_lookup_result_init(data->kvsb, &result);
+               }
+               for (uint64 i = 0; i < count; i++) {
+                  ASSERT_EQUAL(
+                     0,
+                     splinterdb_lookup(
+                        data->kvsb, large_api_key(bytes, length, i), &result));
+                  assert_lookup_result_matches_slice(
+                     &result, slice_create(sizeof(i), &i));
+               }
+               ASSERT_EQUAL(
+                  0,
+                  splinterdb_lookup(
+                     data->kvsb, large_api_key(bytes, length, count), &result));
+               ASSERT_FALSE(splinterdb_lookup_found(&result));
+               for (uint64 reverse = 0; reverse < 2; reverse++) {
+                  splinterdb_iterator *it;
+                  ASSERT_EQUAL(
+                     0,
+                     splinterdb_iterator_init(
+                        data->kvsb,
+                        &it,
+                        .start_position =
+                           reverse ? splinterdb_start_at_or_before(NULL_SLICE)
+                                   : splinterdb_start_at_or_after(NULL_SLICE)));
+                  for (uint64 j = 0; j < count; j++) {
+                     uint64 i = (custom ^ reverse) ? count - 1 - j : j;
+                     ASSERT_TRUE(splinterdb_iterator_valid(it));
+                     slice k, value;
+                     splinterdb_iterator_get_current(it, &k, &value);
+                     ASSERT_EQUAL(
+                        0, slice_lex_cmp(k, large_api_key(bytes, length, i)));
+                     ASSERT_EQUAL(
+                        0, slice_lex_cmp(value, slice_create(sizeof(i), &i)));
+                     if (reverse)
+                        splinterdb_iterator_prev(it);
+                     else
+                        splinterdb_iterator_next(it);
+                  }
+                  ASSERT_FALSE(splinterdb_iterator_valid(it));
+                  ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+                  splinterdb_iterator_deinit(it);
+               }
+               slice lo = large_api_key(bytes, length, custom ? 23 : 8);
+               slice hi = large_api_key(bound_bytes, length, custom ? 7 : 24);
+               splinterdb_iterator *it;
+               ASSERT_EQUAL(
+                  0,
+                  splinterdb_iterator_init(
+                     data->kvsb,
+                     &it,
+                     .lower_limit = splinterdb_greater_than_or_equal(lo),
+                     .upper_limit = splinterdb_less_than(hi)));
+               uint64 seen = 0;
+               while (splinterdb_iterator_valid(it)) {
+                  seen++;
+                  splinterdb_iterator_next(it);
+               }
+               ASSERT_EQUAL(16, seen);
+               ASSERT_EQUAL(0, splinterdb_iterator_status(it));
+               splinterdb_iterator_deinit(it);
+            }
+            for (uint64 i = 0; i < count; i++) {
+               slice  k           = large_api_key(bytes, length, i);
+               uint64 replacement = count + i;
+               ASSERT_EQUAL(
+                  0,
+                  splinterdb_update(
+                     data->kvsb,
+                     k,
+                     message_create(sizeof(replacement), &replacement),
+                     &result));
+               assert_lookup_result_matches_slice(&result,
+                                                  slice_create(sizeof(i), &i));
+               ASSERT_EQUAL(0, splinterdb_delete(data->kvsb, k, &result));
+               assert_lookup_result_matches_slice(
+                  &result, slice_create(sizeof(replacement), &replacement));
+               ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, k, &result));
+               ASSERT_FALSE(splinterdb_lookup_found(&result));
+            }
+            splinterdb_lookup_result_deinit(&result);
+            ASSERT_EQUAL(0, splinterdb_durable_barrier(data->kvsb, NULL));
+         }
+      }
+   }
+   free(bytes);
+   free(bound_bytes);
+}
+
+/* Acknowledged large keys survive an abrupt exit. A corrupt key tail discards
+ * its whole WAL group and every later group, including otherwise intact values.
+ */
+CTEST2(splinterdb_quick, test_large_key_crash_recovery)
+{
+   ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+   data->cfg.disk_size                 = 384 * Mega;
+   data->cfg.memtable_capacity         = 64 * Mega;
+   data->cfg.checkpoint_log_size_bytes = UINT64_MAX;
+   data->cfg.num_normal_bg_threads     = 0;
+   data->cfg.num_memtable_bg_threads   = 0;
+   const uint64 length                 = 2 * IO_DEFAULT_EXTENT_SIZE + 17;
+   char        *bytes                  = malloc(length);
+   ASSERT_TRUE(bytes != NULL);
+   slice       large      = large_api_key(bytes, length, 42);
+   slice       small      = slice_create(2, "ok");
+   slice       prefix     = slice_create(6, "prefix");
+   slice       suffix     = slice_create(6, "suffix");
+   const char *child_mode = getenv("SPLINTER_TEST_KEY_CRASH_CHILD");
+   if (child_mode != NULL) {
+      data->cfg.use_log   = child_mode[0] != '0';
+      bool32      corrupt = child_mode[0] == '2';
+      splinterdb *db;
+      if (splinterdb_create(&data->cfg, &db) != 0)
+         _exit(10);
+      if (splinterdb_insert(db, prefix, message_from_slice(small), NULL) != 0)
+         _exit(11);
+      if (splinterdb_durable_barrier(db, NULL) != 0)
+         _exit(12);
+      if (splinterdb_insert(db, large, message_from_slice(large), NULL) != 0)
+         _exit(13);
+      if (splinterdb_durable_barrier(db, NULL) != 0)
+         _exit(14);
+      if (splinterdb_insert(db, suffix, message_from_slice(small), NULL) != 0)
+         _exit(15);
+      if (splinterdb_durable_barrier(db, NULL) != 0)
+         _exit(16);
+      if (corrupt) {
+         const core_handle *core = splinterdb_get_trunk_handle(db);
+         cache             *cc   = (cache *)splinterdb_get_cache_handle(db);
+         log_iterator      *it;
+         if (!SUCCESS(
+                shard_log_iterator_create(cc,
+                                          (shard_log_config *)core->cfg.log_cfg,
+                                          data->cfg.heap_id,
+                                          log_get_head(core->log),
+                                          0,
+                                          &it)))
+            _exit(17);
+         uint64 addr = 0, offset = 0;
+         while (log_iterator_can_next(it)) {
+            shard_log_iterator *concrete = (shard_log_iterator *)it;
+            ondisk_tuple       *tuple =
+               (ondisk_tuple *)((char *)concrete->entries[concrete->pos]
+                                + 2 * sizeof(uint64));
+            key stored = ondisk_tuple_key(tuple);
+            if (stored.is_blob) {
+               blob_page_iterator blob_it;
+               if (!SUCCESS(blob_page_iterator_init(
+                      cc,
+                      &blob_it,
+                      key_slice(stored),
+                      length - 1,
+                      BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH)))
+                  _exit(18);
+               slice  fragment;
+               uint64 ignored;
+               if (!SUCCESS(blob_page_iterator_get_curr(
+                      &blob_it, &ignored, &fragment)))
+                  _exit(19);
+               addr   = blob_it.fragment.addr;
+               offset = blob_it.fragment.offset;
+               blob_page_iterator_deinit(&blob_it);
+               break;
+            }
+            if (!SUCCESS(log_iterator_next(it)))
+               _exit(20);
+         }
+         log_iterator_deinit(it);
+         if (!addr)
+            _exit(21);
+         page_handle page;
+         if (!SUCCESS(cache_get(cc, addr, TRUE, PAGE_TYPE_BLOB, &page)))
+            _exit(22);
+         if (!cache_try_claim(cc, &page))
+            _exit(23);
+         cache_lock(cc, &page);
+         page_handle_data(&page)[offset] ^= 1;
+         cache_unlock(cc, &page);
+         cache_unclaim(cc, &page);
+         writeback_set set;
+         writeback_set_init(&set, cc, data->cfg.heap_id);
+         if (!SUCCESS(writeback_set_add_page(&set, &page, PAGE_TYPE_BLOB)))
+            _exit(24);
+         cache_unget(cc, &page);
+         if (!SUCCESS(writeback_set_wait(&set)))
+            _exit(25);
+         if (!SUCCESS(writeback_set_make_durable(&set)))
+            _exit(26);
+         writeback_set_deinit(&set);
+      }
+      _exit(0);
+   }
+   for (uint64 mode = 0; mode < 3; mode++) {
+      data->cfg.use_log = mode != 0;
+      pid_t pid         = fork();
+      ASSERT_TRUE(pid >= 0);
+      if (pid == 0) {
+         setenv("SPLINTER_TEST_KEY_CRASH_CHILD",
+                mode == 0   ? "0"
+                : mode == 1 ? "1"
+                            : "2",
+                1);
+         execl("/proc/self/exe",
+               "splinterdb_quick_test",
+               "test_large_key_crash_recovery",
+               (char *)NULL);
+         _exit(27);
+      }
+      int status;
+      ASSERT_EQUAL(pid, waitpid(pid, &status, 0));
+      ASSERT_TRUE(WIFEXITED(status));
+      ASSERT_EQUAL(0, WEXITSTATUS(status));
+      for (uint64 reopen = 0; reopen < 2; reopen++) {
+         ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
+         splinterdb_lookup_result result;
+         splinterdb_lookup_result_init(data->kvsb, &result);
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, prefix, &result));
+         assert_lookup_result_matches_slice(&result, small);
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, large, &result));
+         ASSERT_EQUAL(mode != 2, splinterdb_lookup_found(&result));
+         if (mode != 2)
+            assert_lookup_result_matches_slice(&result, large);
+         ASSERT_EQUAL(0, splinterdb_lookup(data->kvsb, suffix, &result));
+         ASSERT_EQUAL(mode != 2, splinterdb_lookup_found(&result));
+         splinterdb_lookup_result_deinit(&result);
+         ASSERT_EQUAL(0, splinterdb_close(&data->kvsb, FALSE));
+      }
+   }
+   free(bytes);
    ASSERT_EQUAL(0, splinterdb_open(&data->cfg, &data->kvsb));
 }

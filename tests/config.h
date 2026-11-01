@@ -67,6 +67,7 @@ typedef struct master_config {
    char   cache_logfile[MAX_STRING_LENGTH];
 
    uint64 blob_max_descriptor_size;
+   uint64 blob_key_prefix_size;
 
    // btree
    uint64 btree_rough_count_height;

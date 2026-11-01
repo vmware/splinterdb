@@ -1374,6 +1374,19 @@ test_log_prepare_failure_does_not_poison(clockcache             *cc,
    int append_rc   = log_write(log, invalid_key, invalid_msg, 257, 0);
    platform_assert(append_rc == STATUS_INVALID_STATE.r);
 
+   /* Fail after a key blob has been adopted by the mini allocator, then abort
+    * a successful preparation. Neither operation may publish a record or
+    * strand a reservation. Bulk log reclamation owns both unused key blobs. */
+   invalid_key = test_key(&keybuffer, TEST_RANDOM, 257, 0, 0, 65553, 0);
+   append_rc   = log_write(log, invalid_key, invalid_msg, 257, 0);
+   platform_assert(append_rc == STATUS_INVALID_STATE.r);
+   log_write_prepared prepared = {0};
+   message            small =
+      message_create_internal(MESSAGE_TYPE_INSERT, NULL, slice_create(2, "ok"));
+   platform_assert_status_ok(
+      log_write_prepare(log, invalid_key, small, FALSE, &prepared));
+   log_write_abort(&prepared);
+
    /* Reuse the failed record's sequence number so verification stays dense. */
    test_log_write_range(log, gen, hid, key_size, 257, 1);
 
@@ -2355,7 +2368,8 @@ test_log_indirect_blob_recovery(clockcache        *cc,
                                 io_handle         *io,
                                 rc_allocator      *al,
                                 shard_log_config  *cfg,
-                                platform_heap_id   hid)
+                                platform_heap_id   hid,
+                                bool32             as_key)
 {
    cache      *cacheh = (cache *)cc;
    log_handle *log;
@@ -2375,8 +2389,15 @@ test_log_indirect_blob_recovery(clockcache        *cc,
    platform_assert(merge_accumulator_resize(&value, length));
    merge_accumulator_set_class(&value, MESSAGE_TYPE_INSERT);
    memset(merge_accumulator_data(&value), 'B', length);
+   key large_key = key_create_from_slice(
+      FALSE, message_slice(merge_accumulator_to_message(&value)));
    platform_assert(
-      log_write(log, skey, merge_accumulator_to_message(&value), 1, 0) == 0);
+      log_write(log,
+                as_key ? large_key : skey,
+                as_key ? small : merge_accumulator_to_message(&value),
+                1,
+                0)
+      == 0);
    platform_assert_status_ok(log_make_durable(log));
    platform_assert(log_write(log, skey, small, 2, 0) == 0);
    platform_assert_status_ok(log_seal(log));
@@ -2391,8 +2412,23 @@ test_log_indirect_blob_recovery(clockcache        *cc,
    message msg;
    log_iterator_curr(iter, &returned_key, &msg);
    parsed_blob parsed;
+   slice       descriptor = message_slice(msg);
+   if (as_key) {
+      platform_assert(!returned_key.is_blob);
+      platform_assert(key_length(returned_key) == length);
+      platform_assert(memcmp(slice_data(key_slice(returned_key)),
+                             merge_accumulator_data(&value),
+                             length)
+                      == 0);
+      shard_log_iterator *concrete = (shard_log_iterator *)iter;
+      ondisk_tuple       *tuple =
+         (ondisk_tuple *)((char *)concrete->entries[concrete->pos]
+                          + 2 * sizeof(uint64));
+      platform_assert(ondisk_tuple_key(tuple).is_blob);
+      descriptor = key_slice(ondisk_tuple_key(tuple));
+   }
    platform_assert_status_ok(
-      blob_parse_descriptor(cacheh, message_slice(msg), &parsed));
+      blob_parse_descriptor(cacheh, descriptor, &parsed));
    platform_assert(parsed.height == 2);
    uint64 root = parsed.base->addrs[0];
    log_iterator_deinit(iter);
@@ -2942,7 +2978,9 @@ log_test(int argc, char *argv[])
       cc, &system_cfg.cache_cfg, io, &al, &system_cfg.log_cfg, hid);
 
    test_log_indirect_blob_recovery(
-      cc, &system_cfg.cache_cfg, io, &al, &system_cfg.log_cfg, hid);
+      cc, &system_cfg.cache_cfg, io, &al, &system_cfg.log_cfg, hid, FALSE);
+   test_log_indirect_blob_recovery(
+      cc, &system_cfg.cache_cfg, io, &al, &system_cfg.log_cfg, hid, TRUE);
 
    rc = test_log_large_message((cache *)cc, &system_cfg.log_cfg, hid);
    platform_assert(rc == 0);

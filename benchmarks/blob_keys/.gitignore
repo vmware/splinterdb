@@ -1,0 +1,12 @@
+__pycache__/
+
+# Generated benchmark results and profiling artifacts stay local.
+/*results*/
+*.csv
+*.tsv
+*.json
+*.jsonl
+*.log
+*.out
+*.err
+perf.data*

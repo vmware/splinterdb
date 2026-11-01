@@ -1,6 +1,6 @@
 # Branch leaf prefix experiment
 
-Persisted branch version 1 is rejected before branch-page interpretation.
+Persisted branch versions 1 and 2 are rejected before branch-page interpretation.
 A clean mount remains lazy and rejects when an affected branch is accessed;
 recovery rejects during mount when rebuilding allocation state. No format
 migration or eager tree walk is added.
@@ -42,9 +42,9 @@ can use direct lexical comparison during checked binary search when the lexical
 contract permits it. Nonlexical comparisons, infinity targets on uncompressed
 leaves, boundary comparisons and index pivots use the configured comparator.
 
-This prototype now uses branch format version `2` within main's superblock
-format `8`. Branch readers reject format `1` before interpreting its different
-page header. Earlier standalone prefix images used superblock `0x8007` and are
+The prefix experiment originally used branch format version 2 within
+superblock format 8. [Native blob keys](blob-keys.md) now use B-tree version
+3 and trunk version 2, rejecting both earlier B-tree layouts. Earlier standalone prefix images used superblock `0x8007` and are
 rejected. Page encoding is determined from the page itself; existing compressed
 leaves remain readable after changing the construction opt-in on reopen.
 
@@ -78,3 +78,9 @@ buffer. Entry validation and comparison directions are preserved. Regression
 coverage includes nearby and cross-leaf seeks, an aliased current-key seek
 target, prefix mismatches, and finite inclusive/exclusive bounds with present
 and absent endpoints in both directions.
+
+For blob keys, common-prefix compression is limited to the logical inline
+prefix and excludes descriptors. Iterator positioning materializes blob keys
+even on an uncompressed leaf; the direct-page and no-scratch observations above
+apply to inline keys. The historical measurements in this document predate the
+native blob-key and uint64-statistics format.

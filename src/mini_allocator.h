@@ -12,12 +12,15 @@
  *     such as reference counting and deallocation. A single mini allocator can
  *     manage batches with different page types; the metadata records each
  *     extent's page type so bulk operations can deallocate mixed trees/blobs.
+ *     Blob roots use the same entry stream, with their pointer depth encoded
+ *     alongside the page type. The blob module reclaims their descendants.
  */
 
 #pragma once
 
 #include "allocator.h"
 #include "cache.h"
+#include "blob.h"
 
 /*
  * Mini-allocator breaks extents into pages. The pages are fed out of separate
@@ -27,7 +30,7 @@
  * contiguity.
  */
 #define MINI_MAX_BATCHES              16
-#define MINI_ALLOCATOR_FORMAT_VERSION (1)
+#define MINI_ALLOCATOR_FORMAT_VERSION (3)
 
 /*
  * mini_allocator: Mini-allocator context.
@@ -41,6 +44,8 @@ typedef struct mini_allocator {
    page_type       meta_type;
    page_type       types[MINI_MAX_BATCHES];
 
+   // Allocation/attachment charges since initialization, including reserves.
+   // Repeated attachments count separately for memtable admission accounting.
    uint64          num_extents;
    uint64          num_batches;
    volatile uint64 next_addr[MINI_MAX_BATCHES];
@@ -107,6 +112,16 @@ mini_alloc_extent(mini_allocator *mini,
 platform_status
 mini_attach_extent(mini_allocator *mini, uint64 batch, uint64 addr);
 
+/* Transfer one already-owned blob subtree reference to this container.
+ * Failure leaves ownership with the caller. Charges all referenced extents,
+ * including shared descendants, without walking the subtree. The caller
+ * supplies the charge from the descriptor via blob_root_num_extents(). */
+platform_status
+mini_adopt_blob_ref(mini_allocator *mini,
+                    uint64          batch,
+                    blob_ref        ref,
+                    uint64          num_extents);
+
 uint64
 mini_next_addr(mini_allocator *mini, uint64 batch);
 
@@ -151,10 +166,10 @@ mini_recover_references(cache *cc, uint64 meta_head, page_type type);
 
 /*
  * mini_meta_cursor: a non-blocking cursor over the extent entries of a
- * finalized mini_allocator. Entries from all batches are interleaved in
- * allocation order; the caller filters by batch as needed (each entry reports
- * its batch). The btree iterator uses this to read extent addresses ahead of or
- * behind itself for prefetching.
+ * finalized mini_allocator. Entries from all batches, including blob roots,
+ * are interleaved in recording order; the caller can filter by batch/type.
+ * Blob descendants are not separate entries. The btree iterator uses this to
+ * read extent addresses ahead of or behind itself for prefetching.
  *
  * The cursor holds a read reference on the meta page it is currently reading;
  * call mini_meta_cursor_deinit() to release it. The cursor is non-blocking: it
@@ -195,11 +210,15 @@ mini_meta_cursor_init(mini_meta_cursor *cursor,
 void
 mini_meta_cursor_deinit(mini_meta_cursor *cursor);
 
-// Get the current extent entry. Requires a successful init, next, or prev.
+// Get the current extent entry, including blob roots in recording order.
+// type and height are optional. Height is zero for non-blob and data extents.
+// Requires a successful init, next, or prev.
 void
 mini_meta_cursor_curr(mini_meta_cursor *cursor,
                       uint64           *extent_addr,
-                      uint64           *batch);
+                      uint64           *batch,
+                      page_type        *type,
+                      uint64           *height);
 
 // Move to the next extent entry in allocation order. Non-blocking: returns
 // MINI_META_CURSOR_WOULD_BLOCK (and issues a prefetch for it) if the next meta

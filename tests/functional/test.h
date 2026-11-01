@@ -326,6 +326,12 @@ test_config_init(system_config *system_cfg, // OUT
                      &system_cfg->cache_cfg.super,
                      system_cfg->data_cfg);
    system_cfg->btree_cfg.blob_cfg.blob_max_descriptor_size = blob_limit;
+   system_cfg->btree_cfg.blob_key_prefix_size =
+      master_cfg->blob_key_prefix_size;
+   rc = btree_config_validate(&system_cfg->btree_cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    trunk_config_init(&system_cfg->trunk_node_cfg,
                      system_cfg->data_cfg,
